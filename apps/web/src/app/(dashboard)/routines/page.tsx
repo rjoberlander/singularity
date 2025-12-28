@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRoutines, getCurrentDayAbbrev, filterRoutineItemsByDay } from "@/hooks/useRoutines";
 import { RoutineCard } from "@/components/routines/RoutineCard";
+import { RoutineDialog } from "@/components/routines/RoutineDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Routine } from "@/types";
@@ -22,6 +23,8 @@ const TIME_OF_DAY_ORDER = ["morning", "afternoon", "evening", "night"];
 
 export default function RoutinesPage() {
   const [selectedDay, setSelectedDay] = useState(getCurrentDayAbbrev());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const { data: routines, isLoading, error } = useRoutines();
 
   // Sort routines by time of day
@@ -40,9 +43,21 @@ export default function RoutinesPage() {
     items: filterRoutineItemsByDay(routine.items || [], selectedDay),
   }));
 
+  const handleAddRoutine = () => {
+    setEditingRoutine(null);
+    setDialogOpen(true);
+  };
+
   const handleEditRoutine = (routine: Routine) => {
-    // TODO: Open routine edit modal
-    console.log("Edit routine:", routine);
+    setEditingRoutine(routine);
+    setDialogOpen(true);
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open) {
+      setEditingRoutine(null);
+    }
   };
 
   return (
@@ -53,11 +68,18 @@ export default function RoutinesPage() {
           <h1 className="text-2xl font-bold">Routines</h1>
           <p className="text-muted-foreground">Your daily health protocols</p>
         </div>
-        <Button>
+        <Button onClick={handleAddRoutine}>
           <Plus className="w-4 h-4 mr-2" />
           Add Routine
         </Button>
       </div>
+
+      {/* Routine Dialog */}
+      <RoutineDialog
+        open={dialogOpen}
+        onOpenChange={handleDialogClose}
+        routine={editingRoutine}
+      />
 
       {/* Day Selector */}
       <div className="flex items-center gap-2">
@@ -108,7 +130,7 @@ export default function RoutinesPage() {
           <p className="text-muted-foreground mb-4">
             Create your first routine to start building healthy habits
           </p>
-          <Button>
+          <Button onClick={handleAddRoutine}>
             <Plus className="w-4 h-4 mr-2" />
             Add Routine
           </Button>

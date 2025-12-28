@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { AccountSwitcher } from "./AccountSwitcher";
 import {
   LayoutDashboard,
   Activity,
@@ -39,6 +40,11 @@ export function Sidebar() {
           </div>
           <span className="text-xl font-bold">Singularity</span>
         </Link>
+      </div>
+
+      {/* Account Switcher */}
+      <div className="p-2 border-b border-border">
+        <AccountSwitcher />
       </div>
 
       {/* Navigation */}

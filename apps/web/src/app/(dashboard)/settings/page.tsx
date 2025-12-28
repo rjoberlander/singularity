@@ -14,17 +14,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FamilySharing } from "@/components/settings/FamilySharing";
 import {
   User,
   Bell,
-  Shield,
   Download,
   Users,
   Palette,
   Settings,
   Mail,
   Smartphone,
-  Globe,
   Moon,
   Sun,
   Loader2,
@@ -329,27 +328,7 @@ export default function SettingsPage() {
 
         {/* Sharing Tab */}
         <TabsContent value="sharing">
-          <Card>
-            <CardHeader>
-              <CardTitle>Family Sharing</CardTitle>
-              <CardDescription>
-                Share your health data with family members or healthcare providers
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="text-center py-8">
-                <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No shared accounts</h3>
-                <p className="text-muted-foreground mb-4">
-                  Invite family members to view or manage your health data
-                </p>
-                <Button>
-                  <Users className="w-4 h-4 mr-2" />
-                  Invite Family Member
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <FamilySharing />
         </TabsContent>
 
         {/* Data Tab */}
