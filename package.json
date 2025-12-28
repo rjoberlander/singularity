@@ -19,5 +19,17 @@
     "url": "git+https://github.com/rjoberlander/singularity.git"
   },
   "author": "",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/rjoberlander/singularity/issues"
+  },
+  "homepage": "https://github.com/rjoberlander/singularity#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0"
+  }
 }
