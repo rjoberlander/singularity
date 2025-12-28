@@ -10,9 +10,12 @@
   "scripts": {
     "dev:api": "cd apps/api && npm run dev",
     "dev:mobile": "cd apps/mobile && npm start",
+    "dev:web": "cd apps/web && npm run dev",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "build:api": "cd apps/api && npm run build",
     "build:mobile": "cd apps/mobile && npm run build:web",
-    "install:all": "npm install && cd apps/api && npm install && cd ../mobile && npm install"
+    "build:web": "cd apps/web && npm run build",
+    "install:all": "npm install && cd apps/api && npm install && cd ../mobile && npm install && cd ../web && npm install"
   },
   "repository": {
     "type": "git",
