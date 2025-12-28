@@ -18,6 +18,7 @@ import goalRoutes from './routes/goals';
 import aiRoutes from './routes/ai';
 import userRoutes from './routes/users';
 import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
+import healthChatRoutes from './modules/kb-agent/routes';
 
 // Import middleware
 import { authenticateUser } from './middleware/auth';
@@ -85,7 +86,8 @@ app.get('/api/v1', (req: Request, res: Response) => {
       goals: '/api/v1/goals',
       ai: '/api/v1/ai',
       users: '/api/v1/users',
-      aiApiKeys: '/api/v1/ai-api-keys'
+      aiApiKeys: '/api/v1/ai-api-keys',
+      chat: '/api/v1/chat'
     }
   });
 });
@@ -101,6 +103,7 @@ app.use('/api/v1/goals', authenticateUser, goalRoutes);
 app.use('/api/v1/ai', authenticateUser, aiRoutes);
 app.use('/api/v1/users', authenticateUser, userRoutes);
 app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
+app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
 
 // ==============================================
 // Error Handling
