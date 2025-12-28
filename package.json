@@ -1,0 +1,23 @@
+{
+  "name": "singularity",
+  "version": "1.0.0",
+  "description": "Singularity - AI-Powered Health Protocol Tracking",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "cd apps/api && npm run dev",
+    "dev:mobile": "cd apps/mobile && npm start",
+    "build:api": "cd apps/api && npm run build",
+    "build:mobile": "cd apps/mobile && npm run build:web",
+    "install:all": "npm install && cd apps/api && npm install && cd ../mobile && npm install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rjoberlander/singularity.git"
+  },
+  "author": "",
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,423 @@
+/**
+ * AI API Key Service
+ *
+ * Core business logic for managing AI provider API keys:
+ * - Retrieve active keys with primary/backup fallback
+ * - Test API connections with provider-specific logic
+ * - Health check individual keys and all keys across workspaces
+ * - Update health status and consecutive failures
+ *
+ * @module aiAPIKeyService
+ * @version 1.0.0
+ */
+
+import { supabase } from '../../../config/supabase';
+import { encryptAIAPIKey, decryptAIAPIKey, maskAPIKey } from '../utils/aiApiKeyEncryption';
+
+/**
+ * AI API Key database record structure
+ */
+export interface AIAPIKey {
+  id: string;
+  workspace_id: string;
+  provider: 'anthropic' | 'openai' | 'perplexity';
+  key_name: string;
+  api_key_encrypted: string;
+  is_primary: boolean;
+  is_active: boolean;
+  health_status: 'healthy' | 'unhealthy' | 'warning' | 'critical' | 'unknown';
+  consecutive_failures: number;
+  last_health_check: string | null;
+  last_error_message: string | null;
+  metadata: Record<string, any> | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Connection test result structure
+ */
+export interface ConnectionTestResult {
+  success: boolean;
+  provider: string;
+  test_timestamp: string;
+  response_time_ms?: number;
+  error?: string;
+}
+
+/**
+ * Health check summary structure
+ */
+export interface HealthCheckSummary {
+  total_keys: number;
+  healthy: number;
+  unhealthy: number;
+  tested_at: string;
+  failures: Array<{
+    workspace_id: string;
+    provider: string;
+    key_name: string;
+    error: string;
+  }>;
+}
+
+export class AIAPIKeyService {
+  /**
+   * Get active API key for provider (primary with backup fallback)
+   *
+   * Selection logic:
+   * 1. Try to find primary key that is active and healthy
+   * 2. If primary fails, fallback to backup key (is_primary=false)
+   * 3. Return null if no healthy key found
+   *
+   * @param workspaceId - Workspace ID
+   * @param provider - AI provider name
+   * @returns Decrypted API key or null if none available
+   */
+  static async getActiveKeyForProvider(
+    workspaceId: string,
+    provider: 'anthropic' | 'openai' | 'perplexity'
+  ): Promise<{ key_id: string; api_key: string; key_name: string } | null> {
+    // Step 1: Try primary key
+    const { data: primaryKey, error: primaryError } = await supabase
+      .from('ai_api_keys')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('provider', provider)
+      .eq('is_primary', true)
+      .eq('is_active', true)
+      .single();
+
+    if (!primaryError && primaryKey) {
+      // Check if primary is healthy (not critical)
+      if (primaryKey.health_status !== 'critical') {
+        try {
+          const decrypted = decryptAIAPIKey({ api_key_encrypted: primaryKey.api_key_encrypted });
+          console.log(`Using primary ${provider} key for workspace ${workspaceId}`);
+          return {
+            key_id: primaryKey.id,
+            api_key: decrypted.api_key,
+            key_name: primaryKey.key_name
+          };
+        } catch (error) {
+          console.error(`Failed to decrypt primary ${provider} key:`, error);
+        }
+      } else {
+        console.warn(`Primary ${provider} key is in critical state, falling back to backup`);
+      }
+    }
+
+    // Step 2: Fallback to backup key (any non-primary active key)
+    const { data: backupKey, error: backupError } = await supabase
+      .from('ai_api_keys')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('provider', provider)
+      .eq('is_primary', false)
+      .eq('is_active', true)
+      .order('consecutive_failures', { ascending: true }) // Prefer healthier backup
+      .limit(1)
+      .single();
+
+    if (!backupError && backupKey) {
+      try {
+        const decrypted = decryptAIAPIKey({ api_key_encrypted: backupKey.api_key_encrypted });
+        console.log(`Using backup ${provider} key for workspace ${workspaceId}`);
+        return {
+          key_id: backupKey.id,
+          api_key: decrypted.api_key,
+          key_name: backupKey.key_name
+        };
+      } catch (error) {
+        console.error(`Failed to decrypt backup ${provider} key:`, error);
+      }
+    }
+
+    // Step 3: No healthy key found
+    console.error(`No healthy ${provider} key found for workspace ${workspaceId}`);
+    return null;
+  }
+
+  /**
+   * Test API connection for a specific key
+   *
+   * @param keyId - AI API key ID
+   * @returns Connection test result with success status and error details
+   */
+  static async testConnection(keyId: string): Promise<ConnectionTestResult> {
+    const startTime = Date.now();
+
+    // Retrieve key from database
+    const { data: keyRecord, error } = await supabase
+      .from('ai_api_keys')
+      .select('*')
+      .eq('id', keyId)
+      .single();
+
+    if (error || !keyRecord) {
+      return {
+        success: false,
+        provider: 'unknown',
+        test_timestamp: new Date().toISOString(),
+        error: `Key not found: ${keyId}`
+      };
+    }
+
+    // Decrypt API key
+    let apiKey: string;
+    try {
+      const decrypted = decryptAIAPIKey({ api_key_encrypted: keyRecord.api_key_encrypted });
+      apiKey = decrypted.api_key;
+    } catch (decryptError) {
+      return {
+        success: false,
+        provider: keyRecord.provider,
+        test_timestamp: new Date().toISOString(),
+        error: `Decryption failed: ${decryptError instanceof Error ? decryptError.message : String(decryptError)}`
+      };
+    }
+
+    // Test connection with provider-specific logic
+    let testResult: ConnectionTestResult;
+
+    switch (keyRecord.provider) {
+      case 'anthropic':
+        testResult = await this.testAnthropicKey(apiKey);
+        break;
+      case 'openai':
+        testResult = await this.testOpenAIKey(apiKey);
+        break;
+      case 'perplexity':
+        testResult = await this.testPerplexityKey(apiKey);
+        break;
+      default:
+        testResult = {
+          success: false,
+          provider: keyRecord.provider,
+          test_timestamp: new Date().toISOString(),
+          error: `Unsupported provider: ${keyRecord.provider}`
+        };
+    }
+
+    const responseTime = Date.now() - startTime;
+    testResult.response_time_ms = responseTime;
+
+    return testResult;
+  }
+
+  /**
+   * Test Anthropic API key with minimal message request
+   */
+  private static async testAnthropicKey(apiKey: string): Promise<ConnectionTestResult> {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'test' }]
+        })
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          provider: 'anthropic',
+          test_timestamp: new Date().toISOString()
+        };
+      } else {
+        const errorBody = await response.text();
+        return {
+          success: false,
+          provider: 'anthropic',
+          test_timestamp: new Date().toISOString(),
+          error: `HTTP ${response.status}: ${errorBody}`
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'anthropic',
+        test_timestamp: new Date().toISOString(),
+        error: `Network error: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Test OpenAI API key with models endpoint (free, no tokens used)
+   */
+  private static async testOpenAIKey(apiKey: string): Promise<ConnectionTestResult> {
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          provider: 'openai',
+          test_timestamp: new Date().toISOString()
+        };
+      } else {
+        const errorBody = await response.text();
+        return {
+          success: false,
+          provider: 'openai',
+          test_timestamp: new Date().toISOString(),
+          error: `HTTP ${response.status}: ${errorBody}`
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'openai',
+        test_timestamp: new Date().toISOString(),
+        error: `Network error: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Test Perplexity API key with minimal completion request
+   */
+  private static async testPerplexityKey(apiKey: string): Promise<ConnectionTestResult> {
+    try {
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: 'test' }],
+          max_tokens: 1
+        })
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          provider: 'perplexity',
+          test_timestamp: new Date().toISOString()
+        };
+      } else {
+        const errorBody = await response.text();
+        return {
+          success: false,
+          provider: 'perplexity',
+          test_timestamp: new Date().toISOString(),
+          error: `HTTP ${response.status}: ${errorBody}`
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'perplexity',
+        test_timestamp: new Date().toISOString(),
+        error: `Network error: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Health check individual key and update database
+   */
+  static async healthCheck(keyId: string): Promise<ConnectionTestResult> {
+    const testResult = await this.testConnection(keyId);
+
+    // Update key health status in database
+    const updates: Partial<AIAPIKey> = {
+      last_health_check: testResult.test_timestamp
+    };
+
+    if (testResult.success) {
+      updates.health_status = 'healthy';
+      updates.consecutive_failures = 0;
+      updates.last_error_message = null;
+    } else {
+      // Increment consecutive failures
+      const { data: currentKey } = await supabase
+        .from('ai_api_keys')
+        .select('consecutive_failures')
+        .eq('id', keyId)
+        .single();
+
+      const failures = (currentKey?.consecutive_failures || 0) + 1;
+      updates.consecutive_failures = failures;
+      updates.last_error_message = testResult.error || 'Unknown error';
+
+      // Set health status based on consecutive failures
+      if (failures === 1) {
+        updates.health_status = 'warning';
+      } else if (failures === 2) {
+        updates.health_status = 'unhealthy';
+      } else {
+        updates.health_status = 'critical';
+      }
+    }
+
+    await supabase
+      .from('ai_api_keys')
+      .update(updates)
+      .eq('id', keyId);
+
+    return testResult;
+  }
+
+  /**
+   * Health check all active keys across all workspaces
+   * Used by daily cron job at 6 AM
+   */
+  static async healthCheckAll(): Promise<HealthCheckSummary> {
+    // Get all active keys
+    const { data: allKeys, error } = await supabase
+      .from('ai_api_keys')
+      .select('*')
+      .eq('is_active', true);
+
+    if (error || !allKeys) {
+      throw new Error(`Failed to retrieve keys for health check: ${error?.message}`);
+    }
+
+    const summary: HealthCheckSummary = {
+      total_keys: allKeys.length,
+      healthy: 0,
+      unhealthy: 0,
+      tested_at: new Date().toISOString(),
+      failures: []
+    };
+
+    // Test each key
+    for (const key of allKeys) {
+      const result = await this.healthCheck(key.id);
+
+      if (result.success) {
+        summary.healthy++;
+      } else {
+        summary.unhealthy++;
+        summary.failures.push({
+          workspace_id: key.workspace_id,
+          provider: key.provider,
+          key_name: key.key_name,
+          error: result.error || 'Unknown error'
+        });
+      }
+    }
+
+    console.log(`Health check completed: ${summary.healthy}/${summary.total_keys} healthy`);
+
+    return summary;
+  }
+}
+
+export default AIAPIKeyService;

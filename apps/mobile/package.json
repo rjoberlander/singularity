@@ -1,0 +1,40 @@
+{
+  "name": "singularity-mobile",
+  "version": "1.0.0",
+  "description": "Singularity Health Tracking Mobile App",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build:web": "expo export:web",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.0",
+    "@react-native-async-storage/async-storage": "^2.0.0",
+    "@supabase/supabase-js": "^2.47.10",
+    "expo": "~52.0.0",
+    "expo-constants": "~17.0.0",
+    "expo-linking": "~7.0.0",
+    "expo-router": "~4.0.0",
+    "expo-status-bar": "~2.0.0",
+    "nativewind": "^4.0.1",
+    "react": "18.3.1",
+    "react-native": "0.76.2",
+    "react-native-safe-area-context": "^4.12.0",
+    "react-native-screens": "~4.1.0",
+    "tailwindcss": "^3.4.0",
+    "date-fns": "^3.6.0",
+    "lucide-react-native": "^0.462.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@types/react": "~18.3.12",
+    "typescript": "^5.6.3",
+    "eslint": "^9.15.0"
+  },
+  "private": true
+}
