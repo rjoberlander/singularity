@@ -17,7 +17,7 @@ import routineRoutes from './routes/routines';
 import goalRoutes from './routes/goals';
 import aiRoutes from './routes/ai';
 import userRoutes from './routes/users';
-import protocolDocsRoutes from './routes/protocolDocs';
+import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 
 // Import middleware
 import { authenticateUser } from './middleware/auth';
@@ -85,7 +85,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
       goals: '/api/v1/goals',
       ai: '/api/v1/ai',
       users: '/api/v1/users',
-      docs: '/api/v1/protocol-docs'
+      aiApiKeys: '/api/v1/ai-api-keys'
     }
   });
 });
@@ -100,7 +100,7 @@ app.use('/api/v1/routines', authenticateUser, routineRoutes);
 app.use('/api/v1/goals', authenticateUser, goalRoutes);
 app.use('/api/v1/ai', authenticateUser, aiRoutes);
 app.use('/api/v1/users', authenticateUser, userRoutes);
-app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes);
+app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 
 // ==============================================
 // Error Handling

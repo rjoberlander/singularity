@@ -4,11 +4,7 @@
  * Core business logic for managing AI provider API keys:
  * - Retrieve active keys with primary/backup fallback
  * - Test API connections with provider-specific logic
- * - Health check individual keys and all keys across workspaces
- * - Update health status and consecutive failures
- *
- * @module aiAPIKeyService
- * @version 1.0.0
+ * - Health check individual keys and all keys
  */
 
 import { supabase } from '../../../config/supabase';
@@ -19,7 +15,7 @@ import { encryptAIAPIKey, decryptAIAPIKey, maskAPIKey } from '../utils/aiApiKeyE
  */
 export interface AIAPIKey {
   id: string;
-  workspace_id: string;
+  user_id: string;
   provider: 'anthropic' | 'openai' | 'perplexity';
   key_name: string;
   api_key_encrypted: string;
@@ -30,7 +26,6 @@ export interface AIAPIKey {
   last_health_check: string | null;
   last_error_message: string | null;
   metadata: Record<string, any> | null;
-  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -55,7 +50,7 @@ export interface HealthCheckSummary {
   unhealthy: number;
   tested_at: string;
   failures: Array<{
-    workspace_id: string;
+    user_id: string;
     provider: string;
     key_name: string;
     error: string;
@@ -65,36 +60,26 @@ export interface HealthCheckSummary {
 export class AIAPIKeyService {
   /**
    * Get active API key for provider (primary with backup fallback)
-   *
-   * Selection logic:
-   * 1. Try to find primary key that is active and healthy
-   * 2. If primary fails, fallback to backup key (is_primary=false)
-   * 3. Return null if no healthy key found
-   *
-   * @param workspaceId - Workspace ID
-   * @param provider - AI provider name
-   * @returns Decrypted API key or null if none available
    */
   static async getActiveKeyForProvider(
-    workspaceId: string,
+    userId: string,
     provider: 'anthropic' | 'openai' | 'perplexity'
   ): Promise<{ key_id: string; api_key: string; key_name: string } | null> {
     // Step 1: Try primary key
     const { data: primaryKey, error: primaryError } = await supabase
       .from('ai_api_keys')
       .select('*')
-      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
       .eq('provider', provider)
       .eq('is_primary', true)
       .eq('is_active', true)
       .single();
 
     if (!primaryError && primaryKey) {
-      // Check if primary is healthy (not critical)
       if (primaryKey.health_status !== 'critical') {
         try {
           const decrypted = decryptAIAPIKey({ api_key_encrypted: primaryKey.api_key_encrypted });
-          console.log(`Using primary ${provider} key for workspace ${workspaceId}`);
+          console.log(`Using primary ${provider} key for user ${userId}`);
           return {
             key_id: primaryKey.id,
             api_key: decrypted.api_key,
@@ -108,22 +93,22 @@ export class AIAPIKeyService {
       }
     }
 
-    // Step 2: Fallback to backup key (any non-primary active key)
+    // Step 2: Fallback to backup key
     const { data: backupKey, error: backupError } = await supabase
       .from('ai_api_keys')
       .select('*')
-      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
       .eq('provider', provider)
       .eq('is_primary', false)
       .eq('is_active', true)
-      .order('consecutive_failures', { ascending: true }) // Prefer healthier backup
+      .order('consecutive_failures', { ascending: true })
       .limit(1)
       .single();
 
     if (!backupError && backupKey) {
       try {
         const decrypted = decryptAIAPIKey({ api_key_encrypted: backupKey.api_key_encrypted });
-        console.log(`Using backup ${provider} key for workspace ${workspaceId}`);
+        console.log(`Using backup ${provider} key for user ${userId}`);
         return {
           key_id: backupKey.id,
           api_key: decrypted.api_key,
@@ -134,21 +119,16 @@ export class AIAPIKeyService {
       }
     }
 
-    // Step 3: No healthy key found
-    console.error(`No healthy ${provider} key found for workspace ${workspaceId}`);
+    console.error(`No healthy ${provider} key found for user ${userId}`);
     return null;
   }
 
   /**
    * Test API connection for a specific key
-   *
-   * @param keyId - AI API key ID
-   * @returns Connection test result with success status and error details
    */
   static async testConnection(keyId: string): Promise<ConnectionTestResult> {
     const startTime = Date.now();
 
-    // Retrieve key from database
     const { data: keyRecord, error } = await supabase
       .from('ai_api_keys')
       .select('*')
@@ -164,7 +144,6 @@ export class AIAPIKeyService {
       };
     }
 
-    // Decrypt API key
     let apiKey: string;
     try {
       const decrypted = decryptAIAPIKey({ api_key_encrypted: keyRecord.api_key_encrypted });
@@ -178,7 +157,6 @@ export class AIAPIKeyService {
       };
     }
 
-    // Test connection with provider-specific logic
     let testResult: ConnectionTestResult;
 
     switch (keyRecord.provider) {
@@ -200,14 +178,12 @@ export class AIAPIKeyService {
         };
     }
 
-    const responseTime = Date.now() - startTime;
-    testResult.response_time_ms = responseTime;
-
+    testResult.response_time_ms = Date.now() - startTime;
     return testResult;
   }
 
   /**
-   * Test Anthropic API key with minimal message request
+   * Test Anthropic API key
    */
   private static async testAnthropicKey(apiKey: string): Promise<ConnectionTestResult> {
     try {
@@ -251,7 +227,7 @@ export class AIAPIKeyService {
   }
 
   /**
-   * Test OpenAI API key with models endpoint (free, no tokens used)
+   * Test OpenAI API key
    */
   private static async testOpenAIKey(apiKey: string): Promise<ConnectionTestResult> {
     try {
@@ -287,7 +263,7 @@ export class AIAPIKeyService {
   }
 
   /**
-   * Test Perplexity API key with minimal completion request
+   * Test Perplexity API key
    */
   private static async testPerplexityKey(apiKey: string): Promise<ConnectionTestResult> {
     try {
@@ -335,7 +311,6 @@ export class AIAPIKeyService {
   static async healthCheck(keyId: string): Promise<ConnectionTestResult> {
     const testResult = await this.testConnection(keyId);
 
-    // Update key health status in database
     const updates: Partial<AIAPIKey> = {
       last_health_check: testResult.test_timestamp
     };
@@ -345,7 +320,6 @@ export class AIAPIKeyService {
       updates.consecutive_failures = 0;
       updates.last_error_message = null;
     } else {
-      // Increment consecutive failures
       const { data: currentKey } = await supabase
         .from('ai_api_keys')
         .select('consecutive_failures')
@@ -356,7 +330,6 @@ export class AIAPIKeyService {
       updates.consecutive_failures = failures;
       updates.last_error_message = testResult.error || 'Unknown error';
 
-      // Set health status based on consecutive failures
       if (failures === 1) {
         updates.health_status = 'warning';
       } else if (failures === 2) {
@@ -375,11 +348,9 @@ export class AIAPIKeyService {
   }
 
   /**
-   * Health check all active keys across all workspaces
-   * Used by daily cron job at 6 AM
+   * Health check all active keys
    */
   static async healthCheckAll(): Promise<HealthCheckSummary> {
-    // Get all active keys
     const { data: allKeys, error } = await supabase
       .from('ai_api_keys')
       .select('*')
@@ -397,7 +368,6 @@ export class AIAPIKeyService {
       failures: []
     };
 
-    // Test each key
     for (const key of allKeys) {
       const result = await this.healthCheck(key.id);
 
@@ -406,7 +376,7 @@ export class AIAPIKeyService {
       } else {
         summary.unhealthy++;
         summary.failures.push({
-          workspace_id: key.workspace_id,
+          user_id: key.user_id,
           provider: key.provider,
           key_name: key.key_name,
           error: result.error || 'Unknown error'
@@ -415,7 +385,6 @@ export class AIAPIKeyService {
     }
 
     console.log(`Health check completed: ${summary.healthy}/${summary.total_keys} healthy`);
-
     return summary;
   }
 }
