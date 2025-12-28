@@ -4,12 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { User } from "@supabase/supabase-js";
+import { MobileNav } from "./MobileNav";
 import {
-  Menu,
   LogOut,
   User as UserIcon,
   Settings,
-  Sun,
   Moon,
 } from "lucide-react";
 
@@ -20,7 +19,6 @@ interface HeaderProps {
 export function Header({ user }: HeaderProps) {
   const router = useRouter();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -31,13 +29,8 @@ export function Header({ user }: HeaderProps) {
 
   return (
     <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6">
-      {/* Mobile menu button */}
-      <button
-        className="md:hidden p-2 hover:bg-secondary rounded-lg"
-        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+      {/* Mobile menu */}
+      <MobileNav />
 
       {/* Spacer for desktop */}
       <div className="hidden md:block" />
