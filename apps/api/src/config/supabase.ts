@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 
+// Proxy is configured in config/proxy.ts (imported from index.ts before this)
+
 dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';

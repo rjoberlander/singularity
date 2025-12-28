@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseClient } from '../config/supabase';
 import { User } from '../types';
 import { UserService } from '../services/userService';
 import { PermissionService } from '../services/permissionService';
+
+// Note: supabaseClient is pre-configured with proxy support in config/supabase.ts
 
 // Extend Express Request type to include user
 declare global {
@@ -49,27 +50,12 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    // Create a new Supabase client with the token to verify it
-    const authClient = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_ANON_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        },
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      }
-    );
-
-    // Verify the JWT token by getting the user
-    const { data: { user }, error } = await authClient.auth.getUser();
+    // Verify the JWT token using pre-configured supabaseClient (has proxy support)
+    const { data: { user }, error } = await supabaseClient.auth.getUser(token);
 
     if (error || !user) {
+      console.error('🔴 [AUTH] Token verification failed:', error?.message || 'No user returned');
+      console.error('🔴 [AUTH] Full error:', JSON.stringify(error, null, 2));
       return res.status(401).json({
         success: false,
         error: 'Invalid or expired token',
@@ -169,24 +155,8 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
 
     const token = authHeader.substring(7);
 
-    // Create a new Supabase client with the token
-    const authClient = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_ANON_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        },
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      }
-    );
-
-    const { data: { user }, error } = await authClient.auth.getUser();
+    // Verify token using pre-configured supabaseClient (has proxy support)
+    const { data: { user }, error } = await supabaseClient.auth.getUser(token);
 
     if (!error && user) {
       const { data: userData } = await supabase

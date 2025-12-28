@@ -3,8 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 
-// Load environment variables
+// Load environment variables FIRST
 dotenv.config();
+
+// Configure proxy BEFORE any other imports (for sandbox environments)
+import './config/proxy';
 
 // Import routes
 import authRoutes from './routes/auth';
