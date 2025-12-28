@@ -3,6 +3,19 @@ import rateLimit from 'express-rate-limit';
 // Remove custom key generator - let express-rate-limit handle it
 // This avoids IPv6 and trust proxy issues
 
+// General API rate limiter (applied to all routes)
+export const rateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 100 requests per 15 min in production
+  message: {
+    success: false,
+    error: 'Too many requests from this IP, please try again later.',
+    timestamp: new Date().toISOString()
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Aggressive rate limiting for login attempts to prevent brute force attacks
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

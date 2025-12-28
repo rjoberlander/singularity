@@ -176,7 +176,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<any> => {
 
     const { data: existing, error: findError } = await supabase
       .from('supplements')
-      .select('user_id')
+      .select('user_id, price, servings_per_container')
       .eq('id', id)
       .single();
 
