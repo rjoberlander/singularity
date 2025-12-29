@@ -37,10 +37,16 @@ jobs:
             grep -c "admin" dist/index.js || echo "ERROR: no admin references in dist/index.js!"
             sudo mkdir -p /var/log/pm2
             sudo chown -R deploy:deploy /var/log/pm2
+            # Check what's running on port 3001 before stopping
+            echo "Checking port 3001 before stop:"
+            lsof -i :3001 2>/dev/null || ss -tlnp 'sport = :3001' 2>/dev/null || netstat -tlnp 2>/dev/null | grep 3001 || echo "No process found on 3001"
             # Stop and delete the API process
             pm2 stop singularity-api 2>/dev/null || true
             pm2 delete singularity-api 2>/dev/null || true
             pm2 flush 2>/dev/null || true
+            # Kill any remaining processes on port 3001
+            fuser -k 3001/tcp 2>/dev/null || true
+            sleep 2
             # Clear Node.js require cache by removing all cached modules
             rm -rf /home/deploy/.pm2/logs/singularity-api* 2>/dev/null || true
             # Start fresh
@@ -48,6 +54,10 @@ jobs:
             sleep 5
             echo "PM2 processes after restart:"
             pm2 list
+            echo "Checking port 3001 after start:"
+            lsof -i :3001 2>/dev/null || ss -tlnp 'sport = :3001' 2>/dev/null || echo "No process found"
+            echo "API test response:"
+            curl -s http://localhost:3001/api/v1 | head -c 500 || echo "API not responding"
             pm2 save
             # Update nginx to proxy /api to Express backend
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
