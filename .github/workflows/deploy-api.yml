@@ -29,6 +29,8 @@ jobs:
             npm install
             cd apps/api
             npm run build
+            sudo mkdir -p /var/log/pm2
+            sudo chown -R deploy:deploy /var/log/pm2
             pm2 delete singularity-api 2>/dev/null || true
             pm2 start /var/www/singularity/apps/api/ecosystem.config.js
             pm2 save
