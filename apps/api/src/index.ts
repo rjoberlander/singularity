@@ -20,6 +20,7 @@ import userRoutes from './routes/users';
 import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
 import eightSleepRoutes from './modules/eight-sleep/routes';
+import adminRoutes from './routes/admin';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -124,6 +125,7 @@ app.use('/api/v1/users', authenticateUser, userRoutes);
 app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
 app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sleep integration
+app.use('/api/v1/admin', adminRoutes); // Admin routes (auth handled in routes)
 
 // ==============================================
 // Error Handling

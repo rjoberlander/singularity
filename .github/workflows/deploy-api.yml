@@ -1,0 +1,31 @@
+name: Deploy API to Digital Ocean
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Digital Ocean Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_WEB_HOST }}
+          username: deploy
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/singularity
+            git pull origin master
+            cd apps/api
+            npm ci --production=false
+            npm run build
+            pm2 restart singularity-api || pm2 start ecosystem.config.js
+            pm2 save
+            echo "API deployed at $(date)"
