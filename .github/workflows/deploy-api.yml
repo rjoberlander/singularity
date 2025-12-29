@@ -23,9 +23,8 @@ jobs:
           script: |
             cd /var/www/singularity
             git pull origin master
-            cd apps/api
-            rm -rf node_modules
             npm install --production=false
+            cd apps/api
             npm run build
             pm2 restart singularity-api || pm2 start ecosystem.config.js
             pm2 save
