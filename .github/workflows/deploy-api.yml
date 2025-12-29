@@ -22,8 +22,9 @@ jobs:
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/singularity
-            git pull origin master
-            rm -rf node_modules apps/*/node_modules
+            git fetch origin master
+            git reset --hard origin/master
+            sudo rm -rf node_modules apps/*/node_modules
             npm install
             cd apps/api
             npm run build
