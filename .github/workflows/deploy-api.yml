@@ -31,6 +31,10 @@ jobs:
             npm install
             cd apps/api
             npm run build
+            echo "Checking dist/routes/admin.js exists:"
+            ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
+            echo "Checking admin import in dist/index.js:"
+            grep -c "admin" dist/index.js || echo "ERROR: no admin references in dist/index.js!"
             sudo mkdir -p /var/log/pm2
             sudo chown -R deploy:deploy /var/log/pm2
             pm2 delete singularity-api 2>/dev/null || true
