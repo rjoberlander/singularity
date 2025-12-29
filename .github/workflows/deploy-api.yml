@@ -24,7 +24,7 @@ jobs:
             cd /var/www/singularity
             git fetch origin master
             git reset --hard origin/master
-            sudo rm -rf node_modules apps/*/node_modules
+            sudo rm -rf node_modules apps/*/node_modules apps/api/dist
             npm install
             cd apps/api
             npm run build
