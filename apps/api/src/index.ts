@@ -19,6 +19,8 @@ import aiRoutes from './routes/ai';
 import userRoutes from './routes/users';
 import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
+import eightSleepRoutes from './modules/eight-sleep/routes';
+import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import middleware
 import { authenticateUser } from './middleware/auth';
@@ -87,7 +89,8 @@ app.get('/api/v1', (req: Request, res: Response) => {
       ai: '/api/v1/ai',
       users: '/api/v1/users',
       aiApiKeys: '/api/v1/ai-api-keys',
-      chat: '/api/v1/chat'
+      chat: '/api/v1/chat',
+      eightSleep: '/api/v1/eight-sleep'
     }
   });
 });
@@ -104,6 +107,7 @@ app.use('/api/v1/ai', authenticateUser, aiRoutes);
 app.use('/api/v1/users', authenticateUser, userRoutes);
 app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
+app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sleep integration
 
 // ==============================================
 // Error Handling
@@ -146,6 +150,9 @@ app.listen(PORT, () => {
 ║                                                  ║
 ╚══════════════════════════════════════════════════╝
   `);
+
+  // Start Eight Sleep sync scheduler
+  startSyncScheduler();
 });
 
 export default app;

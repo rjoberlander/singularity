@@ -75,6 +75,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="sleep"
+        options={{
+          title: 'Sleep',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="moon-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="chat"
         options={{
           title: 'AI Chat',
