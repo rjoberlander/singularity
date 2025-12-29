@@ -25,6 +25,8 @@ jobs:
             sudo chown -R deploy:deploy .git
             git fetch origin master
             git reset --hard origin/master
+            echo "Deployed commit: $(git rev-parse HEAD)"
+            echo "Admin routes file exists: $(test -f apps/api/src/routes/admin.ts && echo 'yes' || echo 'no')"
             sudo rm -rf node_modules apps/*/node_modules apps/api/dist
             npm install
             cd apps/api
@@ -32,7 +34,8 @@ jobs:
             sudo mkdir -p /var/log/pm2
             sudo chown -R deploy:deploy /var/log/pm2
             pm2 delete singularity-api 2>/dev/null || true
-            pm2 start /var/www/singularity/apps/api/ecosystem.config.js
+            pm2 flush singularity-api 2>/dev/null || true
+            pm2 start /var/www/singularity/apps/api/ecosystem.config.js --update-env
             pm2 save
             # Update nginx to proxy /api to Express backend
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
