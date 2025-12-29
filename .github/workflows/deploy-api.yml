@@ -37,9 +37,17 @@ jobs:
             grep -c "admin" dist/index.js || echo "ERROR: no admin references in dist/index.js!"
             sudo mkdir -p /var/log/pm2
             sudo chown -R deploy:deploy /var/log/pm2
+            # Stop and delete the API process
+            pm2 stop singularity-api 2>/dev/null || true
             pm2 delete singularity-api 2>/dev/null || true
-            pm2 flush singularity-api 2>/dev/null || true
+            pm2 flush 2>/dev/null || true
+            # Clear Node.js require cache by removing all cached modules
+            rm -rf /home/deploy/.pm2/logs/singularity-api* 2>/dev/null || true
+            # Start fresh
             pm2 start /var/www/singularity/apps/api/ecosystem.config.js --update-env
+            sleep 5
+            echo "PM2 processes after restart:"
+            pm2 list
             pm2 save
             # Update nginx to proxy /api to Express backend
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
