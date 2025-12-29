@@ -23,9 +23,10 @@ jobs:
           script: |
             cd /var/www/singularity
             git pull origin master
-            npm ci --production=false
-            npm run build:api
             cd apps/api
+            rm -rf node_modules
+            npm install --production=false
+            npm run build
             pm2 restart singularity-api || pm2 start ecosystem.config.js
             pm2 save
             echo "API deployed at $(date)"
