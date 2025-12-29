@@ -7,7 +7,7 @@
 
 // App name and version
 export const APP_NAME = 'Singularity';
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.0.1';
 
 // Storage bucket name for file uploads
 export const STORAGE_BUCKET = 'singularity-uploads';
