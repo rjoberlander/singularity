@@ -107,7 +107,8 @@ app.get('/api/v1', (req: Request, res: Response) => {
       users: '/api/v1/users',
       aiApiKeys: '/api/v1/ai-api-keys',
       chat: '/api/v1/chat',
-      eightSleep: '/api/v1/eight-sleep'
+      eightSleep: '/api/v1/eight-sleep',
+      admin: '/api/v1/admin'
     }
   });
 });
