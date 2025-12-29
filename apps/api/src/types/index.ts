@@ -8,6 +8,7 @@ export interface User {
   email: string;
   name?: string;
   avatar_url?: string;
+  timezone?: string;
   role: 'owner' | 'member';
   is_active: boolean;
   onboarding_completed?: boolean;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { FamilySharing } from "@/components/settings/FamilySharing";
 import { DataExport } from "@/components/settings/DataExport";
+import { AIKeys } from "@/components/settings/AIKeys";
+import { usersApi } from "@/lib/api";
 import {
   User,
   Bell,
@@ -28,16 +30,18 @@ import {
   Moon,
   Sun,
   Loader2,
+  Key,
 } from "lucide-react";
 
 export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Profile settings
   const [profile, setProfile] = useState({
     name: "",
     email: "",
-    timezone: "America/New_York",
+    timezone: "America/Los_Angeles",
   });
 
   // Notification settings
@@ -54,11 +58,41 @@ export default function SettingsPage() {
     compact_mode: false,
   });
 
+  // Fetch user profile on mount
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await usersApi.me();
+        if (response.data?.success && response.data?.data) {
+          const user = response.data.data;
+          setProfile({
+            name: user.name || "",
+            email: user.email || "",
+            timezone: user.timezone || "America/Los_Angeles",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch user profile:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setSaving(false);
+    try {
+      await usersApi.updateProfile({
+        name: profile.name,
+        timezone: profile.timezone
+      });
+    } catch (error) {
+      console.error("Failed to save profile:", error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -71,10 +105,14 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid grid-cols-5 w-full">
+        <TabsList className="grid grid-cols-6 w-full">
           <TabsTrigger value="profile" className="flex items-center gap-2">
             <User className="w-4 h-4" />
             <span className="hidden sm:inline">Profile</span>
+          </TabsTrigger>
+          <TabsTrigger value="ai" className="flex items-center gap-2">
+            <Key className="w-4 h-4" />
+            <span className="hidden sm:inline">AI Keys</span>
           </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="w-4 h-4" />
@@ -122,10 +160,8 @@ export default function SettingsPage() {
                     id="email"
                     type="email"
                     value={profile.email}
-                    onChange={(e) =>
-                      setProfile({ ...profile, email: e.target.value })
-                    }
-                    placeholder="your@email.com"
+                    disabled
+                    className="bg-muted"
                   />
                 </div>
               </div>
@@ -173,6 +209,11 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* AI Keys Tab */}
+        <TabsContent value="ai">
+          <AIKeys />
         </TabsContent>
 
         {/* Notifications Tab */}

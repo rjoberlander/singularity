@@ -66,6 +66,7 @@ export const supplementsApi = {
     api.get("/supplements", { params }),
   get: (id: string) => api.get(`/supplements/${id}`),
   create: (data: any) => api.post("/supplements", data),
+  createBulk: (supplements: any[]) => api.post("/supplements/bulk", { supplements }),
   update: (id: string, data: any) => api.put(`/supplements/${id}`, data),
   toggle: (id: string) => api.patch(`/supplements/${id}/toggle`),
   delete: (id: string) => api.delete(`/supplements/${id}`),
@@ -93,10 +94,25 @@ export const goalsApi = {
 export const aiApi = {
   extractBiomarkers: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text" }) =>
     api.post("/ai/extract-biomarkers", data),
+  extractSupplements: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text" }) =>
+    api.post("/ai/extract-supplements", data),
   chat: (data: { message: string; context?: string; include_user_data?: boolean }) =>
     api.post("/ai/chat", data),
   getConversations: (params?: { context?: string; limit?: number }) =>
     api.get("/ai/conversations", { params }),
+};
+
+// AI API Keys
+export const aiApiKeysApi = {
+  list: () => api.get("/ai-api-keys"),
+  get: (id: string) => api.get(`/ai-api-keys/${id}`),
+  create: (data: { provider: string; key_name: string; api_key: string }) =>
+    api.post("/ai-api-keys", data),
+  update: (id: string, data: any) => api.patch(`/ai-api-keys/${id}`, data),
+  delete: (id: string) => api.delete(`/ai-api-keys/${id}`),
+  test: (id: string) => api.post(`/ai-api-keys/${id}/test`),
+  togglePrimary: (id: string) => api.post(`/ai-api-keys/${id}/toggle-primary`),
+  healthCheckAll: () => api.post("/ai-api-keys/health-check-all"),
 };
 
 // Change Log
@@ -113,6 +129,13 @@ export const protocolDocsApi = {
   create: (data: any) => api.post("/protocol-docs", data),
   update: (id: string, data: any) => api.put(`/protocol-docs/${id}`, data),
   delete: (id: string) => api.delete(`/protocol-docs/${id}`),
+};
+
+// Users
+export const usersApi = {
+  me: () => api.get("/users/me"),
+  updateProfile: (data: { name?: string; avatar_url?: string; timezone?: string }) =>
+    api.put("/users/me", data),
 };
 
 // User Links (Multi-user sharing)

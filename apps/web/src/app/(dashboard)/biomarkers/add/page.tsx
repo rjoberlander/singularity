@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCreateBiomarker, useCreateBiomarkersBulk } from "@/hooks/useBiomarkers";
-import { useExtractBiomarkers } from "@/hooks/useAI";
+import { useExtractBiomarkers, useHasActiveAIKey } from "@/hooks/useAI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CreateBiomarkerRequest, ExtractedBiomarkerData } from "@/types";
-import { Camera, FileText, PenLine, Upload, Loader2, Check } from "lucide-react";
+import { Sparkles, PenLine, Upload, Loader2, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -36,7 +38,10 @@ const CATEGORIES = [
 
 export default function AddBiomarkerPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("manual");
+  const [activeTab, setActiveTab] = useState("ai");
+
+  // Check for AI API key
+  const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
 
   // Manual entry state
   const [manualData, setManualData] = useState<CreateBiomarkerRequest>({
@@ -47,11 +52,10 @@ export default function AddBiomarkerPage() {
     category: "",
   });
 
-  // Image upload state
+  // AI tab state - combined image + text
   const [imageBase64, setImageBase64] = useState<string | null>(null);
-
-  // Text paste state
   const [textContent, setTextContent] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   // Extracted data state (for review)
   const [extractedData, setExtractedData] = useState<ExtractedBiomarkerData | null>(null);
@@ -62,43 +66,64 @@ export default function AddBiomarkerPage() {
   const createBiomarkersBulk = useCreateBiomarkersBulk();
   const extractBiomarkers = useExtractBiomarkers();
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  const processFile = useCallback((file: File) => {
+    if (file && file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImageBase64(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, []);
 
-  const handleExtractFromImage = async () => {
-    if (!imageBase64) return;
-
-    try {
-      const result = await extractBiomarkers.mutateAsync({
-        image_base64: imageBase64,
-        source_type: "image",
-      });
-      setExtractedData(result);
-      // Select all by default
-      setSelectedBiomarkers(new Set(result.biomarkers.map((_, i) => i)));
-      toast.success(`Extracted ${result.biomarkers.length} biomarkers`);
-    } catch (error) {
-      console.error("Extraction failed:", error);
-      toast.error("Failed to extract biomarkers. Please try again.");
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
     }
   };
 
-  const handleExtractFromText = async () => {
-    if (!textContent.trim()) return;
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  }, [processFile]);
+
+  const handleExtract = async () => {
+    if (!imageBase64 && !textContent.trim()) return;
 
     try {
-      const result = await extractBiomarkers.mutateAsync({
-        text_content: textContent,
-        source_type: "text",
-      });
+      let result: ExtractedBiomarkerData;
+
+      if (imageBase64) {
+        result = await extractBiomarkers.mutateAsync({
+          image_base64: imageBase64,
+          source_type: "image",
+        });
+      } else {
+        result = await extractBiomarkers.mutateAsync({
+          text_content: textContent,
+          source_type: "text",
+        });
+      }
+
       setExtractedData(result);
       // Select all by default
       setSelectedBiomarkers(new Set(result.biomarkers.map((_, i) => i)));
@@ -272,20 +297,126 @@ export default function AddBiomarkerPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3 w-full">
+        <TabsList className="grid grid-cols-2 w-full">
+          <TabsTrigger value="ai" className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            AI
+          </TabsTrigger>
           <TabsTrigger value="manual" className="flex items-center gap-2">
             <PenLine className="w-4 h-4" />
             Manual
           </TabsTrigger>
-          <TabsTrigger value="image" className="flex items-center gap-2">
-            <Camera className="w-4 h-4" />
-            Image
-          </TabsTrigger>
-          <TabsTrigger value="text" className="flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            Text
-          </TabsTrigger>
         </TabsList>
+
+        {/* AI Tab - Combined Image + Text */}
+        <TabsContent value="ai">
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Extraction</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!isCheckingKey && !hasAIKey && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Warning: No API key configured.{" "}
+                    <Link href="/settings" className="underline font-medium hover:no-underline">
+                      Input API Key
+                    </Link>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Image Upload with Drag & Drop */}
+              <div>
+                <Label className="mb-2 block">Upload Lab Report Image</Label>
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    isDragging
+                      ? "border-primary bg-primary/5"
+                      : imageBase64
+                      ? "border-primary"
+                      : "border-muted hover:border-primary/50"
+                  }`}
+                >
+                  {imageBase64 ? (
+                    <div className="space-y-4">
+                      <img
+                        src={imageBase64}
+                        alt="Uploaded lab report"
+                        className="max-h-48 mx-auto rounded"
+                      />
+                      <Button variant="outline" size="sm" onClick={() => setImageBase64(null)}>
+                        Remove Image
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer">
+                      <Upload className="w-8 h-8 mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-muted-foreground mb-2">
+                        Drag and drop an image, or click to upload
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        PNG, JPG, or WEBP up to 10MB
+                      </p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">Or paste text</span>
+                </div>
+              </div>
+
+              {/* Text Input */}
+              <div>
+                <Label htmlFor="text-content" className="mb-2 block">Paste Lab Results Text</Label>
+                <Textarea
+                  id="text-content"
+                  placeholder="Paste your lab results here..."
+                  value={textContent}
+                  onChange={(e) => setTextContent(e.target.value)}
+                  rows={6}
+                  disabled={!!imageBase64}
+                  className={imageBase64 ? "opacity-50" : ""}
+                />
+                {imageBase64 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Remove the image above to use text input instead
+                  </p>
+                )}
+              </div>
+
+              <Button
+                onClick={handleExtract}
+                disabled={(!imageBase64 && !textContent.trim()) || extractBiomarkers.isPending || !hasAIKey}
+                className="w-full"
+              >
+                {extractBiomarkers.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-2" />
+                )}
+                Extract Biomarkers with AI
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Manual Entry */}
         <TabsContent value="manual">
@@ -417,90 +548,6 @@ export default function AddBiomarkerPage() {
                   Save Biomarker
                 </Button>
               </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Image Upload */}
-        <TabsContent value="image">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Lab Report Image</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  imageBase64 ? "border-primary" : "border-muted hover:border-primary/50"
-                }`}
-              >
-                {imageBase64 ? (
-                  <div className="space-y-4">
-                    <img
-                      src={imageBase64}
-                      alt="Uploaded lab report"
-                      className="max-h-64 mx-auto rounded"
-                    />
-                    <Button variant="outline" onClick={() => setImageBase64(null)}>
-                      Remove Image
-                    </Button>
-                  </div>
-                ) : (
-                  <label className="cursor-pointer">
-                    <Upload className="w-8 h-8 mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-muted-foreground mb-2">
-                      Click to upload or drag and drop
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      PNG, JPG, or WEBP up to 10MB
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
-
-              <Button
-                onClick={handleExtractFromImage}
-                disabled={!imageBase64 || extractBiomarkers.isPending}
-                className="w-full"
-              >
-                {extractBiomarkers.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : null}
-                Extract Biomarkers with AI
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Text Paste */}
-        <TabsContent value="text">
-          <Card>
-            <CardHeader>
-              <CardTitle>Paste Lab Results Text</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                placeholder="Paste your lab results here..."
-                value={textContent}
-                onChange={(e) => setTextContent(e.target.value)}
-                rows={10}
-              />
-
-              <Button
-                onClick={handleExtractFromText}
-                disabled={!textContent.trim() || extractBiomarkers.isPending}
-                className="w-full"
-              >
-                {extractBiomarkers.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : null}
-                Extract Biomarkers with AI
-              </Button>
             </CardContent>
           </Card>
         </TabsContent>

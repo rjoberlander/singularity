@@ -40,6 +40,20 @@ export function useCreateSupplement() {
   });
 }
 
+export function useCreateSupplementsBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (supplements: CreateSupplementRequest[]) => {
+      const response = await supplementsApi.createBulk(supplements);
+      return response.data.data as Supplement[];
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["supplements"] });
+    },
+  });
+}
+
 export function useUpdateSupplement() {
   const queryClient = useQueryClient();
 

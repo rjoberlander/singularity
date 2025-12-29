@@ -166,6 +166,68 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 });
 
 /**
+ * POST /api/v1/supplements/bulk
+ * Create multiple supplements at once (for AI extraction)
+ */
+router.post('/bulk', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { supplements } = req.body;
+
+    if (!supplements || !Array.isArray(supplements) || supplements.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'supplements array is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const supplementsToInsert = supplements.map((s: CreateSupplementRequest) => {
+      let pricePerServing = undefined;
+      if (s.price && s.servings_per_container) {
+        pricePerServing = s.price / s.servings_per_container;
+      }
+
+      return {
+        ...s,
+        user_id: userId,
+        is_active: true,
+        price_per_serving: pricePerServing,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    });
+
+    const { data, error } = await supabase
+      .from('supplements')
+      .insert(supplementsToInsert)
+      .select();
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data,
+      count: data?.length || 0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /supplements/bulk error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * PUT /api/v1/supplements/:id
  */
 router.put('/:id', async (req: Request, res: Response): Promise<any> => {

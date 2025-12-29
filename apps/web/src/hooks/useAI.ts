@@ -1,6 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiApi } from "@/lib/api";
-import { ExtractedBiomarkerData, AIConversation, ChatMessage } from "@/types";
+import { aiApi, aiApiKeysApi } from "@/lib/api";
+import { ExtractedBiomarkerData, ExtractedSupplementData, AIConversation, ChatMessage } from "@/types";
+
+interface AIAPIKey {
+  id: string;
+  provider: string;
+  key_name: string;
+  api_key_masked: string;
+  is_primary: boolean;
+  is_active: boolean;
+  health_status: string;
+}
+
+export function useAIApiKeys() {
+  return useQuery({
+    queryKey: ["ai-api-keys"],
+    queryFn: async () => {
+      const response = await aiApiKeysApi.list();
+      return response.data.data as AIAPIKey[];
+    },
+  });
+}
+
+export function useHasActiveAIKey() {
+  const { data: keys, isLoading } = useAIApiKeys();
+  const hasKey = keys && keys.length > 0 && keys.some((k) => k.is_active);
+  return { hasKey, isLoading };
+}
 
 export function useExtractBiomarkers() {
   return useMutation({
@@ -11,6 +37,19 @@ export function useExtractBiomarkers() {
     }) => {
       const response = await aiApi.extractBiomarkers(data);
       return response.data.data as ExtractedBiomarkerData;
+    },
+  });
+}
+
+export function useExtractSupplements() {
+  return useMutation({
+    mutationFn: async (data: {
+      image_base64?: string;
+      text_content?: string;
+      source_type: "image" | "text";
+    }) => {
+      const response = await aiApi.extractSupplements(data);
+      return response.data.data as ExtractedSupplementData;
     },
   });
 }

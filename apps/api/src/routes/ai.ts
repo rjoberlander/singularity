@@ -172,6 +172,164 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
+ * POST /api/v1/ai/extract-supplements
+ * Extract supplements from image or text (e.g., supplement bottle photos, receipt text)
+ */
+router.post('/extract-supplements', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { image_base64, text_content, source_type } = req.body;
+
+    if (!image_base64 && !text_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either image_base64 or text_content is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const systemPrompt = `You are a precise supplement extraction assistant. Your job is to extract supplement information from images (bottles, labels, receipts) or text.
+
+## Rules:
+1. ONLY extract data that is explicitly visible in the source
+2. NEVER guess or infer values that aren't clearly stated
+3. Return structured JSON
+4. Include confidence scores for each extraction
+5. Extract as much detail as available (brand, dose, servings, price, etc.)
+
+## Output Format:
+Return ONLY valid JSON in this exact format:
+{
+  "supplements": [
+    {
+      "name": "string - supplement name (e.g., Vitamin D3, Fish Oil)",
+      "brand": "string or null - brand name if visible",
+      "dose": "string or null - dose as displayed (e.g., '5000 IU', '1000mg')",
+      "dose_per_serving": number or null,
+      "dose_unit": "string or null - unit only (IU, mg, mcg, g)",
+      "servings_per_container": number or null,
+      "price": number or null - price in dollars if visible,
+      "category": "string - vitamin, mineral, amino_acid, herb, probiotic, omega, antioxidant, hormone, enzyme, other",
+      "timing": "string or null - morning, afternoon, evening, with_meals, empty_stomach, before_bed",
+      "frequency": "string or null - daily, twice_daily, three_times_daily, weekly, as_needed",
+      "confidence": number between 0 and 1
+    }
+  ],
+  "source_info": {
+    "store_name": "string or null - if from receipt",
+    "purchase_date": "YYYY-MM-DD or null",
+    "total_items": number
+  },
+  "extraction_notes": "string - any important notes about the extraction"
+}`;
+
+    let userContent: any[];
+
+    if (source_type === 'image' && image_base64) {
+      let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+      let base64Data = image_base64;
+
+      if (image_base64.startsWith('data:image/png')) {
+        mediaType = 'image/png';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:image/jpeg') || image_base64.startsWith('data:image/jpg')) {
+        mediaType = 'image/jpeg';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:image/webp')) {
+        mediaType = 'image/webp';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:')) {
+        base64Data = image_base64.split(',')[1];
+      }
+
+      userContent = [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mediaType,
+            data: base64Data
+          }
+        },
+        {
+          type: 'text',
+          text: 'Extract all supplement information from this image (bottle label, receipt, or list). Return the data as JSON.'
+        }
+      ];
+    } else {
+      userContent = [
+        {
+          type: 'text',
+          text: `Extract all supplement information from this text. Return the data as JSON.\n\n---\n${text_content}\n---`
+        }
+      ];
+    }
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: AI_CONFIG.maxTokens,
+      temperature: AI_CONFIG.temperature,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userContent
+        }
+      ]
+    });
+
+    const responseText = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as any).text)
+      .join('');
+
+    let extractedData: any;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        extractedData = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse AI response',
+        raw_response: responseText,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Store conversation for reference
+    await supabase.from('ai_conversations').insert({
+      user_id: userId,
+      context: 'supplement_extraction',
+      messages: [
+        { role: 'user', content: source_type === 'image' ? '[Image uploaded]' : text_content?.substring(0, 500) },
+        { role: 'assistant', content: responseText }
+      ],
+      extracted_data: extractedData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      data: extractedData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('POST /ai/extract-supplements error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'AI extraction failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * POST /api/v1/ai/chat
  * Health assistant chat
  */

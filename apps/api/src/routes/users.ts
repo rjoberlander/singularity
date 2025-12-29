@@ -34,11 +34,12 @@ router.get('/me', async (req: Request, res: Response): Promise<any> => {
 router.put('/me', async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    const { name, avatar_url } = req.body;
+    const { name, avatar_url, timezone } = req.body;
 
     const result = await UserService.updateUserProfile(userId, {
       name,
-      avatar_url
+      avatar_url,
+      timezone
     });
 
     if (!result.success) {

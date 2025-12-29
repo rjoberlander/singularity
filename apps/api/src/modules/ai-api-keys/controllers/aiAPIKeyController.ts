@@ -431,6 +431,68 @@ export class AIAPIKeyController {
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
+
+  /**
+   * POST /api/v1/ai-api-keys/health-check-all
+   * Health check all user's keys
+   */
+  static async healthCheckAllUserKeys(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Authentication required' });
+        return;
+      }
+
+      // Get all active keys for this user
+      const { data: userKeys, error } = await supabase
+        .from('ai_api_keys')
+        .select('id, provider, key_name')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (error) {
+        res.status(500).json({ success: false, error: 'Failed to retrieve keys' });
+        return;
+      }
+
+      const results = [];
+      let healthy = 0;
+      let unhealthy = 0;
+
+      for (const key of userKeys || []) {
+        const testResult = await AIAPIKeyService.healthCheck(key.id);
+        results.push({
+          id: key.id,
+          provider: key.provider,
+          key_name: key.key_name,
+          healthy: testResult.success,
+          error: testResult.error || null
+        });
+
+        if (testResult.success) {
+          healthy++;
+        } else {
+          unhealthy++;
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          total: results.length,
+          healthy,
+          unhealthy,
+          tested_at: new Date().toISOString(),
+          results
+        }
+      });
+    } catch (error) {
+      console.error('Error in healthCheckAllUserKeys:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  }
 }
 
 export default AIAPIKeyController;

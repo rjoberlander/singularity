@@ -197,6 +197,28 @@ export interface ExtractedBiomarkerData {
   extraction_notes?: string;
 }
 
+export interface ExtractedSupplementData {
+  supplements: Array<{
+    name: string;
+    brand?: string;
+    dose?: string;
+    dose_per_serving?: number;
+    dose_unit?: string;
+    servings_per_container?: number;
+    price?: number;
+    category?: string;
+    timing?: string;
+    frequency?: string;
+    confidence: number;
+  }>;
+  source_info: {
+    store_name?: string;
+    purchase_date?: string;
+    total_items?: number;
+  };
+  extraction_notes?: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;

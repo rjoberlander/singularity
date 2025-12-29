@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useSupplements, useSupplementCosts } from "@/hooks/useSupplements";
 import { SupplementCard } from "@/components/supplements/SupplementCard";
 import { SupplementForm } from "@/components/supplements/SupplementForm";
@@ -68,9 +69,11 @@ export default function SupplementsPage() {
           <h1 className="text-2xl font-bold">Supplements</h1>
           <p className="text-muted-foreground">Manage your supplement stack</p>
         </div>
-        <Button onClick={handleAdd}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Supplement
+        <Button asChild>
+          <Link href="/supplements/add">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Supplement
+          </Link>
         </Button>
       </div>
 
@@ -148,9 +151,11 @@ export default function SupplementsPage() {
           <p className="text-muted-foreground mb-4">
             Add your first supplement to start tracking your stack
           </p>
-          <Button onClick={handleAdd}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Supplement
+          <Button asChild>
+            <Link href="/supplements/add">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Supplement
+            </Link>
           </Button>
         </div>
       )}

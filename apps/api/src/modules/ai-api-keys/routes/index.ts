@@ -14,6 +14,9 @@ router.use(authenticateUser);
 // GET /api/v1/ai-api-keys - List all keys (masked)
 router.get('/', AIAPIKeyController.getAIAPIKeys);
 
+// POST /api/v1/ai-api-keys/health-check-all - Health check all user keys (must be before /:id routes)
+router.post('/health-check-all', AIAPIKeyController.healthCheckAllUserKeys);
+
 // GET /api/v1/ai-api-keys/:id - Get single key (decrypted)
 router.get('/:id', AIAPIKeyController.getAIAPIKey);
 

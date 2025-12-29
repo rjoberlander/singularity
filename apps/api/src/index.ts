@@ -20,6 +20,9 @@ import userRoutes from './routes/users';
 import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
 
+// Import cron jobs
+import { startAIKeyHealthCheckCron } from './cron/aiKeyHealthCheck';
+
 // Import middleware
 import { authenticateUser } from './middleware/auth';
 import { rateLimiter } from './middleware/rateLimiting';
@@ -38,8 +41,21 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = [
+  'http://localhost:3000',  // Web app
+  'http://localhost:8081',  // Mobile app (Expo)
+  process.env.FRONTEND_URL, // Production URL
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -146,6 +162,9 @@ app.listen(PORT, () => {
 ║                                                  ║
 ╚══════════════════════════════════════════════════╝
   `);
+
+  // Start cron jobs
+  startAIKeyHealthCheckCron();
 });
 
 export default app;
