@@ -1,0 +1,31 @@
+name: Deploy Web to Digital Ocean
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Digital Ocean Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_WEB_HOST }}
+          username: deploy
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/singularity
+            git pull origin main
+            cd apps/web
+            npm ci --production=false
+            npm run build
+            pm2 restart singularity-web || pm2 start ecosystem.config.js
+            pm2 save
+            echo "Deployed at $(date)"
