@@ -22,6 +22,7 @@ jobs:
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/singularity
+            sudo chown -R deploy:deploy .git
             git fetch origin master
             git reset --hard origin/master
             sudo rm -rf node_modules apps/*/node_modules apps/api/dist
