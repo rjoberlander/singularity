@@ -35,9 +35,13 @@ import {
   formatTime,
   formatDate,
   COMMON_TIMEZONES,
+  getCorrelationSummary,
+  CorrelationSummary,
 } from '../../services/eightSleepService';
+import { SleepTrendChart } from '../../components/sleep/SleepTrendChart';
+import { CorrelationCard, SupplementCorrelation } from '../../components/sleep/CorrelationCard';
 
-type ViewMode = 'dashboard' | 'history' | 'settings';
+type ViewMode = 'dashboard' | 'insights' | 'history' | 'settings';
 
 export default function SleepScreen() {
   // State
@@ -45,10 +49,13 @@ export default function SleepScreen() {
   const [lastNight, setLastNight] = useState<SleepSession | null>(null);
   const [analysis, setAnalysis] = useState<SleepAnalysis | null>(null);
   const [sessions, setSessions] = useState<SleepSession[]>([]);
+  const [trends, setTrends] = useState<SleepTrend[]>([]);
+  const [correlationSummary, setCorrelationSummary] = useState<CorrelationSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
+  const [selectedMetric, setSelectedMetric] = useState<'sleep_score' | 'deep_sleep_pct' | 'avg_hrv' | 'time_slept_hours'>('sleep_score');
 
   // Connect form state
   const [showConnectForm, setShowConnectForm] = useState(false);
@@ -69,18 +76,25 @@ export default function SleepScreen() {
 
       if (statusData.connected) {
         // Load sleep data in parallel
-        const [sessionsData, analysisData] = await Promise.all([
-          getSleepSessions({ limit: 7 }),
+        const [sessionsData, analysisData, trendsData] = await Promise.all([
+          getSleepSessions({ limit: 14 }),
           getSleepAnalysis(30),
+          getSleepTrends(30),
         ]);
 
         setSessions(sessionsData.sessions);
         setAnalysis(analysisData);
+        setTrends(trendsData.trends);
 
         // Set last night's data
         if (sessionsData.sessions.length > 0) {
           setLastNight(sessionsData.sessions[0]);
         }
+
+        // Load correlation data (don't block on this)
+        getCorrelationSummary(90)
+          .then(setCorrelationSummary)
+          .catch((err) => console.log('Correlation data not available yet:', err));
       }
     } catch (error) {
       console.error('Failed to load sleep data:', error);
@@ -542,6 +556,182 @@ export default function SleepScreen() {
     </View>
   );
 
+  // Render insights (charts + correlations)
+  const renderInsights = () => {
+    const metrics = [
+      { key: 'sleep_score' as const, label: 'Score' },
+      { key: 'deep_sleep_pct' as const, label: 'Deep' },
+      { key: 'avg_hrv' as const, label: 'HRV' },
+      { key: 'time_slept_hours' as const, label: 'Hours' },
+    ];
+
+    return (
+      <View>
+        {/* Recommendations */}
+        {correlationSummary && correlationSummary.recommendations.length > 0 && (
+          <View className="bg-emerald-900/30 rounded-xl p-4 mb-4">
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="bulb" size={20} color="#10b981" />
+              <Text className="text-emerald-400 font-semibold ml-2">Insights</Text>
+            </View>
+            {correlationSummary.recommendations.slice(0, 3).map((rec, index) => (
+              <Text key={index} className="text-gray-300 text-sm mb-2">
+                {rec}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {/* Metric selector */}
+        <View className="flex-row mb-3">
+          {metrics.map((m) => (
+            <TouchableOpacity
+              key={m.key}
+              onPress={() => setSelectedMetric(m.key)}
+              className={`flex-1 py-2 mr-1 rounded-lg ${
+                selectedMetric === m.key ? 'bg-emerald-600' : 'bg-gray-800'
+              }`}
+            >
+              <Text
+                className={`text-center text-sm ${
+                  selectedMetric === m.key ? 'text-white font-medium' : 'text-gray-400'
+                }`}
+              >
+                {m.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Trend Chart */}
+        <View className="bg-gray-800 rounded-xl p-4 mb-4">
+          <Text className="text-white font-semibold mb-3">30-Day Trend</Text>
+          {trends.length > 0 ? (
+            <SleepTrendChart
+              trends={trends}
+              metric={selectedMetric}
+              height={140}
+              showLabels
+            />
+          ) : (
+            <View className="items-center py-8">
+              <Text className="text-gray-400">No trend data yet</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Supplement Correlations */}
+        {correlationSummary && (
+          <>
+            {correlationSummary.top_positive_supplements.length > 0 && (
+              <View className="mb-4">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="trending-up" size={16} color="#22c55e" />
+                  <Text className="text-emerald-400 font-semibold ml-2">
+                    Positive Impact Supplements
+                  </Text>
+                </View>
+                {correlationSummary.top_positive_supplements.slice(0, 3).map((corr) => (
+                  <CorrelationCard
+                    key={corr.supplement_id}
+                    correlation={corr as SupplementCorrelation}
+                    compact
+                  />
+                ))}
+              </View>
+            )}
+
+            {correlationSummary.top_negative_supplements.length > 0 && (
+              <View className="mb-4">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="trending-down" size={16} color="#ef4444" />
+                  <Text className="text-red-400 font-semibold ml-2">
+                    Negative Impact Supplements
+                  </Text>
+                </View>
+                {correlationSummary.top_negative_supplements.slice(0, 3).map((corr) => (
+                  <CorrelationCard
+                    key={corr.supplement_id}
+                    correlation={corr as SupplementCorrelation}
+                    compact
+                  />
+                ))}
+              </View>
+            )}
+
+            {/* Daily Factors */}
+            {correlationSummary.daily_factors.length > 0 && (
+              <View className="mb-4">
+                <Text className="text-white font-semibold mb-2">Daily Factor Impact</Text>
+                {correlationSummary.daily_factors.map((factor) => (
+                  <View
+                    key={factor.factor}
+                    className="bg-gray-800 rounded-lg p-3 mb-2 flex-row items-center justify-between"
+                  >
+                    <Text className="text-gray-300">{factor.factor}</Text>
+                    <View className="flex-row items-center">
+                      <Text
+                        className="font-semibold mr-2"
+                        style={{
+                          color:
+                            factor.impact === 'positive'
+                              ? '#22c55e'
+                              : factor.impact === 'negative'
+                              ? '#ef4444'
+                              : '#6b7280',
+                        }}
+                      >
+                        {factor.score_diff !== null
+                          ? `${factor.score_diff > 0 ? '+' : ''}${factor.score_diff.toFixed(0)}`
+                          : '--'}
+                      </Text>
+                      <Ionicons
+                        name={
+                          factor.impact === 'positive'
+                            ? 'trending-up'
+                            : factor.impact === 'negative'
+                            ? 'trending-down'
+                            : 'remove'
+                        }
+                        size={16}
+                        color={
+                          factor.impact === 'positive'
+                            ? '#22c55e'
+                            : factor.impact === 'negative'
+                            ? '#ef4444'
+                            : '#6b7280'
+                        }
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Analysis Summary */}
+            <View className="bg-gray-800 rounded-xl p-4">
+              <Text className="text-white font-semibold mb-2">Analysis Summary</Text>
+              <Text className="text-gray-400 text-sm">
+                Based on {correlationSummary.total_nights_analyzed} nights over{' '}
+                {correlationSummary.period_days} days
+              </Text>
+            </View>
+          </>
+        )}
+
+        {!correlationSummary && trends.length === 0 && (
+          <View className="items-center py-8">
+            <Ionicons name="analytics-outline" size={48} color="#6b7280" />
+            <Text className="text-gray-400 mt-4 text-center">
+              Keep syncing your sleep data to unlock insights
+              {'\n'}and supplement correlations!
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   // Render settings
   const renderSettings = () => (
     <View>
@@ -723,7 +913,7 @@ export default function SleepScreen() {
           <>
             {/* View Mode Tabs */}
             <View className="flex-row bg-gray-800 rounded-lg p-1 mb-4">
-              {(['dashboard', 'history', 'settings'] as ViewMode[]).map((mode) => (
+              {(['dashboard', 'insights', 'history', 'settings'] as ViewMode[]).map((mode) => (
                 <TouchableOpacity
                   key={mode}
                   onPress={() => setViewMode(mode)}
@@ -744,6 +934,7 @@ export default function SleepScreen() {
 
             {/* Content */}
             {viewMode === 'dashboard' && renderDashboard()}
+            {viewMode === 'insights' && renderInsights()}
             {viewMode === 'history' && renderHistory()}
             {viewMode === 'settings' && renderSettings()}
           </>

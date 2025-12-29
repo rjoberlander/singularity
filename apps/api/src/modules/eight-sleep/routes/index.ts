@@ -25,6 +25,12 @@ router.get('/sessions/:id', EightSleepController.getSession);
 router.get('/analysis', EightSleepController.getAnalysis);
 router.get('/trends', EightSleepController.getTrends);
 
+// Correlations
+router.get('/correlations', EightSleepController.getCorrelations);
+router.get('/correlations/summary', EightSleepController.getCorrelationSummary);
+router.get('/correlations/factors', EightSleepController.getDailyFactorCorrelations);
+router.post('/correlations/build', EightSleepController.buildCorrelations);
+
 // Settings
 router.patch('/settings', EightSleepController.updateSettings);
 router.get('/timezones', EightSleepController.getTimezones);

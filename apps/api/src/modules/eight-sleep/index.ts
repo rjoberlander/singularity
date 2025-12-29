@@ -8,6 +8,7 @@
 
 export { EightSleepController } from './controllers/eightSleepController';
 export { EightSleepService } from './services/eightSleepService';
+export { SleepCorrelationService } from './services/sleepCorrelationService';
 export { default as eightSleepRoutes } from './routes';
 export {
   startSyncScheduler,

@@ -297,6 +297,117 @@ export async function getTimezones(): Promise<{ timezones: string[] }> {
 }
 
 // =============================================
+// CORRELATION TYPES
+// =============================================
+
+export interface SupplementCorrelation {
+  supplement_id: string;
+  supplement_name: string;
+  supplement_brand: string | null;
+  nights_taken: number;
+  nights_not_taken: number;
+  avg_sleep_score_with: number | null;
+  avg_sleep_score_without: number | null;
+  avg_deep_sleep_pct_with: number | null;
+  avg_deep_sleep_pct_without: number | null;
+  avg_hrv_with: number | null;
+  avg_hrv_without: number | null;
+  wake_2_4_am_rate_with: number;
+  wake_2_4_am_rate_without: number;
+  sleep_score_diff: number | null;
+  deep_sleep_diff: number | null;
+  hrv_diff: number | null;
+  wake_rate_diff: number;
+  impact: 'positive' | 'negative' | 'neutral';
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface DailyFactor {
+  factor: string;
+  nights_with: number;
+  nights_without: number;
+  avg_score_with: number | null;
+  avg_score_without: number | null;
+  score_diff: number | null;
+  impact: 'positive' | 'negative' | 'neutral';
+}
+
+export interface CorrelationSummary {
+  period_days: number;
+  total_nights_analyzed: number;
+  top_positive_supplements: SupplementCorrelation[];
+  top_negative_supplements: SupplementCorrelation[];
+  daily_factors: DailyFactor[];
+  recommendations: string[];
+}
+
+// =============================================
+// CORRELATION API CALLS
+// =============================================
+
+/**
+ * Get supplement correlations
+ */
+export async function getCorrelations(days: number = 90): Promise<{ correlations: SupplementCorrelation[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/eight-sleep/correlations?days=${days}`, {
+    headers: await getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get correlations');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get full correlation summary with recommendations
+ */
+export async function getCorrelationSummary(days: number = 90): Promise<CorrelationSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/eight-sleep/correlations/summary?days=${days}`, {
+    headers: await getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get correlation summary');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get daily factor correlations
+ */
+export async function getDailyFactorCorrelations(days: number = 90): Promise<{ factors: DailyFactor[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/eight-sleep/correlations/factors?days=${days}`, {
+    headers: await getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get factor correlations');
+  }
+
+  return response.json();
+}
+
+/**
+ * Build/rebuild correlation data
+ */
+export async function buildCorrelations(days: number = 90): Promise<{ correlations_created: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/eight-sleep/correlations/build`, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({ days }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to build correlations');
+  }
+
+  return response.json();
+}
+
+// =============================================
 // HELPERS
 // =============================================
 

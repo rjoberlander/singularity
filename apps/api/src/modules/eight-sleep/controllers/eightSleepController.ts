@@ -6,6 +6,7 @@
 
 import { Request, Response } from 'express';
 import { EightSleepService } from '../services/eightSleepService';
+import { SleepCorrelationService } from '../services/sleepCorrelationService';
 import { ConnectRequest, UpdateSyncSettingsRequest, COMMON_TIMEZONES } from '../types';
 
 export class EightSleepController {
@@ -329,6 +330,101 @@ export class EightSleepController {
    */
   static async getTimezones(_req: Request, res: Response): Promise<void> {
     res.status(200).json({ timezones: COMMON_TIMEZONES });
+  }
+
+  /**
+   * GET /api/v1/eight-sleep/correlations
+   * Get supplement-sleep correlations
+   */
+  static async getCorrelations(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const days = req.query.days ? parseInt(req.query.days as string, 10) : 90;
+
+      const correlations = await SleepCorrelationService.getSupplementCorrelations(userId, days);
+      res.status(200).json({ correlations });
+    } catch (error) {
+      console.error('Failed to get correlations:', error);
+      res.status(500).json({ error: 'Failed to get correlations' });
+    }
+  }
+
+  /**
+   * GET /api/v1/eight-sleep/correlations/summary
+   * Get full correlation summary with recommendations
+   */
+  static async getCorrelationSummary(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const days = req.query.days ? parseInt(req.query.days as string, 10) : 90;
+
+      const summary = await SleepCorrelationService.getCorrelationSummary(userId, days);
+      res.status(200).json(summary);
+    } catch (error) {
+      console.error('Failed to get correlation summary:', error);
+      res.status(500).json({ error: 'Failed to get correlation summary' });
+    }
+  }
+
+  /**
+   * POST /api/v1/eight-sleep/correlations/build
+   * Build/rebuild correlation data
+   */
+  static async buildCorrelations(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const days = req.body.days ? parseInt(req.body.days as string, 10) : 90;
+
+      const count = await SleepCorrelationService.buildCorrelations(userId, days);
+      res.status(200).json({
+        message: 'Correlations built successfully',
+        correlations_created: count,
+      });
+    } catch (error) {
+      console.error('Failed to build correlations:', error);
+      res.status(500).json({ error: 'Failed to build correlations' });
+    }
+  }
+
+  /**
+   * GET /api/v1/eight-sleep/correlations/factors
+   * Get daily factor correlations (alcohol, caffeine, etc.)
+   */
+  static async getDailyFactorCorrelations(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const days = req.query.days ? parseInt(req.query.days as string, 10) : 90;
+
+      const factors = await SleepCorrelationService.getDailyFactorCorrelations(userId, days);
+      res.status(200).json({ factors });
+    } catch (error) {
+      console.error('Failed to get factor correlations:', error);
+      res.status(500).json({ error: 'Failed to get factor correlations' });
+    }
   }
 }
 
