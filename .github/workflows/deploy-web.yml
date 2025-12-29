@@ -3,7 +3,7 @@ name: Deploy Web to Digital Ocean
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'apps/web/**'
       - '.github/workflows/deploy-web.yml'
@@ -22,7 +22,7 @@ jobs:
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/singularity
-            git pull origin main
+            git pull origin master
             cd apps/web
             npm ci --production=false
             npm run build

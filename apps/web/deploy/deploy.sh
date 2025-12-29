@@ -36,7 +36,7 @@ cd "$WEB_DIR"
 
 # Pull latest code
 echo -e "${YELLOW}Pulling latest code...${NC}"
-git pull origin main
+git pull origin master
 
 # Install dependencies (skip with --skip-install flag)
 if [ "$1" != "--skip-install" ]; then
