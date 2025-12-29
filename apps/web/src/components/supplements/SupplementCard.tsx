@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useToggleSupplement } from "@/hooks/useSupplements";
-import { Pill, Clock, DollarSign, ExternalLink, MoreVertical } from "lucide-react";
+import { Pill, Clock, DollarSign, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 
 interface SupplementCardProps {
   supplement: Supplement;
@@ -18,7 +19,12 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    await toggleSupplement.mutateAsync(supplement.id);
+    try {
+      await toggleSupplement.mutateAsync(supplement.id);
+      toast.success(supplement.is_active ? "Supplement paused" : "Supplement resumed");
+    } catch (error) {
+      toast.error("Failed to update supplement");
+    }
   };
 
   const formatTiming = (timing?: string) => {

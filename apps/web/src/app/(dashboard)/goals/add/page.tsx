@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const CATEGORIES = [
   "fitness",
@@ -58,9 +59,11 @@ export default function AddGoalPage() {
         ...formData,
         status: "active",
       });
+      toast.success("Goal created successfully");
       router.push("/goals");
     } catch (error) {
       console.error("Failed to create goal:", error);
+      toast.error("Failed to create goal. Please try again.");
     }
   };
 

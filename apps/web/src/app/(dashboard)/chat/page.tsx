@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Bot, User, Send, Loader2, Sparkles, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 const SUGGESTED_PROMPTS = [
   "What supplements should I consider based on my biomarkers?",
@@ -61,6 +62,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       console.error("Chat error:", error);
+      toast.error("Failed to get response. Please try again.");
       const errorMessage: ChatMessage = {
         role: "assistant",
         content: "Sorry, I encountered an error. Please try again.",

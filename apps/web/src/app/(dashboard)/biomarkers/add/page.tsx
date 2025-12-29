@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreateBiomarkerRequest, ExtractedBiomarkerData } from "@/types";
-import { Camera, FileText, MessageCircle, PenLine, Upload, Loader2, Check, X } from "lucide-react";
+import { Camera, FileText, PenLine, Upload, Loader2, Check } from "lucide-react";
+import { toast } from "sonner";
 
 const CATEGORIES = [
   "blood",
@@ -83,8 +84,10 @@ export default function AddBiomarkerPage() {
       setExtractedData(result);
       // Select all by default
       setSelectedBiomarkers(new Set(result.biomarkers.map((_, i) => i)));
+      toast.success(`Extracted ${result.biomarkers.length} biomarkers`);
     } catch (error) {
       console.error("Extraction failed:", error);
+      toast.error("Failed to extract biomarkers. Please try again.");
     }
   };
 
@@ -99,8 +102,10 @@ export default function AddBiomarkerPage() {
       setExtractedData(result);
       // Select all by default
       setSelectedBiomarkers(new Set(result.biomarkers.map((_, i) => i)));
+      toast.success(`Extracted ${result.biomarkers.length} biomarkers`);
     } catch (error) {
       console.error("Extraction failed:", error);
+      toast.error("Failed to extract biomarkers. Please try again.");
     }
   };
 
@@ -108,9 +113,11 @@ export default function AddBiomarkerPage() {
     e.preventDefault();
     try {
       await createBiomarker.mutateAsync(manualData);
+      toast.success("Biomarker saved successfully");
       router.push("/biomarkers");
     } catch (error) {
       console.error("Failed to create biomarker:", error);
+      toast.error("Failed to save biomarker. Please try again.");
     }
   };
 
@@ -134,9 +141,11 @@ export default function AddBiomarkerPage() {
 
     try {
       await createBiomarkersBulk.mutateAsync(selectedData);
+      toast.success(`Saved ${selectedData.length} biomarkers`);
       router.push("/biomarkers");
     } catch (error) {
       console.error("Failed to save biomarkers:", error);
+      toast.error("Failed to save biomarkers. Please try again.");
     }
   };
 
