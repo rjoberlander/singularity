@@ -62,22 +62,28 @@ export function BiomarkerChart({
   const yMax = maxValue + padding;
 
   return (
-    <div className="h-[300px] w-full">
+    <div className="h-[200px] sm:h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
-          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+          margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#333" />
           <XAxis
             dataKey="date"
             stroke="#666"
-            tick={{ fill: "#999", fontSize: 12 }}
+            tick={{ fill: "#999", fontSize: 10 }}
+            tickFormatter={(value) => {
+              // Shorter format for mobile - just show month/day
+              const parts = value.split(", ");
+              return parts[0]; // "MMM d" part only
+            }}
           />
           <YAxis
             domain={[yMin, yMax]}
             stroke="#666"
-            tick={{ fill: "#999", fontSize: 12 }}
+            tick={{ fill: "#999", fontSize: 10 }}
+            width={40}
           />
           <Tooltip
             contentStyle={{
@@ -108,13 +114,12 @@ export function BiomarkerChart({
             />
           )}
 
-          {/* Reference lines */}
+          {/* Reference lines - labels hidden on mobile for cleaner look */}
           {referenceRangeLow !== undefined && (
             <ReferenceLine
               y={referenceRangeLow}
               stroke="#ef4444"
               strokeDasharray="5 5"
-              label={{ value: "Low", fill: "#ef4444", fontSize: 10 }}
             />
           )}
           {referenceRangeHigh !== undefined && (
@@ -122,7 +127,6 @@ export function BiomarkerChart({
               y={referenceRangeHigh}
               stroke="#f59e0b"
               strokeDasharray="5 5"
-              label={{ value: "High", fill: "#f59e0b", fontSize: 10 }}
             />
           )}
 

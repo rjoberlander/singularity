@@ -9,6 +9,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -25,8 +26,21 @@ export default function LoginPage() {
       });
 
       if (error) {
+        // If email not confirmed, redirect to check-email page
+        if (error.message.toLowerCase().includes('email not confirmed')) {
+          router.push(`/check-email?email=${encodeURIComponent(email)}`);
+          return;
+        }
         setError(error.message);
         return;
+      }
+
+      // If not "Remember me", set session to expire when browser closes
+      if (!rememberMe) {
+        // Store flag to clear session on browser close
+        sessionStorage.setItem('clearSessionOnClose', 'true');
+      } else {
+        sessionStorage.removeItem('clearSessionOnClose');
       }
 
       router.push("/dashboard");
@@ -80,9 +94,11 @@ export default function LoginPage() {
         </div>
 
         <div className="flex items-center justify-between">
-          <label className="flex items-center">
+          <label className="flex items-center cursor-pointer">
             <input
               type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
               className="rounded border-border bg-input"
             />
             <span className="ml-2 text-sm text-muted-foreground">

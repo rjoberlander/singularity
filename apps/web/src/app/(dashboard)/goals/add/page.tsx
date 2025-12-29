@@ -98,7 +98,7 @@ export default function AddGoalPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
                 <Select
@@ -152,7 +152,7 @@ export default function AddGoalPage() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="current_value">Current Value</Label>
                 <Input
@@ -216,13 +216,13 @@ export default function AddGoalPage() {
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
-              <Link href="/goals">
-                <Button type="button" variant="outline">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
+              <Link href="/goals" className="w-full sm:w-auto">
+                <Button type="button" variant="outline" className="w-full sm:w-auto">
                   Cancel
                 </Button>
               </Link>
-              <Button type="submit" disabled={createGoal.isPending}>
+              <Button type="submit" disabled={createGoal.isPending} className="w-full sm:w-auto">
                 {createGoal.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 Create Goal
               </Button>

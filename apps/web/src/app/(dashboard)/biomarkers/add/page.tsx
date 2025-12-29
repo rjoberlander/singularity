@@ -221,11 +221,11 @@ export default function AddBiomarkerPage() {
               }`}
               onClick={() => toggleBiomarkerSelection(index)}
             >
-              <CardContent className="p-4 flex items-center justify-between">
+              <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0">
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-5 h-5 rounded border flex items-center justify-center ${
+                      className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
                         selectedBiomarkers.has(index)
                           ? "bg-primary border-primary"
                           : "border-muted-foreground"
@@ -243,29 +243,32 @@ export default function AddBiomarkerPage() {
                     </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xl font-bold">
-                    {biomarker.value} <span className="text-sm font-normal text-muted-foreground">{biomarker.unit}</span>
-                  </p>
-                  {biomarker.reference_range_low !== undefined && (
-                    <p className="text-xs text-muted-foreground">
-                      Ref: {biomarker.reference_range_low} - {biomarker.reference_range_high}
+                <div className="flex items-center justify-between sm:justify-end gap-4 ml-8 sm:ml-0">
+                  <div className="text-left sm:text-right">
+                    <p className="text-lg sm:text-xl font-bold">
+                      {biomarker.value} <span className="text-sm font-normal text-muted-foreground">{biomarker.unit}</span>
                     </p>
-                  )}
-                </div>
-                <div className="ml-4">
-                  <p className="text-xs text-muted-foreground">
-                    {Math.round(biomarker.confidence * 100)}% confidence
-                  </p>
+                    {biomarker.reference_range_low !== undefined && (
+                      <p className="text-xs text-muted-foreground">
+                        Ref: {biomarker.reference_range_low} - {biomarker.reference_range_high}
+                      </p>
+                    )}
+                  </div>
+                  <div className="sm:ml-4">
+                    <p className="text-xs text-muted-foreground">
+                      {Math.round(biomarker.confidence * 100)}%
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <Button
             variant="outline"
+            className="w-full sm:w-auto"
             onClick={() => {
               setExtractedData(null);
               setSelectedBiomarkers(new Set());
@@ -274,6 +277,7 @@ export default function AddBiomarkerPage() {
             Back
           </Button>
           <Button
+            className="w-full sm:w-auto"
             onClick={handleConfirmExtracted}
             disabled={selectedBiomarkers.size === 0 || createBiomarkersBulk.isPending}
           >
@@ -426,7 +430,7 @@ export default function AddBiomarkerPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleManualSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Biomarker Name</Label>
                     <Input
@@ -461,7 +465,7 @@ export default function AddBiomarkerPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="value">Value</Label>
                     <Input
@@ -504,7 +508,7 @@ export default function AddBiomarkerPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="ref_low">Reference Range Low</Label>
                     <Input

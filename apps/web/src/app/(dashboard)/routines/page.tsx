@@ -82,8 +82,8 @@ export default function RoutinesPage() {
       />
 
       {/* Day Selector */}
-      <div className="flex items-center gap-2">
-        <Calendar className="w-4 h-4 text-muted-foreground" />
+      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+        <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
         <div className="flex gap-1">
           {DAYS.map((day) => (
             <Button
@@ -91,7 +91,7 @@ export default function RoutinesPage() {
               variant={selectedDay === day.value ? "default" : "secondary"}
               size="sm"
               onClick={() => setSelectedDay(day.value)}
-              className="w-10"
+              className="w-10 shrink-0"
             >
               {day.label}
             </Button>

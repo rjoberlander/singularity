@@ -47,8 +47,8 @@ export default function RegisterPage() {
         return;
       }
 
-      // Redirect to login with success message
-      router.push("/login?registered=true");
+      // Redirect to check email page
+      router.push(`/check-email?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError("An unexpected error occurred");
     } finally {

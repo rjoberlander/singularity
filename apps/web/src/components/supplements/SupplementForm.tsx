@@ -161,7 +161,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name *</Label>
               <Input
@@ -183,7 +183,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="dose">Dose</Label>
               <Input
@@ -219,7 +219,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
               <Select
@@ -258,7 +258,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="frequency">Frequency</Label>
               <Select
@@ -293,7 +293,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="price">Price ($)</Label>
               <Input
@@ -332,7 +332,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             />
           </div>
 
-          <DialogFooter className="flex justify-between">
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
             <div>
               {isEditing && (
                 <Button
@@ -340,6 +340,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                   variant="destructive"
                   onClick={handleDelete}
                   disabled={deleteSupplement.isPending}
+                  className="w-full sm:w-auto"
                 >
                   {deleteSupplement.isPending ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -350,11 +351,11 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 </Button>
               )}
             </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending}>
+              <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
                 {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isEditing ? "Update" : "Add"} Supplement
               </Button>

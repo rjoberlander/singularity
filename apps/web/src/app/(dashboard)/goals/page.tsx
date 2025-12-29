@@ -54,7 +54,7 @@ export default function GoalsPage() {
 
       {/* Stats */}
       {goals && goals.length > 0 && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-secondary/50 rounded-lg p-4 text-center">
             <p className="text-2xl font-bold">{stats.total}</p>
             <p className="text-sm text-muted-foreground">Total</p>
@@ -75,7 +75,7 @@ export default function GoalsPage() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((filter) => (
           <Button
             key={filter.value}

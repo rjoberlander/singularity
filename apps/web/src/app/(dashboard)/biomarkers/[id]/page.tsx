@@ -92,7 +92,7 @@ export default function BiomarkerDetailPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link href="/biomarkers">
             <Button variant="ghost" size="icon">
@@ -106,46 +106,48 @@ export default function BiomarkerDetailPage({ params }: PageProps) {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-14 sm:ml-0">
           <Link href={`/biomarkers/${biomarker.id}/edit`}>
-            <Button variant="outline">
-              <Edit className="w-4 h-4 mr-2" />
-              Edit
+            <Button variant="outline" size="sm" className="sm:size-default">
+              <Edit className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Edit</span>
             </Button>
           </Link>
           <Button
             variant="destructive"
+            size="sm"
+            className="sm:size-default"
             onClick={handleDelete}
             disabled={deleteBiomarker.isPending}
           >
             {deleteBiomarker.isPending ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 className="w-4 h-4 sm:mr-2 animate-spin" />
             ) : (
-              <Trash2 className="w-4 h-4 mr-2" />
+              <Trash2 className="w-4 h-4 sm:mr-2" />
             )}
-            Delete
+            <span className="hidden sm:inline">Delete</span>
           </Button>
         </div>
       </div>
 
       {/* Current Value Card */}
       <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Current Value</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold">{biomarker.value}</span>
-                <span className="text-xl text-muted-foreground">{biomarker.unit}</span>
+                <span className="text-3xl sm:text-4xl font-bold">{biomarker.value}</span>
+                <span className="text-lg sm:text-xl text-muted-foreground">{biomarker.unit}</span>
               </div>
               <div className="flex items-center gap-2 mt-2">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
+                <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
                 <span className="text-sm text-muted-foreground">
                   Tested on {formatDate(biomarker.date_tested)}
                 </span>
               </div>
             </div>
-            <div className="text-right">
+            <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:text-right">
               {biomarker.status && (
                 <Badge
                   className={`${getStatusBgColor(biomarker.status)} ${getStatusColor(biomarker.status)} border-0`}
@@ -154,7 +156,7 @@ export default function BiomarkerDetailPage({ params }: PageProps) {
                 </Badge>
               )}
               {biomarker.ai_extracted && (
-                <p className="text-xs text-muted-foreground mt-2">AI Extracted</p>
+                <p className="text-xs text-muted-foreground">AI Extracted</p>
               )}
             </div>
           </div>

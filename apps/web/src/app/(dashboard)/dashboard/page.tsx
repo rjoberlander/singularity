@@ -1,213 +1,359 @@
 "use client";
 
-import Link from "next/link";
-import { useBiomarkers } from "@/hooks/useBiomarkers";
-import { useSupplements } from "@/hooks/useSupplements";
-import { useGoals } from "@/hooks/useGoals";
-import { useRoutines } from "@/hooks/useRoutines";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Activity,
-  Pill,
-  Target,
-  Clock,
-  Plus,
-  Camera,
-  MessageCircle,
-} from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useAIChat, useExtractBiomarkers } from "@/hooks/useAI";
+import { ChatMessage } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Bot, User, Send, Loader2, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
+import { toast } from "sonner";
 
-interface StatsCardProps {
-  title: string;
-  value: string | number;
-  subtitle: string;
-  icon: React.ReactNode;
-  href: string;
-  loading?: boolean;
-}
-
-function StatsCard({ title, value, subtitle, icon, href, loading }: StatsCardProps) {
-  return (
-    <Link
-      href={href}
-      className="bg-card border border-border rounded-lg p-6 hover:border-primary/50 transition-colors"
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          {loading ? (
-            <Skeleton className="h-9 w-16 mt-1" />
-          ) : (
-            <p className="text-3xl font-bold mt-1">{value}</p>
-          )}
-          <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
-        </div>
-        <div className="p-3 bg-primary/10 rounded-lg text-primary">
-          {icon}
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-interface QuickActionProps {
-  title: string;
-  icon: React.ReactNode;
-  href: string;
-}
-
-function QuickAction({ title, icon, href }: QuickActionProps) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-3 p-4 bg-card border border-border rounded-lg hover:border-primary/50 transition-colors"
-    >
-      <div className="text-primary">{icon}</div>
-      <span className="font-medium">{title}</span>
-    </Link>
-  );
-}
+const SUGGESTED_PROMPTS = [
+  "What supplements should I consider?",
+  "Analyze my lab results",
+  "How can I improve my sleep?",
+  "Create a morning routine",
+];
 
 export default function DashboardPage() {
-  const { data: biomarkers, isLoading: biomarkersLoading } = useBiomarkers();
-  const { data: supplements, isLoading: supplementsLoading } = useSupplements();
-  const { data: goals, isLoading: goalsLoading } = useGoals();
-  const { data: routines, isLoading: routinesLoading } = useRoutines();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const activeSupplements = supplements?.filter((s) => s.is_active) || [];
-  const activeGoals = goals?.filter((g) => g.status === "active") || [];
+  const chatMutation = useAIChat();
+  const extractMutation = useExtractBiomarkers();
 
-  // Get recent biomarkers for activity feed
-  const recentBiomarkers = biomarkers?.slice(0, 5) || [];
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    // Focus textarea on mount
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAttachedFile(file);
+
+      // Create preview for images
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setFilePreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setFilePreview(null);
+      }
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setAttachedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const processFileForAI = async (file: File): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        // Remove data URL prefix to get base64
+        const base64 = result.split(",")[1];
+        resolve(base64);
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleSend = async () => {
+    if ((!input.trim() && !attachedFile) || chatMutation.isPending || extractMutation.isPending) return;
+
+    let userMessageContent = input.trim();
+    const hasFile = !!attachedFile;
+    const fileName = attachedFile?.name;
+    const isImage = attachedFile?.type.startsWith("image/");
+
+    // Add user message
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: userMessageContent || (hasFile ? `Uploaded: ${fileName}` : ""),
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+
+    // Process file if attached
+    if (hasFile && attachedFile) {
+      const fileToProcess = attachedFile;
+      handleRemoveFile();
+
+      try {
+        if (isImage) {
+          // Extract biomarkers from image
+          const base64 = await processFileForAI(fileToProcess);
+          if (base64) {
+            const extractResult = await extractMutation.mutateAsync({
+              image_base64: base64,
+              source_type: "image",
+            });
+
+            // Send results to chat for analysis
+            const analysisPrompt = userMessageContent
+              ? userMessageContent
+              : "Please analyze these extracted biomarkers and provide insights.";
+
+            const response = await chatMutation.mutateAsync({
+              message: `${analysisPrompt}\n\nExtracted data from uploaded image:\n${JSON.stringify(extractResult, null, 2)}`,
+              include_user_data: true,
+            });
+
+            const assistantMessage: ChatMessage = {
+              role: "assistant",
+              content: response.response,
+              timestamp: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, assistantMessage]);
+          }
+        } else {
+          // Read text file content
+          const textContent = await fileToProcess.text();
+          const analysisPrompt = userMessageContent
+            ? userMessageContent
+            : "Please analyze this data and provide insights.";
+
+          const response = await chatMutation.mutateAsync({
+            message: `${analysisPrompt}\n\nContent from ${fileName}:\n${textContent.slice(0, 10000)}`,
+            include_user_data: true,
+          });
+
+          const assistantMessage: ChatMessage = {
+            role: "assistant",
+            content: response.response,
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+      } catch (error) {
+        console.error("Processing error:", error);
+        toast.error("Failed to process file. Please try again.");
+        const errorMessage: ChatMessage = {
+          role: "assistant",
+          content: "Sorry, I had trouble processing that file. Please try again or paste the content directly.",
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } else {
+      // Regular chat message
+      try {
+        const response = await chatMutation.mutateAsync({
+          message: userMessageContent,
+          include_user_data: true,
+        });
+
+        const assistantMessage: ChatMessage = {
+          role: "assistant",
+          content: response.response,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } catch (error) {
+        console.error("Chat error:", error);
+        toast.error("Failed to get response. Please try again.");
+        const errorMessage: ChatMessage = {
+          role: "assistant",
+          content: "Sorry, I encountered an error. Please try again.",
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleSuggestedPrompt = (prompt: string) => {
+    setInput(prompt);
+    textareaRef.current?.focus();
+  };
+
+  const isLoading = chatMutation.isPending || extractMutation.isPending;
 
   return (
-    <div className="space-y-8">
-      {/* Welcome Section */}
-      <div>
-        <h1 className="text-2xl font-bold">Welcome back</h1>
-        <p className="text-muted-foreground">
-          Here&apos;s an overview of your health tracking
-        </p>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard
-          title="Biomarkers"
-          value={biomarkers?.length || 0}
-          subtitle="tracked"
-          icon={<Activity className="w-6 h-6" />}
-          href="/biomarkers"
-          loading={biomarkersLoading}
-        />
-        <StatsCard
-          title="Supplements"
-          value={activeSupplements.length}
-          subtitle="active"
-          icon={<Pill className="w-6 h-6" />}
-          href="/supplements"
-          loading={supplementsLoading}
-        />
-        <StatsCard
-          title="Goals"
-          value={activeGoals.length}
-          subtitle="in progress"
-          icon={<Target className="w-6 h-6" />}
-          href="/goals"
-          loading={goalsLoading}
-        />
-        <StatsCard
-          title="Routines"
-          value={routines?.length || 0}
-          subtitle="configured"
-          icon={<Clock className="w-6 h-6" />}
-          href="/routines"
-          loading={routinesLoading}
-        />
-      </div>
-
-      {/* Quick Actions */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <QuickAction
-            title="Add Lab Results"
-            icon={<Camera className="w-5 h-5" />}
-            href="/biomarkers/add"
-          />
-          <QuickAction
-            title="Add Supplement"
-            icon={<Plus className="w-5 h-5" />}
-            href="/supplements"
-          />
-          <QuickAction
-            title="Chat with AI"
-            icon={<MessageCircle className="w-5 h-5" />}
-            href="/chat"
-          />
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Recent Biomarkers</h2>
-        {biomarkersLoading ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <Skeleton key={i} className="h-16 rounded-lg" />
-            ))}
-          </div>
-        ) : recentBiomarkers.length > 0 ? (
-          <div className="space-y-3">
-            {recentBiomarkers.map((biomarker) => (
-              <Link
-                key={biomarker.id}
-                href={`/biomarkers/${biomarker.id}`}
-                className="flex items-center justify-between p-4 bg-card border border-border rounded-lg hover:border-primary/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <Activity className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{biomarker.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(biomarker.date_tested).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-bold">
-                    {biomarker.value} <span className="text-sm font-normal text-muted-foreground">{biomarker.unit}</span>
-                  </p>
-                  {biomarker.status && (
-                    <p className={`text-xs ${
-                      biomarker.status === "optimal" || biomarker.status === "normal"
-                        ? "text-green-500"
-                        : biomarker.status === "high"
-                        ? "text-yellow-500"
-                        : "text-red-500"
-                    }`}>
-                      {biomarker.status.charAt(0).toUpperCase() + biomarker.status.slice(1)}
-                    </p>
-                  )}
-                </div>
-              </Link>
-            ))}
-            <Link
-              href="/biomarkers"
-              className="block text-center text-sm text-primary hover:underline py-2"
-            >
-              View all biomarkers
-            </Link>
+    <div className="flex flex-col h-[calc(100vh-8rem)]" data-testid="ai-chat-dashboard">
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <Bot className="w-16 h-16 text-muted-foreground mb-4" />
+            <h1 className="text-2xl font-bold mb-2">How can I help you today?</h1>
+            <p className="text-muted-foreground mb-6 max-w-md">
+              Ask questions, upload lab results, or import health data. I can analyze your biomarkers and provide personalized insights.
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
+              {SUGGESTED_PROMPTS.map((prompt, index) => (
+                <Button
+                  key={index}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSuggestedPrompt(prompt)}
+                  data-testid={`suggested-prompt-${index}`}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-lg p-8 text-center">
-            <Activity className="w-12 h-12 mx-auto text-muted-foreground" />
-            <p className="mt-4 text-muted-foreground">No biomarkers yet</p>
-            <p className="text-sm text-muted-foreground">
-              Start tracking your health by adding lab results
+          messages.map((message, index) => (
+            <MessageBubble key={index} message={message} />
+          ))
+        )}
+
+        {isLoading && (
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-primary/10 rounded-full">
+              <Bot className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Thinking...
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* File Preview */}
+      {attachedFile && (
+        <div className="mb-2 p-3 bg-secondary rounded-lg flex items-center gap-3">
+          {filePreview ? (
+            <img src={filePreview} alt="Preview" className="w-12 h-12 object-cover rounded" />
+          ) : (
+            <div className="w-12 h-12 bg-primary/10 rounded flex items-center justify-center">
+              <FileText className="w-6 h-6 text-primary" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{attachedFile.name}</p>
+            <p className="text-xs text-muted-foreground">
+              {(attachedFile.size / 1024).toFixed(1)} KB
             </p>
           </div>
+          <Button variant="ghost" size="icon" onClick={handleRemoveFile}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+
+      {/* Input Area */}
+      <div className="flex gap-2">
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          accept="image/*,.txt,.csv,.json,.pdf"
+          className="hidden"
+          data-testid="file-input"
+        />
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isLoading}
+          className="shrink-0"
+          data-testid="attach-file-button"
+        >
+          <Paperclip className="w-5 h-5" />
+        </Button>
+        <Textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask anything about your health..."
+          className="min-h-[60px] max-h-[120px]"
+          disabled={isLoading}
+          data-testid="chat-input"
+        />
+        <Button
+          onClick={handleSend}
+          disabled={(!input.trim() && !attachedFile) || isLoading}
+          className="h-auto shrink-0"
+          data-testid="send-button"
+        >
+          {isLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Send className="w-5 h-5" />
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface MessageBubbleProps {
+  message: ChatMessage;
+}
+
+function MessageBubble({ message }: MessageBubbleProps) {
+  const isUser = message.role === "user";
+
+  return (
+    <div
+      className={`flex items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}
+      data-testid={`message-${message.role}`}
+    >
+      <div
+        className={`p-2 rounded-full ${
+          isUser ? "bg-primary" : "bg-primary/10"
+        }`}
+      >
+        {isUser ? (
+          <User className="w-5 h-5 text-primary-foreground" />
+        ) : (
+          <Bot className="w-5 h-5 text-primary" />
+        )}
+      </div>
+      <div
+        className={`flex-1 max-w-[80%] rounded-lg p-4 ${
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "bg-secondary"
+        }`}
+      >
+        <p className="whitespace-pre-wrap">{message.content}</p>
+        {message.timestamp && (
+          <p
+            className={`text-xs mt-2 ${
+              isUser ? "text-primary-foreground/70" : "text-muted-foreground"
+            }`}
+          >
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </p>
         )}
       </div>
     </div>
