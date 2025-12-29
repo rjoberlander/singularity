@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
+import { toast } from "sonner";
 
 const TIME_OF_DAY_OPTIONS = [
   { value: "morning", label: "Morning" },
@@ -168,13 +169,16 @@ export function RoutineDialog({
     try {
       if (isEdit && routine) {
         await updateRoutine.mutateAsync({ id: routine.id, data: payload as Partial<Routine> });
+        toast.success("Routine updated successfully");
       } else {
         await createRoutine.mutateAsync(payload as Partial<Routine>);
+        toast.success("Routine created successfully");
       }
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       console.error("Failed to save routine:", error);
+      toast.error("Failed to save routine. Please try again.");
     }
   };
 
@@ -185,10 +189,12 @@ export function RoutineDialog({
 
     try {
       await deleteRoutine.mutateAsync(routine.id);
+      toast.success("Routine deleted");
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       console.error("Failed to delete routine:", error);
+      toast.error("Failed to delete routine. Please try again.");
     }
   };
 

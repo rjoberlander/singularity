@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Users, Mail, Copy, Check, Loader2, Trash2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 
 export function FamilySharing() {
   const { data: userLinks, isLoading } = useUserLinks();
@@ -51,11 +52,13 @@ export function FamilySharing() {
         email: inviteEmail || undefined,
         permission: invitePermission,
       });
+      toast.success("Invitation sent successfully");
       setInviteDialogOpen(false);
       setInviteEmail("");
       setInvitePermission("read");
     } catch (error) {
       console.error("Failed to invite user:", error);
+      toast.error("Failed to send invitation. Please try again.");
     }
   };
 
@@ -63,14 +66,17 @@ export function FamilySharing() {
     if (!confirm("Are you sure you want to revoke this access?")) return;
     try {
       await revokeUserLink.mutateAsync(id);
+      toast.success("Access revoked");
     } catch (error) {
       console.error("Failed to revoke access:", error);
+      toast.error("Failed to revoke access. Please try again.");
     }
   };
 
   const copyInviteCode = (code: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(code);
+    toast.success("Invite code copied to clipboard");
     setTimeout(() => setCopiedCode(null), 2000);
   };
 

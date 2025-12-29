@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { MobileNav } from "./MobileNav";
+import { ThemeToggle } from "./ThemeToggle";
 import {
   LogOut,
   User as UserIcon,
   Settings,
-  Moon,
 } from "lucide-react";
 
 interface HeaderProps {
@@ -37,10 +37,8 @@ export function Header({ user }: HeaderProps) {
 
       {/* Right side */}
       <div className="flex items-center gap-4">
-        {/* Theme toggle placeholder */}
-        <button className="p-2 hover:bg-secondary rounded-lg text-muted-foreground">
-          <Moon className="w-5 h-5" />
-        </button>
+        {/* Theme toggle */}
+        <ThemeToggle />
 
         {/* User menu */}
         <div className="relative">

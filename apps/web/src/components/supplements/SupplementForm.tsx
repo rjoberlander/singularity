@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSupplement, useUpdateSupplement, useDeleteSupplement } from "@/hooks/useSupplements";
 import { Loader2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 const CATEGORIES = [
   "vitamin",
@@ -121,12 +122,15 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     try {
       if (isEditing && supplement) {
         await updateSupplement.mutateAsync({ id: supplement.id, data: formData });
+        toast.success("Supplement updated successfully");
       } else {
         await createSupplement.mutateAsync(formData);
+        toast.success("Supplement added successfully");
       }
       onOpenChange(false);
     } catch (error) {
       console.error("Failed to save supplement:", error);
+      toast.error("Failed to save supplement. Please try again.");
     }
   };
 
@@ -136,9 +140,11 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     if (confirm("Are you sure you want to delete this supplement?")) {
       try {
         await deleteSupplement.mutateAsync(supplement.id);
+        toast.success("Supplement deleted");
         onOpenChange(false);
       } catch (error) {
         console.error("Failed to delete supplement:", error);
+        toast.error("Failed to delete supplement. Please try again.");
       }
     }
   };
