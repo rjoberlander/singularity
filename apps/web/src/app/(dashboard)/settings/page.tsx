@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FamilySharing } from "@/components/settings/FamilySharing";
+import { DataExport } from "@/components/settings/DataExport";
 import {
   User,
   Bell,
@@ -334,54 +335,7 @@ export default function SettingsPage() {
         {/* Data Tab */}
         <TabsContent value="data">
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Export Data</CardTitle>
-                <CardDescription>
-                  Download your health data in various formats
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-secondary/50 rounded-lg">
-                  <div>
-                    <p className="font-medium">Export All Data (JSON)</p>
-                    <p className="text-sm text-muted-foreground">
-                      Complete export of all your health data
-                    </p>
-                  </div>
-                  <Button variant="outline">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-secondary/50 rounded-lg">
-                  <div>
-                    <p className="font-medium">Export Biomarkers (CSV)</p>
-                    <p className="text-sm text-muted-foreground">
-                      Spreadsheet-compatible biomarker data
-                    </p>
-                  </div>
-                  <Button variant="outline">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-secondary/50 rounded-lg">
-                  <div>
-                    <p className="font-medium">Export Supplements (CSV)</p>
-                    <p className="text-sm text-muted-foreground">
-                      Your supplement stack data
-                    </p>
-                  </div>
-                  <Button variant="outline">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <DataExport />
 
             <Card className="border-destructive/50">
               <CardHeader>
