@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import { useEquipment, useCreateEquipment, useUpdateEquipment, useToggleEquipment, useDeleteEquipment, useCreateEquipmentBulk } from "@/hooks/useEquipment";
-import { useExtractEquipment } from "@/hooks/useAI";
+import { useExtractEquipment, useHasActiveAIKey } from "@/hooks/useAI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,10 +54,16 @@ import {
   Loader2,
   Check,
   Brain,
+  AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
+
+// ~50K chars is safe for Claude's context (leaves room for system prompt + response)
+const MAX_TEXT_LENGTH = 50000;
+const WARNING_THRESHOLD = 40000;
 
 const CATEGORIES = [
   "All",
@@ -150,6 +157,42 @@ export default function EquipmentPage() {
   const deleteMutation = useDeleteEquipment();
   const createBulkMutation = useCreateEquipmentBulk();
   const extractMutation = useExtractEquipment();
+
+  // Check for AI API key
+  const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
+
+  // Detect duplicates - same name + same brand
+  const duplicates = useMemo(() => {
+    if (extractedEquipment.length === 0 || !equipment) return new Set<number>();
+
+    const dupes = new Set<number>();
+
+    extractedEquipment.forEach((extracted, index) => {
+      const isDuplicate = equipment.some((existing) => {
+        const sameName = existing.name.toLowerCase() === extracted.name.toLowerCase();
+        const sameBrand = (!existing.brand && !extracted.brand) ||
+          (existing.brand?.toLowerCase() === extracted.brand?.toLowerCase());
+        return sameName && sameBrand;
+      });
+
+      if (isDuplicate) {
+        dupes.add(index);
+      }
+    });
+
+    return dupes;
+  }, [extractedEquipment, equipment]);
+
+  // Auto-deselect duplicates when detected
+  useEffect(() => {
+    if (duplicates.size > 0 && extractedEquipment.length > 0) {
+      setSelectedExtracted((prev) => {
+        const newSelected = new Set(prev);
+        duplicates.forEach((index) => newSelected.delete(index));
+        return newSelected;
+      });
+    }
+  }, [duplicates, extractedEquipment]);
 
   const filteredEquipment = equipment?.filter((e) =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -375,21 +418,46 @@ export default function EquipmentPage() {
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">AI EXTRACT</h3>
                   <div className="border rounded-lg p-2 space-y-2">
-                    <Textarea
-                      data-testid="equipment-ai-input"
-                      value={aiInput}
-                      onChange={(e) => setAiInput(e.target.value)}
-                      placeholder="Paste equipment info (device names, specs, usage protocols)..."
-                      className="min-h-[80px] text-xs resize-none"
-                      rows={4}
-                      disabled={isExtracting}
-                    />
+                    {/* API Key Warning */}
+                    {!isCheckingKey && !hasAIKey && (
+                      <Alert variant="destructive" className="py-2">
+                        <AlertTriangle className="h-3 w-3" />
+                        <AlertDescription className="text-xs">
+                          No API key configured.{" "}
+                          <Link href="/settings" className="underline font-medium hover:no-underline">
+                            Add API Key
+                          </Link>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="space-y-1">
+                      <Textarea
+                        data-testid="equipment-ai-input"
+                        value={aiInput}
+                        onChange={(e) => setAiInput(e.target.value.slice(0, MAX_TEXT_LENGTH))}
+                        placeholder="Paste equipment info (device names, specs, usage protocols)..."
+                        className="min-h-[80px] text-xs resize-none"
+                        rows={4}
+                        disabled={isExtracting}
+                      />
+                      {aiInput.length > 0 && (
+                        <div className={`text-[10px] text-right ${
+                          aiInput.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
+                          aiInput.length > WARNING_THRESHOLD ? "text-amber-500" :
+                          "text-muted-foreground"
+                        }`}>
+                          {aiInput.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
+                          {aiInput.length > WARNING_THRESHOLD && aiInput.length <= MAX_TEXT_LENGTH && " (approaching limit)"}
+                          {aiInput.length > MAX_TEXT_LENGTH && " (over limit)"}
+                        </div>
+                      )}
+                    </div>
                     <Button
                       data-testid="equipment-extract-button"
                       size="sm"
                       className="w-full"
                       onClick={handleAIExtract}
-                      disabled={!aiInput.trim() || isExtracting}
+                      disabled={!aiInput.trim() || isExtracting || !hasAIKey || aiInput.length > MAX_TEXT_LENGTH}
                     >
                       {isExtracting ? (
                         <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
@@ -635,79 +703,111 @@ export default function EquipmentPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Duplicate warning */}
+          {duplicates.size > 0 && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-orange-500 bg-orange-500/10 mb-4">
+              <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                  {duplicates.size} duplicate{duplicates.size > 1 ? "s" : ""} detected
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  These equipment items already exist. They have been deselected.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 max-h-[400px] overflow-y-auto pr-2">
             <div className="space-y-2">
-              {extractedEquipment.map((item, index) => (
-                <div
-                  key={index}
-                  className={`p-3 rounded-lg border transition-colors cursor-pointer ${
-                    selectedExtracted.has(index)
-                      ? "border-primary bg-primary/5"
-                      : "border-muted opacity-60"
-                  }`}
-                  onClick={() => toggleExtractedSelection(index)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 flex-1">
-                      <div
-                        className={`mt-1 w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
-                          selectedExtracted.has(index)
-                            ? "bg-primary border-primary"
-                            : "border-muted-foreground"
-                        }`}
-                      >
-                        {selectedExtracted.has(index) && (
-                          <Check className="w-3 h-3 text-primary-foreground" />
-                        )}
+              {extractedEquipment.map((item, index) => {
+                const isDuplicate = duplicates.has(index);
+                return (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                      isDuplicate
+                        ? "border-orange-500/50 bg-orange-500/5 opacity-60"
+                        : selectedExtracted.has(index)
+                        ? "border-primary bg-primary/5"
+                        : "border-muted opacity-60"
+                    }`}
+                    onClick={() => toggleExtractedSelection(index)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div
+                          className={`mt-1 w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
+                            isDuplicate
+                              ? "border-orange-500 bg-orange-500/20"
+                              : selectedExtracted.has(index)
+                              ? "bg-primary border-primary"
+                              : "border-muted-foreground"
+                          }`}
+                        >
+                          {isDuplicate ? (
+                            <AlertTriangle className="w-3 h-3 text-orange-500" />
+                          ) : selectedExtracted.has(index) && (
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Cpu className="w-4 h-4 text-primary shrink-0" />
+                            <span className="font-medium">{item.name}</span>
+                            {item.brand && (
+                              <span className="text-xs text-muted-foreground">
+                                ({item.brand} {item.model})
+                              </span>
+                            )}
+                          </div>
+
+                          {item.purpose && (
+                            <p className="text-xs text-muted-foreground mt-1">{item.purpose}</p>
+                          )}
+
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {item.category && (
+                              <Badge variant="secondary" className="text-xs">
+                                {item.category}
+                              </Badge>
+                            )}
+                            {item.usage_frequency && (
+                              <Badge variant="outline" className="text-xs">
+                                {item.usage_frequency}
+                              </Badge>
+                            )}
+                            {item.usage_timing && (
+                              <Badge variant="outline" className="text-xs">
+                                {item.usage_timing}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {item.contraindications && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                              {item.contraindications}
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Cpu className="w-4 h-4 text-primary shrink-0" />
-                          <span className="font-medium">{item.name}</span>
-                          {item.brand && (
-                            <span className="text-xs text-muted-foreground">
-                              ({item.brand} {item.model})
-                            </span>
-                          )}
-                        </div>
-
-                        {item.purpose && (
-                          <p className="text-xs text-muted-foreground mt-1">{item.purpose}</p>
-                        )}
-
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {item.category && (
-                            <Badge variant="secondary" className="text-xs">
-                              {item.category}
-                            </Badge>
-                          )}
-                          {item.usage_frequency && (
-                            <Badge variant="outline" className="text-xs">
-                              {item.usage_frequency}
-                            </Badge>
-                          )}
-                          {item.usage_timing && (
-                            <Badge variant="outline" className="text-xs">
-                              {item.usage_timing}
-                            </Badge>
-                          )}
-                        </div>
-
-                        {item.contraindications && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                            {item.contraindications}
-                          </p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isDuplicate ? (
+                          <Badge variant="outline" className="text-xs border-orange-500 text-orange-500">
+                            Duplicate
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">
+                            {Math.round(item.confidence * 100)}%
+                          </Badge>
                         )}
                       </div>
                     </div>
-
-                    <Badge variant="outline" className="text-xs">
-                      {Math.round(item.confidence * 100)}%
-                    </Badge>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

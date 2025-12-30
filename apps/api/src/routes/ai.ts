@@ -756,6 +756,116 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
+ * POST /api/v1/ai/analyze-biomarker-trend
+ * Analyze a biomarker's trend and provide personalized insights
+ */
+router.post('/analyze-biomarker-trend', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { biomarkerName, currentValue, unit, optimalRange, trendDirection, percentChange, history } = req.body;
+
+    if (!biomarkerName || currentValue === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'biomarkerName and currentValue are required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get biomarker reference data for context
+    const { match } = findBiomarkerMatch(biomarkerName);
+
+    // Build history summary
+    const historyText = history && history.length > 0
+      ? history.map((h: any) => `${h.date}: ${h.value} ${unit}`).join('\n  ')
+      : 'No historical data available';
+
+    const systemPrompt = `You are a knowledgeable health analyst specializing in biomarker interpretation. Provide personalized, actionable insights about the user's biomarker data.
+
+## Guidelines:
+1. Be specific about what the values mean for THIS user
+2. Consider the trend direction and what it indicates
+3. Provide 2-3 actionable suggestions if appropriate
+4. Mention when professional consultation would be valuable
+5. Be encouraging but honest about any concerns
+6. Keep response concise (150-250 words)
+
+## Response Format:
+Write in a conversational, supportive tone. Use paragraphs, not bullet points. Focus on what matters most to the user.`;
+
+    const userPrompt = `Analyze my ${biomarkerName} data:
+
+**Current Value:** ${currentValue} ${unit}
+**Optimal Range:** ${optimalRange.low} - ${optimalRange.high} ${unit}
+**Trend:** ${trendDirection === 'up' ? 'Increasing' : trendDirection === 'down' ? 'Decreasing' : 'Stable'}${percentChange !== null ? ` (${percentChange > 0 ? '+' : ''}${percentChange.toFixed(1)}% change)` : ''}
+
+**Reading History:**
+  ${historyText}
+
+${match?.detailedDescription ? `\n**About ${biomarkerName}:** ${match.detailedDescription}` : ''}
+${match?.trendPreference ? `\n**Health Direction:** ${match.trendPreference === 'lower_is_better' ? 'Lower values are generally better' : match.trendPreference === 'higher_is_better' ? 'Higher values are generally better' : 'Staying within optimal range is ideal'}` : ''}
+
+Please provide a personalized analysis of my ${biomarkerName} status and trend.`;
+
+    // Get user's Anthropic API key
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        error_type: 'NO_API_KEY',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: 1000,
+      temperature: 0.7,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userPrompt
+        }
+      ]
+    });
+
+    const responseText = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as any).text)
+      .join('');
+
+    // Store conversation for reference
+    await supabase.from('ai_conversations').insert({
+      user_id: userId,
+      context: 'biomarker_analysis',
+      messages: [
+        { role: 'user', content: `Analyze ${biomarkerName}: ${currentValue} ${unit}`, timestamp: new Date().toISOString() },
+        { role: 'assistant', content: responseText, timestamp: new Date().toISOString() }
+      ],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      data: {
+        analysis: responseText
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('POST /ai/analyze-biomarker-trend error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Analysis failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * POST /api/v1/ai/chat
  * Health assistant chat
  */

@@ -378,7 +378,6 @@ app/
 
 ### 8.2 Data Sharing
 - [ ] Implement RLS policies for shared access
-- [ ] Add account switcher UI
 - [ ] Test data visibility between linked users
 
 ---

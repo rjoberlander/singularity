@@ -443,18 +443,7 @@ Form fields:
 
 ---
 
-### 8.3 Add Account Switcher
-**File:** Component in header or settings
-**Priority:** Medium
-**Effort:** Medium
-
-- [ ] Fetch linked users via `GET /users/links`
-- [ ] Dropdown/modal to switch accounts
-- [ ] Pass `user_id` param to API calls when viewing other user's data
-
----
-
-### 8.4 Permission-Based UI
+### 8.3 Permission-Based UI
 **Priority:** Low
 **Effort:** Small
 
@@ -606,7 +595,6 @@ Consider adding Settings as 5th tab or accessible from header.
 **Effort:** Small
 
 - [ ] Profile/settings icon in header
-- [ ] Account switcher access
 - [ ] Notifications icon (placeholder)
 
 ---
@@ -740,7 +728,6 @@ Before deploying, verify:
 - [ ] User can chat with AI assistant
 - [ ] User can view change log
 - [ ] User can invite family members
-- [ ] User can switch between linked accounts
 - [ ] User can export data
 - [ ] Dark/light theme works
 - [ ] App works offline (cached data)

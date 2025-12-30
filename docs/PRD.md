@@ -825,7 +825,6 @@ Confirmed data saved to database
 
 - Invite family/spouse via code or email
 - Permission levels (read/write/admin)
-- Switch between linked accounts
 
 ### Feature 8: Data Export
 
@@ -989,9 +988,8 @@ API_URL=https://api.yourdomain.com
 
 - [ ] 5.1 Integrate copied multi-user system
 - [ ] 5.2 Invite/link flow
-- [ ] 5.3 Account switcher
-- [ ] 5.4 Data export
-- [ ] 5.5 Singularity docs (from KB)
+- [ ] 5.3 Data export
+- [ ] 5.4 Singularity docs (from KB)
 
 ## Phase 6: Deploy (Week 6)
 

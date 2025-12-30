@@ -22,6 +22,9 @@ export interface BiomarkerReference {
   // Yellow zone above optimal (if exists) - suboptimal high
   suboptimalHighRange?: { low: number; high: number };
   description?: string;
+  detailedDescription?: string;
+  // Trend preference: which direction is "good" for this biomarker
+  trendPreference?: 'lower_is_better' | 'higher_is_better' | 'range_is_optimal';
 }
 
 export const BIOMARKER_REFERENCE: BiomarkerReference[] = [

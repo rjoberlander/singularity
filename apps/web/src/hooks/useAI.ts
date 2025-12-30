@@ -82,6 +82,29 @@ export function useExtractEquipment() {
   });
 }
 
+interface AnalyzeBiomarkerTrendInput {
+  biomarkerName: string;
+  currentValue: number;
+  unit: string;
+  optimalRange: { low: number; high: number };
+  trendDirection: string;
+  percentChange: number | null;
+  history: Array<{ value: number; date: string }>;
+}
+
+interface AnalyzeBiomarkerTrendResult {
+  analysis: string;
+}
+
+export function useAnalyzeBiomarkerTrend() {
+  return useMutation({
+    mutationFn: async (data: AnalyzeBiomarkerTrendInput) => {
+      const response = await aiApi.analyzeBiomarkerTrend(data);
+      return response.data.data as AnalyzeBiomarkerTrendResult;
+    },
+  });
+}
+
 export function useAIChat() {
   const queryClient = useQueryClient();
 

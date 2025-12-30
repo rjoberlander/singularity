@@ -3,10 +3,10 @@
 import { useState, useMemo } from "react";
 import { useBiomarkers } from "@/hooks/useBiomarkers";
 import { BiomarkerChartCard } from "@/components/biomarkers/BiomarkerChartCard";
-import { BiomarkerExtractionModal } from "@/components/biomarkers/BiomarkerExtractionModal";
-import { BiomarkerAddModal } from "@/components/biomarkers/BiomarkerAddModal";
+import { BiomarkerAddCombinedModal } from "@/components/biomarkers/BiomarkerAddCombinedModal";
 import { BiomarkerChatInput } from "@/components/biomarkers/BiomarkerChatInput";
 import { BiomarkerDuplicatesModal, findDuplicateBiomarkers } from "@/components/biomarkers/BiomarkerDuplicatesModal";
+import { BiomarkerDetailModal } from "@/components/biomarkers/BiomarkerDetailModal";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -103,11 +103,12 @@ export default function BiomarkersPage() {
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [sortType, setSortType] = useState<SortType>("status");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
-  const [extractionInput, setExtractionInput] = useState<{ text?: string; files?: File[] } | undefined>();
+  const [addModalInput, setAddModalInput] = useState<{ text?: string; files?: File[] } | undefined>();
+  const [addModalInitialTab, setAddModalInitialTab] = useState<"ai" | "manual">("ai");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedBiomarker, setSelectedBiomarker] = useState<{ reference: BiomarkerReference; history: Biomarker[] } | null>(null);
 
   const { data: biomarkers, isLoading, error, refetch } = useBiomarkers({ limit: 1000 });
 
@@ -282,17 +283,24 @@ export default function BiomarkersPage() {
   };
 
   const handleChatSubmit = (data: { text?: string; files?: File[] }) => {
-    setExtractionInput(data);
+    setAddModalInput(data);
+    setAddModalInitialTab("ai");
     setIsProcessing(true);
-    setIsExtractionModalOpen(true);
+    setIsAddModalOpen(true);
   };
 
-  const handleModalClose = (open: boolean) => {
-    setIsExtractionModalOpen(open);
+  const handleAddModalClose = (open: boolean) => {
+    setIsAddModalOpen(open);
     if (!open) {
-      setExtractionInput(undefined);
+      setAddModalInput(undefined);
       setIsProcessing(false);
     }
+  };
+
+  const handleAddManually = () => {
+    setAddModalInput(undefined);
+    setAddModalInitialTab("manual");
+    setIsAddModalOpen(true);
   };
 
   return (
@@ -313,6 +321,38 @@ export default function BiomarkersPage() {
 
         {!isCollapsed && (
           <>
+            {/* Empty State - Show inline add when no biomarkers */}
+            {!isLoading && !error && biomarkers && biomarkers.length === 0 ? (
+              <div className="max-w-md mx-auto py-8">
+                <div className="text-center mb-6">
+                  <Droplet className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No biomarkers yet</h3>
+                  <p className="text-muted-foreground">
+                    Import lab results or add biomarkers to start tracking your health data
+                  </p>
+                </div>
+
+                {/* Inline Add Interface */}
+                <div className="space-y-4">
+                  {/* AI Extraction Input */}
+                  <BiomarkerChatInput
+                    onSubmit={handleChatSubmit}
+                    isProcessing={isProcessing}
+                  />
+
+                  {/* Add Manually Button */}
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleAddManually}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Manually
+                  </Button>
+                </div>
+              </div>
+            ) : (
+            <>
             {/* Filter Bar */}
             <div className="flex flex-wrap items-center gap-3">
               {/* Date */}
@@ -464,7 +504,7 @@ export default function BiomarkersPage() {
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={() => setIsAddModalOpen(true)}
+                    onClick={handleAddManually}
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Add Manually
@@ -499,7 +539,7 @@ export default function BiomarkersPage() {
                           reference={ref}
                           history={history}
                           onClick={() => {
-                            // TODO: Navigate to detail view
+                            setSelectedBiomarker({ reference: ref, history });
                           }}
                         />
                       );
@@ -516,26 +556,22 @@ export default function BiomarkersPage() {
                 )}
               </div>
             </div>
+            </>
+            )}
           </>
         )}
       </div>
 
-      {/* Extraction Modal */}
-      <BiomarkerExtractionModal
-        open={isExtractionModalOpen}
-        onOpenChange={handleModalClose}
-        initialInput={extractionInput}
+      {/* Add Biomarkers Modal (Combined AI + Manual) */}
+      <BiomarkerAddCombinedModal
+        open={isAddModalOpen}
+        onOpenChange={handleAddModalClose}
+        initialInput={addModalInput}
+        initialTab={addModalInitialTab}
         onSuccess={() => {
           refetch();
-          handleModalClose(false);
+          handleAddModalClose(false);
         }}
-      />
-
-      {/* Add Manually Modal */}
-      <BiomarkerAddModal
-        open={isAddModalOpen}
-        onOpenChange={setIsAddModalOpen}
-        onSuccess={() => refetch()}
       />
 
       {/* Duplicates Modal */}
@@ -545,6 +581,16 @@ export default function BiomarkersPage() {
         duplicates={duplicateGroups}
         onSuccess={() => refetch()}
       />
+
+      {/* Biomarker Detail Modal */}
+      {selectedBiomarker && (
+        <BiomarkerDetailModal
+          isOpen={!!selectedBiomarker}
+          onClose={() => setSelectedBiomarker(null)}
+          reference={selectedBiomarker.reference}
+          history={selectedBiomarker.history}
+        />
+      )}
     </div>
   );
 }

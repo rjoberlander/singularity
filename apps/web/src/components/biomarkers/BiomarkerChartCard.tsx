@@ -23,9 +23,20 @@ import {
   Heart,
   Shield,
   LucideIcon,
+  TrendingUp,
+  TrendingDown,
+  ArrowRight,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 import { Biomarker } from "@/types";
 import { BiomarkerReference } from "@/data/biomarkerReference";
+import {
+  calculateTrend,
+  getTrendColor,
+  formatPercentChange,
+  TrendResult,
+} from "@/utils/trendCalculation";
 
 // Status colors matching the reference image (red, yellow, green zones)
 const STATUS_COLORS: Record<string, string> = {
@@ -111,6 +122,11 @@ export function BiomarkerChartCard({
   }, [history]);
 
   const latestValue = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1] : null;
+
+  // Calculate trend
+  const trendResult = useMemo(() => {
+    return calculateTrend(history, reference);
+  }, [history, reference]);
 
   // Chart dimensions - compact
   const chartHeight = 85;
@@ -436,6 +452,65 @@ export function BiomarkerChartCard({
     return "\u25C6"; // Diamond for critical too
   };
 
+  // Get trend indicator component
+  const getTrendIndicator = () => {
+    const { direction, health, warnings, percentChange } = trendResult;
+
+    // No trend to show
+    if (direction === null) {
+      // Check if there's an outdated warning
+      const outdatedWarning = warnings.find(w => w.type === "outdated");
+      if (outdatedWarning) {
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                {outdatedWarning.message}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      }
+      return null;
+    }
+
+    const color = getTrendColor(health);
+    const hasOutdatedWarning = warnings.some(w => w.type === "outdated");
+
+    const TrendIcon = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : ArrowRight;
+
+    const tooltipLines = [
+      `Trend: ${direction === "up" ? "Increasing" : direction === "down" ? "Decreasing" : "Stable"}`,
+      percentChange !== null ? `Change: ${formatPercentChange(percentChange)}` : null,
+      ...warnings.map(w => w.message),
+    ].filter(Boolean);
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-0.5">
+              <TrendIcon className="w-3.5 h-3.5" style={{ color }} />
+              {hasOutdatedWarning && (
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+              )}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs">
+            {tooltipLines.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+
   // Get category background color
   const categoryBgColor = CATEGORY_COLORS[reference.category] || "transparent";
 
@@ -451,15 +526,16 @@ export function BiomarkerChartCard({
     >
       <CardContent className="p-2.5 pb-1.5">
         {/* Header */}
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between mb-1 gap-2">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {(() => {
               const IconComponent = CATEGORY_ICONS[reference.category] || Plus;
-              return <IconComponent className={`w-3.5 h-3.5 ${isEmpty ? "text-zinc-400 dark:text-zinc-500" : "text-foreground"}`} />;
+              return <IconComponent className={`w-3.5 h-3.5 flex-shrink-0 ${isEmpty ? "text-zinc-400 dark:text-zinc-500" : "text-foreground"}`} />;
             })()}
-            <h3 className={`font-medium text-sm ${isEmpty ? "text-zinc-500 dark:text-zinc-400" : "text-foreground"}`}>
+            <h3 className={`font-medium text-xs truncate ${isEmpty ? "text-zinc-500 dark:text-zinc-400" : "text-foreground"}`}>
               {reference.name}
             </h3>
+            {!isEmpty && getTrendIndicator()}
           </div>
           {latestValue ? (
             latestValue.is_calculated ? (

@@ -285,7 +285,6 @@ Features:
 
 - [ ] Page title (dynamic)
 - [ ] Search bar (optional)
-- [ ] Account switcher dropdown
 - [ ] Theme toggle
 - [ ] User menu dropdown (profile, settings, logout)
 
@@ -852,20 +851,7 @@ Sections:
 
 ## Phase 13: Multi-User Features
 
-### 13.1 Create Account Switcher
-**File:** `src/components/layout/AccountSwitcher.tsx`
-**Priority:** Medium
-**Effort:** Medium
-
-- [ ] Current user display
-- [ ] Dropdown with linked users
-- [ ] "Viewing as: X" indicator
-- [ ] Click to switch context
-- [ ] Pass user_id to API calls
-
----
-
-### 13.2 Create Accept Invite Page
+### 13.1 Create Accept Invite Page
 **File:** `src/app/invite/[code]/page.tsx`
 **Priority:** Medium
 **Effort:** Small
@@ -978,8 +964,7 @@ apps/web/
 │   │   ├── layout/
 │   │   │   ├── Sidebar.tsx
 │   │   │   ├── Header.tsx
-│   │   │   ├── MobileNav.tsx
-│   │   │   └── AccountSwitcher.tsx
+│   │   │   └── MobileNav.tsx
 │   │   ├── dashboard/
 │   │   │   ├── StatsCard.tsx
 │   │   │   └── RecentActivity.tsx
@@ -1130,7 +1115,6 @@ Before deploying, verify:
 - [ ] Settings save correctly
 - [ ] Theme toggle works
 - [ ] Multi-user invite works
-- [ ] Account switching works
 - [ ] Data export downloads files
 - [ ] Responsive design works on mobile
 - [ ] Loading states display

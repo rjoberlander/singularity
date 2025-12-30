@@ -1,9 +1,16 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
+import { useHasActiveAIKey } from "@/hooks/useAI";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Paperclip, Send, X, FileText, Image as ImageIcon, Upload } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Paperclip, Send, X, FileText, Image as ImageIcon, Upload, AlertTriangle } from "lucide-react";
+
+// ~50K chars is safe for Claude's context (leaves room for system prompt + response)
+const MAX_TEXT_LENGTH = 50000;
+const WARNING_THRESHOLD = 40000;
 
 interface BiomarkerChatInputProps {
   onSubmit: (data: { text?: string; files?: File[] }) => void;
@@ -16,6 +23,9 @@ export function BiomarkerChatInput({ onSubmit, isProcessing }: BiomarkerChatInpu
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Check for AI API key
+  const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
 
   const handleSubmit = useCallback(() => {
     if (!text.trim() && attachedFiles.length === 0) return;
@@ -142,6 +152,19 @@ export function BiomarkerChatInput({ onSubmit, isProcessing }: BiomarkerChatInpu
         </div>
       ) : (
         <>
+          {/* API Key Warning */}
+          {!isCheckingKey && !hasAIKey && (
+            <Alert variant="destructive" className="mb-2 py-2">
+              <AlertTriangle className="h-3 w-3" />
+              <AlertDescription className="text-xs">
+                No API key configured.{" "}
+                <Link href="/settings" className="underline font-medium hover:no-underline">
+                  Add API Key
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {attachedFiles.map((file, index) => (
@@ -164,17 +187,30 @@ export function BiomarkerChatInput({ onSubmit, isProcessing }: BiomarkerChatInpu
             </div>
           )}
 
-          <Textarea
-            data-testid="biomarker-chat-input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="Drag & drop lab file or copy/paste text for AI extraction."
-            className="min-h-[100px] max-h-[150px] resize-none text-sm mb-2 px-2"
-            rows={4}
-            disabled={isProcessing}
-          />
+          <div className="space-y-1">
+            <Textarea
+              data-testid="biomarker-chat-input"
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder="Drag & drop lab file or copy/paste text for AI extraction."
+              className="min-h-[100px] max-h-[150px] resize-none text-sm px-2"
+              rows={4}
+              disabled={isProcessing}
+            />
+            {text.length > 0 && (
+              <div className={`text-[10px] text-right px-1 ${
+                text.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
+                text.length > WARNING_THRESHOLD ? "text-amber-500" :
+                "text-muted-foreground"
+              }`}>
+                {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
+                {text.length > WARNING_THRESHOLD && text.length <= MAX_TEXT_LENGTH && " (approaching limit)"}
+                {text.length > MAX_TEXT_LENGTH && " (over limit)"}
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-col gap-2">
             <Button
@@ -193,7 +229,7 @@ export function BiomarkerChatInput({ onSubmit, isProcessing }: BiomarkerChatInpu
               size="sm"
               className="w-full h-8 text-xs"
               onClick={handleSubmit}
-              disabled={isProcessing || (!text.trim() && attachedFiles.length === 0)}
+              disabled={isProcessing || (!text.trim() && attachedFiles.length === 0) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
             >
               <Send className="w-3 h-3 mr-1.5" />
               {attachedFiles.length > 0 && text.trim()

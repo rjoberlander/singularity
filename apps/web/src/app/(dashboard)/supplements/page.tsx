@@ -255,12 +255,13 @@ export default function SupplementsPage() {
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    asChild
+                    onClick={() => {
+                      setEditingSupplement(null);
+                      setFormOpen(true);
+                    }}
                   >
-                    <Link href="/supplements/add">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Manually
-                    </Link>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Manually
                   </Button>
                 </div>
               </div>
@@ -293,18 +294,36 @@ export default function SupplementsPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-12">
-                    <Pill className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No supplements yet</h3>
-                    <p className="text-muted-foreground mb-4">
-                      Add your first supplement to start tracking your stack
-                    </p>
-                    <Button asChild>
-                      <Link href="/supplements/add">
+                  <div className="max-w-md mx-auto">
+                    <div className="text-center mb-6">
+                      <Pill className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No supplements yet</h3>
+                      <p className="text-muted-foreground">
+                        Add your first supplement to start tracking your stack
+                      </p>
+                    </div>
+
+                    {/* Inline Add Interface */}
+                    <div className="space-y-4">
+                      {/* AI Extraction Input */}
+                      <SupplementChatInput
+                        onSubmit={handleChatSubmit}
+                        isProcessing={isProcessing}
+                      />
+
+                      {/* Add Manually Button */}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          setEditingSupplement(null);
+                          setFormOpen(true);
+                        }}
+                      >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Supplement
-                      </Link>
-                    </Button>
+                        Add Manually
+                      </Button>
+                    </div>
                   </div>
                 )}
 

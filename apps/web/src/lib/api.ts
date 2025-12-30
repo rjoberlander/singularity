@@ -107,6 +107,15 @@ export const aiApi = {
     api.post("/ai/extract-supplements", data),
   extractEquipment: (data: { text_content: string }) =>
     api.post("/ai/extract-equipment", data),
+  analyzeBiomarkerTrend: (data: {
+    biomarkerName: string;
+    currentValue: number;
+    unit: string;
+    optimalRange: { low: number; high: number };
+    trendDirection: string;
+    percentChange: number | null;
+    history: Array<{ value: number; date: string }>;
+  }) => api.post("/ai/analyze-biomarker-trend", data),
   chat: (data: { message: string; context?: string; include_user_data?: boolean }) =>
     api.post("/ai/chat", data),
   getConversations: (params?: { context?: string; limit?: number }) =>

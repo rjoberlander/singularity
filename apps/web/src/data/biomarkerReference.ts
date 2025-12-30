@@ -21,7 +21,15 @@ export interface BiomarkerReference {
   suboptimalLowRange?: { low: number; high: number };
   // Yellow zone above optimal (if exists) - suboptimal high
   suboptimalHighRange?: { low: number; high: number };
+  // Short description
   description?: string;
+  // Detailed description for the modal view
+  detailedDescription?: string;
+  // Trend preference: which direction is "good" for this biomarker
+  // - lower_is_better: decreasing values are good (e.g., LDL, glucose)
+  // - higher_is_better: increasing values are good (e.g., HDL, vitamin D)
+  // - range_is_optimal: staying within optimal range is good (e.g., TSH, electrolytes)
+  trendPreference: 'lower_is_better' | 'higher_is_better' | 'range_is_optimal';
 }
 
 export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
@@ -34,7 +42,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 134 },
     optimalRange: { low: 0, high: 90 },
     suboptimalHighRange: { low: 90, high: 100 },
-    description: "Particle count marker for cardiovascular risk"
+    description: "Particle count marker for cardiovascular risk",
+    detailedDescription: "Apolipoprotein B (ApoB) is a protein found on LDL, VLDL, and other atherogenic particles. It's considered a more accurate predictor of cardiovascular risk than LDL-C because it counts the actual number of harmful particles in your blood. Each atherogenic particle has exactly one ApoB molecule, making it a direct measure of particle count. Lower levels indicate reduced cardiovascular risk.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "C-Reactive Protein, Cardiac",
@@ -44,7 +54,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 4 },
     optimalRange: { low: 0, high: 1 },
     suboptimalHighRange: { low: 1, high: 3 },
-    description: "Inflammation and cardiovascular risk marker"
+    description: "Inflammation and cardiovascular risk marker",
+    detailedDescription: "High-sensitivity C-Reactive Protein (hs-CRP) is produced by the liver in response to inflammation. It's a key marker for systemic inflammation and cardiovascular disease risk. Chronic low-grade inflammation is linked to heart disease, diabetes, and other conditions. Lifestyle factors like diet, exercise, and stress management can significantly impact CRP levels.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Lipoprotein (a)",
@@ -54,7 +66,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     alternateUnits: ["mg/dL"],
     referenceRange: { low: 0, high: 100 },
     optimalRange: { low: 0, high: 75 },
-    description: "Genetic cardiovascular risk marker"
+    description: "Genetic cardiovascular risk marker",
+    detailedDescription: "Lipoprotein(a) is a genetic variant of LDL cholesterol that significantly increases cardiovascular risk. Unlike other lipid markers, Lp(a) levels are largely determined by genetics and don't respond much to diet or most medications. It promotes blood clots and accelerates atherosclerosis. If elevated, aggressive management of other risk factors becomes more important.",
+    trendPreference: "lower_is_better"
   },
 
   // ==================== HORMONE BALANCE ====================
@@ -68,7 +82,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 250, high: 500 },
     suboptimalLowRange: { low: 150, high: 250 },
     suboptimalHighRange: { low: 500, high: 550 },
-    description: "Adrenal hormone precursor"
+    description: "Adrenal hormone precursor",
+    detailedDescription: "DHEA-Sulfate is produced by the adrenal glands and serves as a precursor to testosterone and estrogen. It's often called the 'youth hormone' because levels peak in your 20s and decline with age. Optimal levels support energy, mood, immune function, and body composition. Low levels may indicate adrenal fatigue or chronic stress.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Insulin-Like Growth Factor I",
@@ -79,7 +95,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 125, high: 280 },
     suboptimalLowRange: { low: 54, high: 125 },
     suboptimalHighRange: { low: 280, high: 340 },
-    description: "Growth hormone marker"
+    description: "Growth hormone marker",
+    detailedDescription: "IGF-1 reflects your body's growth hormone activity and is important for muscle growth, bone density, and tissue repair. Levels naturally decline with age. While higher levels support recovery and body composition, excessively high levels may be associated with increased cancer risk. Optimal levels balance these factors.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Testosterone",
@@ -90,7 +108,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 250, high: 750 },
     suboptimalLowRange: { low: 0, high: 250 },
     suboptimalHighRange: { low: 750, high: 1200 },
-    description: "Primary male sex hormone"
+    description: "Primary male sex hormone",
+    detailedDescription: "Testosterone is essential for muscle mass, bone density, libido, energy, and mood in men. Levels naturally decline about 1% per year after age 30. Low testosterone can cause fatigue, depression, reduced muscle mass, and low libido. Optimizing sleep, exercise, stress, and body composition can help maintain healthy levels.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Testosterone, Free",
@@ -100,7 +120,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 45, high: 270 },
     optimalRange: { low: 90, high: 225 },
     suboptimalLowRange: { low: 45, high: 90 },
-    description: "Bioavailable testosterone"
+    description: "Bioavailable testosterone",
+    detailedDescription: "Free testosterone is the unbound, biologically active form that can enter cells and exert effects. Only 2-3% of total testosterone is free. This is often a better indicator of testosterone status than total testosterone, especially if SHBG levels are abnormal. Low free T with normal total T may indicate elevated SHBG.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Estradiol",
@@ -110,7 +132,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 51 },
     optimalRange: { low: 5, high: 39 },
     suboptimalLowRange: { low: 0, high: 5 },
-    description: "Primary estrogen"
+    description: "Primary estrogen",
+    detailedDescription: "Estradiol is important for bone health, cardiovascular function, and brain health in both men and women. In men, some estrogen is needed for bone density and libido, but excess levels (often from aromatization of testosterone) can cause gynecomastia and water retention. Balance with testosterone is key.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "FSH",
@@ -119,7 +143,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     unit: "mIU/mL",
     referenceRange: { low: 0, high: 17.07 },
     optimalRange: { low: 0, high: 12.8 },
-    description: "Reproductive hormone"
+    description: "Reproductive hormone",
+    detailedDescription: "FSH stimulates sperm production in men and egg development in women. Elevated FSH often indicates the body is working harder to stimulate the gonads, which can signal declining testicular or ovarian function. In men, high FSH with low testosterone suggests primary hypogonadism.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "LH",
@@ -129,7 +155,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 20.27 },
     optimalRange: { low: 1.7, high: 15.2 },
     suboptimalLowRange: { low: 0, high: 1.7 },
-    description: "Reproductive hormone"
+    description: "Reproductive hormone",
+    detailedDescription: "LH triggers testosterone production in men and ovulation in women. The ratio of LH to FSH and the relationship to testosterone levels helps diagnose the cause of hormonal imbalances. Low LH with low testosterone suggests a pituitary problem; high LH with low testosterone suggests testicular issues.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Sex Hormone-Binding Globulin",
@@ -140,7 +168,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 16.5, high: 55.9 },
     suboptimalLowRange: { low: 10, high: 16.5 },
     suboptimalHighRange: { low: 55.9, high: 77 },
-    description: "Hormone transport protein"
+    description: "Hormone transport protein",
+    detailedDescription: "SHBG binds to testosterone and estrogen, making them inactive. High SHBG reduces free testosterone; low SHBG increases it. Insulin resistance, obesity, and hypothyroidism lower SHBG, while aging, hyperthyroidism, and liver disease raise it. Understanding SHBG helps interpret total testosterone levels.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "TSH",
@@ -152,7 +182,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 0.4, high: 2.5 },
     suboptimalLowRange: { low: 0, high: 0.4 },
     suboptimalHighRange: { low: 2.5, high: 4.5 },
-    description: "Thyroid function regulator"
+    description: "Thyroid function regulator",
+    detailedDescription: "TSH is released by the pituitary to stimulate thyroid hormone production. High TSH indicates the thyroid is underperforming (hypothyroidism); low TSH suggests overactivity (hyperthyroidism). TSH is the most sensitive marker for thyroid dysfunction and should be evaluated alongside T4 and T3.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "T4, Free",
@@ -162,7 +194,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0.467, high: 2.63 },
     optimalRange: { low: 0.9, high: 2.2 },
     suboptimalLowRange: { low: 0.467, high: 0.9 },
-    description: "Active thyroid hormone"
+    description: "Active thyroid hormone",
+    detailedDescription: "Free T4 is the unbound, active form of thyroxine. It's converted to T3 (the most active thyroid hormone) in tissues. Low free T4 with high TSH confirms hypothyroidism. Factors affecting T4 to T3 conversion include selenium status, stress, and inflammation.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Prostate Specific Ag",
@@ -172,7 +206,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 6 },
     optimalRange: { low: 0, high: 2.5 },
     suboptimalHighRange: { low: 2.5, high: 4 },
-    description: "Prostate health marker"
+    description: "Prostate health marker",
+    detailedDescription: "PSA is produced by the prostate and used to screen for prostate cancer and monitor prostate health. Elevated PSA can indicate cancer, benign prostatic hyperplasia (BPH), or prostatitis. The rate of PSA change over time (velocity) is often more informative than a single reading. Lower, stable values are preferred.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Cortisol",
@@ -184,7 +220,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 10, high: 18 },
     suboptimalLowRange: { low: 6, high: 10 },
     suboptimalHighRange: { low: 18, high: 23 },
-    description: "Stress hormone (AM levels)"
+    description: "Stress hormone (AM levels)",
+    detailedDescription: "Cortisol follows a daily rhythm, peaking in the morning and declining through the day. Morning cortisol reflects your stress response and adrenal function. Chronically elevated cortisol impairs immune function, promotes fat storage, and breaks down muscle. Low morning cortisol may indicate adrenal fatigue.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Progesterone",
@@ -195,7 +233,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 1, high: 20 },
     suboptimalLowRange: { low: 0.1, high: 1 },
     suboptimalHighRange: { low: 20, high: 25 },
-    description: "Female reproductive hormone"
+    description: "Female reproductive hormone",
+    detailedDescription: "Progesterone balances estrogen and is essential for menstrual cycle regulation and pregnancy. In men, small amounts support mood and sleep. Progesterone has calming effects and supports GABA activity in the brain. Levels vary significantly through the menstrual cycle.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Prolactin",
@@ -206,7 +246,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 5, high: 15 },
     suboptimalLowRange: { low: 2, high: 5 },
     suboptimalHighRange: { low: 15, high: 18 },
-    description: "Pituitary hormone"
+    description: "Pituitary hormone",
+    detailedDescription: "Prolactin is primarily known for stimulating milk production, but it affects many systems. In men, elevated prolactin can suppress testosterone and cause sexual dysfunction. High levels may indicate a pituitary adenoma, hypothyroidism, or medication side effects. Stress and sleep deprivation can temporarily elevate prolactin.",
+    trendPreference: "range_is_optimal"
   },
 
   // ==================== CRITICAL NUTRIENTS ====================
@@ -220,7 +262,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 5, high: 10 },
     suboptimalLowRange: { low: 0, high: 5 },
     suboptimalHighRange: { low: 10, high: 15 },
-    description: "Cardiovascular and methylation risk marker"
+    description: "Cardiovascular and methylation risk marker",
+    detailedDescription: "Homocysteine is an amino acid that, when elevated, damages blood vessels and increases cardiovascular risk. High levels indicate impaired methylation, often due to B vitamin deficiencies (B12, folate, B6). It's also associated with cognitive decline and bone fractures. Supplementing with methylated B vitamins typically lowers homocysteine.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Vitamin D, 25-Hydroxy",
@@ -230,7 +274,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 150 },
     optimalRange: { low: 50, high: 100 },
     suboptimalLowRange: { low: 30, high: 50 },
-    description: "Essential vitamin for bone and immune health"
+    description: "Essential vitamin for bone and immune health",
+    detailedDescription: "Vitamin D functions as a hormone affecting nearly every tissue in your body. It's crucial for calcium absorption, bone health, immune function, mood, and muscle strength. Most people are deficient, especially in northern latitudes. Optimal levels (50-100 ng/mL) are higher than the conventional 'sufficient' threshold of 30.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Magnesium",
@@ -240,7 +286,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 1.17, high: 2.83 },
     optimalRange: { low: 1.5, high: 2.5 },
     suboptimalLowRange: { low: 1.17, high: 1.5 },
-    description: "Essential mineral"
+    description: "Essential mineral",
+    detailedDescription: "Magnesium is involved in over 300 enzymatic reactions including energy production, muscle function, and nervous system regulation. Serum magnesium only reflects 1% of body stores, so normal serum levels don't rule out deficiency. Most people benefit from supplementation. Low magnesium is linked to muscle cramps, anxiety, and poor sleep.",
+    trendPreference: "higher_is_better"
   },
 
   // ==================== METABOLIC CONDITION ====================
@@ -252,7 +300,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 134 },
     optimalRange: { low: 0, high: 90 },
     suboptimalHighRange: { low: 90, high: 100 },
-    description: "Low-density lipoprotein cholesterol"
+    description: "Low-density lipoprotein cholesterol",
+    detailedDescription: "LDL carries cholesterol to your arteries where it can accumulate and form plaques. It's the primary target for cardiovascular risk reduction. While the standard 'normal' is under 100, optimal cardiovascular health often requires levels below 70-90, especially with other risk factors. Diet, exercise, and medications can effectively lower LDL.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Cholesterol, Total",
@@ -263,7 +313,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 100, high: 170 },
     suboptimalLowRange: { low: 67, high: 100 },
     suboptimalHighRange: { low: 170, high: 199 },
-    description: "Total blood cholesterol"
+    description: "Total blood cholesterol",
+    detailedDescription: "Total cholesterol includes LDL, HDL, and VLDL. While commonly used for screening, it's less informative than looking at individual components. High total cholesterol driven by high HDL is very different from high total driven by high LDL. Focus on the LDL/HDL ratio and individual values rather than total alone.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "HDL Cholesterol",
@@ -273,7 +325,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 14, high: 146.67 },
     optimalRange: { low: 45, high: 120 },
     suboptimalLowRange: { low: 40, high: 45 },
-    description: "High-density lipoprotein cholesterol"
+    description: "High-density lipoprotein cholesterol",
+    detailedDescription: "HDL removes cholesterol from arteries and transports it back to the liver for disposal, earning its 'good cholesterol' reputation. Higher levels are protective against heart disease. Exercise, moderate alcohol, and healthy fats can raise HDL. Very high HDL (>100) may not provide additional benefit.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Hemoglobin A1c",
@@ -283,7 +337,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 7.47 },
     optimalRange: { low: 0, high: 5.3 },
     suboptimalHighRange: { low: 5.3, high: 5.6 },
-    description: "3-month average blood sugar"
+    description: "3-month average blood sugar",
+    detailedDescription: "HbA1c reflects your average blood sugar over the past 2-3 months by measuring glucose attached to hemoglobin. It's the gold standard for diabetes monitoring and diagnosis. Even 'normal' levels at the higher end (5.4-5.6%) indicate increased diabetes risk. Lower levels suggest better metabolic health and reduced disease risk.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Glucose",
@@ -294,7 +350,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 65, high: 90 },
     suboptimalLowRange: { low: 53.67, high: 65 },
     suboptimalHighRange: { low: 90, high: 99 },
-    description: "Blood sugar level after fasting"
+    description: "Blood sugar level after fasting",
+    detailedDescription: "Fasting glucose indicates how well your body regulates blood sugar overnight. Levels consistently above 100 suggest insulin resistance; above 126 indicates diabetes. Unlike HbA1c, fasting glucose captures a single point in time and can be affected by recent meals, stress, or sleep. Best interpreted alongside HbA1c.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Triglycerides",
@@ -304,7 +362,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 200 },
     optimalRange: { low: 0, high: 100 },
     suboptimalHighRange: { low: 100, high: 150 },
-    description: "Blood fat level"
+    description: "Blood fat level",
+    detailedDescription: "Triglycerides are fats from food that circulate in your blood. High levels are strongly linked to carbohydrate intake, especially refined carbs and sugar. They're an independent risk factor for heart disease and indicate metabolic dysfunction. Triglycerides respond dramatically to diet—reducing carbs and alcohol quickly lowers levels.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "VLDL Cholesterol",
@@ -314,7 +374,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 54 },
     optimalRange: { low: 0, high: 20 },
     suboptimalHighRange: { low: 20, high: 40 },
-    description: "Very low-density lipoprotein"
+    description: "Very low-density lipoprotein",
+    detailedDescription: "VLDL carries triglycerides from the liver to tissues. It's a precursor to LDL and contributes to arterial plaque formation. VLDL is typically estimated as triglycerides divided by 5. High VLDL usually reflects high triglycerides and responds to the same dietary interventions—reducing carbohydrates and alcohol.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Fasting Insulin",
@@ -325,7 +387,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 2.6, high: 24.9 },
     optimalRange: { low: 2, high: 8 },
     suboptimalHighRange: { low: 8, high: 15 },
-    description: "Insulin level after fasting"
+    description: "Insulin level after fasting",
+    detailedDescription: "Fasting insulin is one of the earliest markers of metabolic dysfunction. Elevated levels indicate your body needs more insulin to control blood sugar—a sign of insulin resistance that precedes diabetes by years. Lower fasting insulin correlates with longevity and metabolic health. Diet, exercise, and sleep powerfully affect insulin levels.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "HOMA-IR",
@@ -335,7 +399,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 2.5 },
     optimalRange: { low: 0, high: 1.5 },
     suboptimalHighRange: { low: 1.5, high: 2.5 },
-    description: "Insulin resistance indicator"
+    description: "Insulin resistance indicator",
+    detailedDescription: "HOMA-IR is calculated from fasting glucose and insulin to estimate insulin resistance. It's more informative than either marker alone. Values above 2.0 suggest significant insulin resistance. This metric helps identify metabolic dysfunction early, before glucose levels become abnormal. Lifestyle interventions can rapidly improve HOMA-IR.",
+    trendPreference: "lower_is_better"
   },
 
   // ==================== ORGAN HEALTH ====================
@@ -348,7 +414,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 3.27, high: 5.78 },
     optimalRange: { low: 3.77, high: 5.28 },
     suboptimalLowRange: { low: 3.27, high: 3.77 },
-    description: "Red blood cell count"
+    description: "Red blood cell count",
+    detailedDescription: "Red blood cells carry oxygen from your lungs to tissues and return carbon dioxide for exhalation. Low RBC (anemia) causes fatigue and weakness; high RBC can thicken blood and increase clot risk. RBC count is affected by hydration, altitude, bone marrow health, and iron/B12/folate status.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Albumin",
@@ -358,7 +426,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 3.1, high: 5.6 },
     optimalRange: { low: 3.6, high: 5.1 },
     suboptimalLowRange: { low: 3.1, high: 3.6 },
-    description: "Liver protein production"
+    description: "Liver protein production",
+    detailedDescription: "Albumin is the most abundant protein in blood, produced by the liver. It maintains fluid balance and transports hormones, vitamins, and drugs. Low albumin can indicate liver disease, kidney disease, malnutrition, or chronic inflammation. It's a marker of overall nutritional and liver health.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Alkaline Phosphatase",
@@ -370,7 +440,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 44, high: 120 },
     suboptimalLowRange: { low: 35, high: 44 },
     suboptimalHighRange: { low: 120, high: 144 },
-    description: "Liver/bone enzyme"
+    description: "Liver/bone enzyme",
+    detailedDescription: "ALP is found in liver, bone, kidney, and intestines. Elevated levels can indicate liver disease (especially bile duct obstruction) or bone disorders. It's normally higher in children (growing bones) and during pregnancy. Very low levels may indicate zinc or magnesium deficiency.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "ALT (SGPT)",
@@ -380,7 +452,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     alternateUnits: ["U/L"],
     referenceRange: { low: 0, high: 62 },
     optimalRange: { low: 0, high: 46 },
-    description: "Liver enzyme"
+    description: "Liver enzyme",
+    detailedDescription: "ALT is primarily found in the liver and is the most specific marker for liver cell damage. Elevated ALT indicates hepatocyte injury from causes like fatty liver disease, hepatitis, medications, or alcohol. Even 'normal' levels at the higher end correlate with increased disease risk. Lower is generally better.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "AST (SGOT)",
@@ -390,7 +464,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     alternateUnits: ["U/L"],
     referenceRange: { low: 1.67, high: 44 },
     optimalRange: { low: 10, high: 35 },
-    description: "Liver/muscle enzyme"
+    description: "Liver/muscle enzyme",
+    detailedDescription: "AST is found in liver, heart, and muscle tissue. While elevated AST can indicate liver damage, it's less liver-specific than ALT. The AST:ALT ratio helps distinguish causes—ratio >2 suggests alcoholic liver disease, while ratio <1 suggests non-alcoholic fatty liver. Intense exercise can temporarily elevate AST.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Bilirubin, Total",
@@ -399,7 +475,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     unit: "mg/dL",
     referenceRange: { low: 0, high: 1.6 },
     optimalRange: { low: 0, high: 1.2 },
-    description: "Liver function marker"
+    description: "Liver function marker",
+    detailedDescription: "Bilirubin is a yellow pigment from red blood cell breakdown. The liver processes it for excretion. High levels cause jaundice (yellow skin/eyes) and can indicate liver disease, bile duct obstruction, or excessive red blood cell destruction. Mildly elevated bilirubin (Gilbert's syndrome) is usually benign.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "BUN",
@@ -409,7 +487,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 1, high: 31 },
     optimalRange: { low: 7, high: 25 },
     suboptimalLowRange: { low: 1, high: 7 },
-    description: "Kidney function marker"
+    description: "Kidney function marker",
+    detailedDescription: "BUN measures nitrogen from protein metabolism waste that kidneys filter out. High BUN can indicate kidney problems, dehydration, high protein intake, or upper GI bleeding. Low BUN may suggest liver disease or malnutrition. BUN should be interpreted alongside creatinine for accurate kidney assessment.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Calcium",
@@ -419,7 +499,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 8.03, high: 10.87 },
     optimalRange: { low: 8.6, high: 10.3 },
     suboptimalLowRange: { low: 8.03, high: 8.6 },
-    description: "Essential mineral for bones"
+    description: "Essential mineral for bones",
+    detailedDescription: "Calcium is critical for bone health, muscle contraction, nerve function, and blood clotting. Blood calcium is tightly regulated by parathyroid hormone and vitamin D. High calcium can indicate parathyroid problems; low calcium may reflect vitamin D deficiency. Serum calcium should be interpreted with albumin levels.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Carbon Dioxide, Total",
@@ -429,7 +511,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 16, high: 36 },
     optimalRange: { low: 20, high: 32 },
     suboptimalLowRange: { low: 16, high: 20 },
-    description: "Blood gas and acid-base balance"
+    description: "Blood gas and acid-base balance",
+    detailedDescription: "Total CO2 primarily reflects bicarbonate, which buffers blood pH. Low levels indicate metabolic acidosis (from kidney disease, diabetes, or diarrhea); high levels suggest metabolic alkalosis (from vomiting or certain medications). It helps assess your body's acid-base balance.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Chloride",
@@ -439,7 +523,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 94, high: 114 },
     optimalRange: { low: 98, high: 110 },
     suboptimalLowRange: { low: 94, high: 98 },
-    description: "Electrolyte balance"
+    description: "Electrolyte balance",
+    detailedDescription: "Chloride works with sodium to maintain fluid balance and blood pressure. It's also important for digestion (stomach acid). Abnormal levels usually reflect hydration status or acid-base imbalances rather than chloride-specific problems. Interpret alongside sodium and bicarbonate.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Creatinine",
@@ -449,7 +535,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0.5, high: 1.5 },
     optimalRange: { low: 0.7, high: 1.3 },
     suboptimalLowRange: { low: 0.5, high: 0.7 },
-    description: "Kidney function marker"
+    description: "Kidney function marker",
+    detailedDescription: "Creatinine is a waste product from muscle metabolism that kidneys filter out at a constant rate. It's the primary marker for kidney function. Elevated creatinine indicates reduced kidney filtration. Levels are affected by muscle mass—muscular individuals have higher baseline creatinine. Track trends over time.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "eGFR",
@@ -461,7 +549,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 60, high: 120 },
     suboptimalLowRange: { low: 30, high: 60 },
     suboptimalHighRange: { low: 120, high: 150 },
-    description: "Kidney filtration rate"
+    description: "Kidney filtration rate",
+    detailedDescription: "eGFR estimates how much blood your kidneys filter per minute. It's calculated from creatinine, age, sex, and race. Values above 90 are normal; 60-89 is mildly reduced; below 60 indicates chronic kidney disease. Higher is generally better, though very high values in some contexts need evaluation.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Globulin, Total",
@@ -472,7 +562,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 1.5, high: 4.5 },
     suboptimalLowRange: { low: 1, high: 1.5 },
     suboptimalHighRange: { low: 4.5, high: 5 },
-    description: "Immune protein level"
+    description: "Immune protein level",
+    detailedDescription: "Globulins are proteins including antibodies (immunoglobulins) and transport proteins. High globulin can indicate chronic infection, inflammation, or autoimmune disease. Low globulin may suggest immune deficiency or protein loss. The albumin/globulin ratio provides additional diagnostic information.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Hematocrit",
@@ -483,7 +575,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 37, high: 51 },
     suboptimalLowRange: { low: 32, high: 37 },
     suboptimalHighRange: { low: 51, high: 54 },
-    description: "Red blood cell volume percentage"
+    description: "Red blood cell volume percentage",
+    detailedDescription: "Hematocrit measures the percentage of blood volume occupied by red blood cells. Low hematocrit indicates anemia; high levels can result from dehydration, living at altitude, or blood disorders. It's closely related to hemoglobin and affected by hydration status.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Hemoglobin",
@@ -494,7 +588,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 13, high: 17.7 },
     suboptimalLowRange: { low: 11, high: 13 },
     suboptimalHighRange: { low: 17.7, high: 19 },
-    description: "Oxygen-carrying protein"
+    description: "Oxygen-carrying protein",
+    detailedDescription: "Hemoglobin is the iron-containing protein in red blood cells that carries oxygen. Low hemoglobin (anemia) causes fatigue, weakness, and shortness of breath. Causes include iron deficiency, B12/folate deficiency, chronic disease, or blood loss. High hemoglobin can increase blood viscosity and clot risk.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Lymphs",
@@ -505,7 +601,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 15, high: 40 },
     suboptimalLowRange: { low: 5, high: 15 },
     suboptimalHighRange: { low: 40, high: 45 },
-    description: "Lymphocyte percentage"
+    description: "Lymphocyte percentage",
+    detailedDescription: "Lymphocyte percentage shows the proportion of white blood cells that are lymphocytes. High percentages may indicate viral infections or lymphocytic leukemia; low percentages can occur with bacterial infections or immunodeficiency. Interpret alongside absolute lymphocyte count.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Lymphs (Absolute)",
@@ -516,7 +614,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 4.93 },
     optimalRange: { low: 0.8, high: 3.9 },
     suboptimalLowRange: { low: 0, high: 0.8 },
-    description: "Immune cells (viral fighters)"
+    description: "Immune cells (viral fighters)",
+    detailedDescription: "Lymphocytes include T cells, B cells, and natural killer cells—key players in immune defense against viruses and cancer. Low counts (lymphopenia) can indicate HIV, autoimmune disease, or immunosuppression. High counts may suggest viral infection or lymphoproliferative disorders.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "MCH",
@@ -526,7 +626,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 24.47, high: 35.13 },
     optimalRange: { low: 26.6, high: 33 },
     suboptimalLowRange: { low: 24.47, high: 26.6 },
-    description: "Average hemoglobin per red cell"
+    description: "Average hemoglobin per red cell",
+    detailedDescription: "MCH measures the average amount of hemoglobin in each red blood cell. Low MCH (hypochromic) typically indicates iron deficiency. High MCH (hyperchromic) suggests B12 or folate deficiency. MCH helps classify the type of anemia when hemoglobin is low.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "MCHC",
@@ -536,7 +638,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 30.1, high: 37.1 },
     optimalRange: { low: 31.5, high: 35.7 },
     suboptimalLowRange: { low: 30.1, high: 31.5 },
-    description: "Hemoglobin concentration in red cells"
+    description: "Hemoglobin concentration in red cells",
+    detailedDescription: "MCHC measures hemoglobin concentration within red blood cells. Low MCHC indicates hypochromic anemia (often iron deficiency). High MCHC can occur with hereditary spherocytosis or severe dehydration. It's useful for classifying anemia types.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "MCV",
@@ -546,7 +650,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 74, high: 106.67 },
     optimalRange: { low: 80, high: 100 },
     suboptimalLowRange: { low: 74, high: 80 },
-    description: "Average red blood cell size"
+    description: "Average red blood cell size",
+    detailedDescription: "MCV measures average red blood cell size. Small cells (microcytic, low MCV) suggest iron deficiency or thalassemia. Large cells (macrocytic, high MCV) indicate B12/folate deficiency or liver disease. MCV helps identify the cause of anemia.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Monocytes (Absolute)",
@@ -556,7 +662,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     alternateUnits: ["K/uL", "thousand/μL", "10^3/μL"],
     referenceRange: { low: 0, high: 2 },
     optimalRange: { low: 0, high: 1 },
-    description: "Immune cells (tissue repair)"
+    description: "Immune cells (tissue repair)",
+    detailedDescription: "Monocytes are white blood cells that become macrophages in tissues, engulfing pathogens and debris. Elevated monocytes (monocytosis) can indicate chronic infection, inflammation, or certain cancers. They're part of the innate immune system and play a role in tissue repair.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Neutrophils (Absolute)",
@@ -567,7 +675,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 9.9 },
     optimalRange: { low: 1.5, high: 7.8 },
     suboptimalLowRange: { low: 0, high: 1.5 },
-    description: "Immune cells (bacteria fighters)"
+    description: "Immune cells (bacteria fighters)",
+    detailedDescription: "Neutrophils are the most abundant white blood cells and first responders to bacterial infections. High counts indicate bacterial infection or inflammation; low counts (neutropenia) increase infection risk. Absolute neutrophil count (ANC) below 1.0 requires medical attention.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Platelets",
@@ -578,7 +688,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 54, high: 486.67 },
     optimalRange: { low: 140, high: 400 },
     suboptimalLowRange: { low: 54, high: 140 },
-    description: "Blood clotting cells"
+    description: "Blood clotting cells",
+    detailedDescription: "Platelets are cell fragments essential for blood clotting. Low platelets (thrombocytopenia) increase bleeding risk; causes include medications, infections, or bone marrow problems. High platelets (thrombocytosis) can increase clot risk and may indicate inflammation or bone marrow disorders.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Potassium",
@@ -588,7 +700,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 2.9, high: 5.9 },
     optimalRange: { low: 3.5, high: 5.3 },
     suboptimalLowRange: { low: 2.9, high: 3.5 },
-    description: "Electrolyte for heart and muscle function"
+    description: "Electrolyte for heart and muscle function",
+    detailedDescription: "Potassium is critical for heart rhythm, muscle contraction, and nerve function. Both high and low potassium can cause dangerous heart arrhythmias. Levels are affected by kidney function, medications (especially diuretics), and diet. Bananas, potatoes, and leafy greens are rich sources.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Protein, Total",
@@ -598,7 +712,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 5.17, high: 10 },
     optimalRange: { low: 6, high: 8.5 },
     suboptimalLowRange: { low: 5.17, high: 6 },
-    description: "Total protein in blood"
+    description: "Total protein in blood",
+    detailedDescription: "Total protein includes albumin and globulins. Low total protein can indicate liver disease, kidney disease (protein loss), malnutrition, or malabsorption. High total protein may suggest chronic infection, inflammation, or blood cancers. The albumin/globulin ratio provides more specific information.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "RDW",
@@ -608,7 +724,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 8.2, high: 17.2 },
     optimalRange: { low: 10, high: 15.4 },
     suboptimalLowRange: { low: 8.2, high: 10 },
-    description: "Red cell size variation"
+    description: "Red cell size variation",
+    detailedDescription: "RDW measures variation in red blood cell size. High RDW (anisocytosis) suggests mixed cell populations, often seen in nutritional deficiencies, early iron deficiency, or mixed anemias. Elevated RDW is also associated with increased cardiovascular risk and mortality independently of anemia.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Sodium",
@@ -618,7 +736,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 130.67, high: 148 },
     optimalRange: { low: 134, high: 144 },
     suboptimalLowRange: { low: 130.67, high: 134 },
-    description: "Electrolyte for fluid balance"
+    description: "Electrolyte for fluid balance",
+    detailedDescription: "Sodium regulates fluid balance, blood pressure, and nerve/muscle function. Low sodium (hyponatremia) can cause confusion and seizures; causes include excess water intake, heart failure, or medications. High sodium usually indicates dehydration. Sodium levels reflect water balance more than salt intake.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "WBC",
@@ -630,7 +750,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 3.3, high: 10.8 },
     suboptimalLowRange: { low: 0.4, high: 3.3 },
     suboptimalHighRange: { low: 10.8, high: 12 },
-    description: "White blood cell count"
+    description: "White blood cell count",
+    detailedDescription: "WBC count reflects your immune system's activity. High counts (leukocytosis) indicate infection, inflammation, stress, or leukemia. Low counts (leukopenia) suggest bone marrow problems, autoimmune disease, or severe infections. The differential (types of WBCs) provides more specific diagnostic information.",
+    trendPreference: "range_is_optimal"
   },
 
   // ==================== ADDITIONAL THYROID ====================
@@ -642,7 +764,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 2.3, high: 4.2 },
     optimalRange: { low: 3.0, high: 4.0 },
     suboptimalLowRange: { low: 2.3, high: 3.0 },
-    description: "Most active thyroid hormone"
+    description: "Most active thyroid hormone",
+    detailedDescription: "Free T3 is the most metabolically active thyroid hormone. Low T3 with normal TSH/T4 may indicate poor T4-to-T3 conversion (from stress, illness, or selenium deficiency). T3 drives metabolism, energy, and body temperature. Optimal T3 levels are important for feeling energetic.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Reverse T3",
@@ -652,7 +776,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 9.2, high: 24.1 },
     optimalRange: { low: 9, high: 15 },
     suboptimalHighRange: { low: 15, high: 20 },
-    description: "Inactive thyroid hormone"
+    description: "Inactive thyroid hormone",
+    detailedDescription: "Reverse T3 is an inactive form of thyroid hormone. High rT3 blocks T3 receptors and causes hypothyroid symptoms despite normal TSH/T4. Elevated rT3 occurs with chronic stress, inflammation, calorie restriction, and illness. The free T3/reverse T3 ratio is clinically useful.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "TPO Antibodies",
@@ -662,7 +788,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 34 },
     optimalRange: { low: 0, high: 10 },
     suboptimalHighRange: { low: 10, high: 20 },
-    description: "Autoimmune thyroid marker"
+    description: "Autoimmune thyroid marker",
+    detailedDescription: "TPO antibodies indicate autoimmune thyroid disease (Hashimoto's thyroiditis). Elevated antibodies mean your immune system is attacking your thyroid, even if thyroid function is currently normal. High TPO antibodies predict future hypothyroidism. Selenium supplementation may help reduce antibody levels.",
+    trendPreference: "lower_is_better"
   },
 
   // ==================== ADDITIONAL VITAMINS ====================
@@ -674,7 +802,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 200, high: 900 },
     optimalRange: { low: 500, high: 800 },
     suboptimalLowRange: { low: 200, high: 500 },
-    description: "Essential for nerve function"
+    description: "Essential for nerve function",
+    detailedDescription: "Vitamin B12 is crucial for nerve function, DNA synthesis, and red blood cell formation. Deficiency causes fatigue, neurological symptoms, and macrocytic anemia. Absorption decreases with age and is impaired by acid-blocking medications. Vegans are at high risk without supplementation. Optimal levels are higher than the 'normal' threshold.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Folate",
@@ -684,7 +814,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 3, high: 20 },
     optimalRange: { low: 10, high: 20 },
     suboptimalLowRange: { low: 3, high: 10 },
-    description: "B vitamin for cell division"
+    description: "B vitamin for cell division",
+    detailedDescription: "Folate is essential for DNA synthesis, cell division, and preventing neural tube defects in pregnancy. Deficiency causes macrocytic anemia and elevated homocysteine. Leafy greens are rich sources. Some people have MTHFR mutations affecting folate metabolism and may benefit from methylfolate supplementation.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Vitamin A",
@@ -695,7 +827,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 30, high: 80 },
     optimalRange: { low: 50, high: 70 },
     suboptimalLowRange: { low: 30, high: 50 },
-    description: "Fat-soluble vitamin"
+    description: "Fat-soluble vitamin",
+    detailedDescription: "Vitamin A is essential for vision, immune function, and skin health. Deficiency causes night blindness and immune impairment. Unlike water-soluble vitamins, excess vitamin A is stored and can be toxic. Beta-carotene from plants is converted to vitamin A as needed, making it safer than preformed retinol supplements.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Vitamin E",
@@ -705,7 +839,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 5.5, high: 17 },
     optimalRange: { low: 8, high: 14 },
     suboptimalLowRange: { low: 5.5, high: 8 },
-    description: "Antioxidant vitamin"
+    description: "Antioxidant vitamin",
+    detailedDescription: "Vitamin E is a fat-soluble antioxidant that protects cell membranes from oxidative damage. Deficiency is rare but causes neurological problems. Found in nuts, seeds, and vegetable oils. High-dose supplementation hasn't shown consistent benefits and may increase bleeding risk with blood thinners.",
+    trendPreference: "range_is_optimal"
   },
 
   // ==================== ADDITIONAL MINERALS ====================
@@ -718,7 +854,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 50, high: 150 },
     suboptimalLowRange: { low: 30, high: 50 },
     suboptimalHighRange: { low: 150, high: 300 },
-    description: "Iron storage marker"
+    description: "Iron storage marker",
+    detailedDescription: "Ferritin reflects iron stores in your body. Low ferritin indicates iron deficiency, even before anemia develops. High ferritin can indicate iron overload (hemochromatosis), inflammation, or liver disease. Ferritin is an acute phase reactant, so levels rise with inflammation regardless of iron status.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Iron",
@@ -730,7 +868,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 80, high: 140 },
     suboptimalLowRange: { low: 60, high: 80 },
     suboptimalHighRange: { low: 140, high: 170 },
-    description: "Blood iron level"
+    description: "Blood iron level",
+    detailedDescription: "Serum iron measures iron circulating in blood. It fluctuates throughout the day and with recent meals, making it less reliable than ferritin for assessing iron status. Low iron with low ferritin confirms iron deficiency. Iron should be interpreted with ferritin, TIBC, and transferrin saturation for complete picture.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "TIBC",
@@ -742,7 +882,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 275, high: 350 },
     suboptimalLowRange: { low: 250, high: 275 },
     suboptimalHighRange: { low: 350, high: 400 },
-    description: "Iron transport capacity"
+    description: "Iron transport capacity",
+    detailedDescription: "TIBC measures how much transferrin is available to bind iron. High TIBC indicates iron deficiency (body making more transporters to capture limited iron). Low TIBC suggests iron overload, inflammation, or malnutrition. TIBC helps distinguish types of anemia.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Transferrin Saturation",
@@ -753,7 +895,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 25, high: 45 },
     suboptimalLowRange: { low: 20, high: 25 },
     suboptimalHighRange: { low: 45, high: 50 },
-    description: "Iron transport utilization"
+    description: "Iron transport utilization",
+    detailedDescription: "Transferrin saturation shows what percentage of iron-carrying capacity is being used. Low saturation (<20%) indicates iron deficiency. High saturation (>45%) suggests iron overload. It's calculated from serum iron and TIBC. This is a key marker for diagnosing hemochromatosis.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "RBC Magnesium",
@@ -763,7 +907,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 4.2, high: 6.8 },
     optimalRange: { low: 5.5, high: 6.5 },
     suboptimalLowRange: { low: 4.2, high: 5.5 },
-    description: "Cellular magnesium level"
+    description: "Cellular magnesium level",
+    detailedDescription: "RBC magnesium measures magnesium inside red blood cells, reflecting tissue levels better than serum magnesium. It's a more accurate indicator of total body magnesium status. Low RBC magnesium can cause muscle cramps, anxiety, and sleep issues even when serum magnesium appears normal.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Zinc",
@@ -774,7 +920,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 60, high: 120 },
     optimalRange: { low: 80, high: 110 },
     suboptimalLowRange: { low: 60, high: 80 },
-    description: "Essential trace mineral"
+    description: "Essential trace mineral",
+    detailedDescription: "Zinc is essential for immune function, wound healing, taste, and testosterone production. Deficiency is common and causes impaired immunity, poor wound healing, and loss of taste/smell. Zinc competes with copper for absorption—long-term high-dose zinc can cause copper deficiency.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Copper",
@@ -786,7 +934,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 80, high: 130 },
     suboptimalLowRange: { low: 70, high: 80 },
     suboptimalHighRange: { low: 130, high: 155 },
-    description: "Essential trace mineral"
+    description: "Essential trace mineral",
+    detailedDescription: "Copper is needed for iron metabolism, connective tissue formation, and nerve function. Deficiency can cause anemia and neurological problems. Excess copper (Wilson's disease) damages liver and brain. The copper/zinc ratio is important—imbalances affect immune function and inflammation.",
+    trendPreference: "range_is_optimal"
   },
   {
     name: "Selenium",
@@ -797,7 +947,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 70, high: 150 },
     optimalRange: { low: 100, high: 140 },
     suboptimalLowRange: { low: 70, high: 100 },
-    description: "Antioxidant mineral"
+    description: "Antioxidant mineral",
+    detailedDescription: "Selenium is essential for thyroid function (T4 to T3 conversion), antioxidant defense, and immune health. Deficiency impairs thyroid function and increases cancer risk. Brazil nuts are extremely rich in selenium—just 1-2 daily provides adequate intake. Excess selenium is toxic.",
+    trendPreference: "higher_is_better"
   },
   {
     name: "Phosphorus",
@@ -808,7 +960,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 3.0, high: 4.0 },
     suboptimalLowRange: { low: 2.5, high: 3.0 },
     suboptimalHighRange: { low: 4.0, high: 4.5 },
-    description: "Essential mineral"
+    description: "Essential mineral",
+    detailedDescription: "Phosphorus is essential for bone health, energy production (ATP), and cell membrane structure. It works closely with calcium and vitamin D. Low phosphorus can cause weakness and bone pain. High phosphorus usually indicates kidney disease or parathyroid problems. Most diets provide adequate phosphorus.",
+    trendPreference: "range_is_optimal"
   },
 
   // ==================== ADDITIONAL INFLAMMATION ====================
@@ -820,7 +974,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 20 },
     optimalRange: { low: 0, high: 10 },
     suboptimalHighRange: { low: 10, high: 15 },
-    description: "General inflammation marker"
+    description: "General inflammation marker",
+    detailedDescription: "ESR measures how quickly red blood cells settle in a tube, which increases with inflammation. It's a non-specific marker—elevated in infections, autoimmune diseases, and cancers. ESR changes more slowly than CRP and remains elevated longer after inflammation resolves. Lower is better.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Fibrinogen",
@@ -830,7 +986,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 200, high: 400 },
     optimalRange: { low: 200, high: 300 },
     suboptimalHighRange: { low: 300, high: 350 },
-    description: "Clotting and inflammation marker"
+    description: "Clotting and inflammation marker",
+    detailedDescription: "Fibrinogen is a clotting protein that also rises with inflammation. High fibrinogen increases cardiovascular risk through enhanced clotting and blood viscosity. It's an acute phase reactant like CRP. Elevated levels are associated with heart attacks and strokes. Exercise and fish oil may help lower fibrinogen.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Uric Acid",
@@ -841,7 +999,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 4, high: 6 },
     suboptimalLowRange: { low: 3.5, high: 4 },
     suboptimalHighRange: { low: 6, high: 7.2 },
-    description: "Metabolic byproduct and inflammation marker"
+    description: "Metabolic byproduct and inflammation marker",
+    detailedDescription: "Uric acid is a byproduct of purine metabolism. High levels cause gout (painful joint crystals) and increase cardiovascular and kidney disease risk. Elevated uric acid is associated with insulin resistance and metabolic syndrome. Reducing fructose, alcohol, and purine-rich foods helps lower levels.",
+    trendPreference: "lower_is_better"
   },
 
   // ==================== ADDITIONAL LIVER ====================
@@ -854,7 +1014,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 10, high: 30 },
     suboptimalLowRange: { low: 8, high: 10 },
     suboptimalHighRange: { low: 30, high: 50 },
-    description: "Liver enzyme"
+    description: "Liver enzyme",
+    detailedDescription: "GGT is sensitive to liver and bile duct problems, especially alcohol-related damage. It's often the first liver enzyme to rise with alcohol use. GGT also increases with certain medications, obesity, and metabolic syndrome. Elevated GGT is an independent cardiovascular risk factor. Lower is generally better.",
+    trendPreference: "lower_is_better"
   },
 
   // ==================== ADDITIONAL KIDNEY ====================
@@ -867,7 +1029,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     optimalRange: { low: 12, high: 18 },
     suboptimalLowRange: { low: 10, high: 12 },
     suboptimalHighRange: { low: 18, high: 20 },
-    description: "Kidney function ratio"
+    description: "Kidney function ratio",
+    detailedDescription: "The BUN/Creatinine ratio helps distinguish causes of kidney dysfunction. High ratio suggests dehydration, high protein intake, or upper GI bleeding. Low ratio may indicate liver disease or malnutrition. Normal ratio with elevated both values indicates kidney disease.",
+    trendPreference: "range_is_optimal"
   },
 
   // ==================== ADDITIONAL BLOOD ====================
@@ -879,7 +1043,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 0.5 },
     optimalRange: { low: 0, high: 0.3 },
     suboptimalHighRange: { low: 0.3, high: 0.5 },
-    description: "Immune cells (allergy/parasite)"
+    description: "Immune cells (allergy/parasite)",
+    detailedDescription: "Eosinophils respond to parasitic infections and allergic reactions. Elevated counts (eosinophilia) indicate allergies, asthma, parasites, or certain autoimmune conditions. Very high counts can damage organs. Low counts are generally not concerning and may occur with acute stress or steroid use.",
+    trendPreference: "lower_is_better"
   },
   {
     name: "Basophils",
@@ -889,7 +1055,9 @@ export const BIOMARKER_REFERENCE: BiomarkerReference[] = [
     referenceRange: { low: 0, high: 0.2 },
     optimalRange: { low: 0, high: 0.1 },
     suboptimalHighRange: { low: 0.1, high: 0.2 },
-    description: "Immune cells (inflammation)"
+    description: "Immune cells (inflammation)",
+    detailedDescription: "Basophils are the least common white blood cells, involved in allergic reactions and inflammation. They release histamine and other mediators. Elevated basophils can indicate allergies, chronic inflammation, or blood disorders. Low counts are typically not clinically significant.",
+    trendPreference: "lower_is_better"
   }
 ];
 
