@@ -32,6 +32,7 @@ export function useExtractBiomarkers() {
   return useMutation({
     mutationFn: async (data: {
       image_base64?: string;
+      images_base64?: string[];
       text_content?: string;
       source_type: "image" | "text";
     }) => {

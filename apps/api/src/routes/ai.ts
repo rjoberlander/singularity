@@ -30,15 +30,25 @@ async function getAnthropicClient(userId: string): Promise<Anthropic | null> {
 router.post('/extract-biomarkers', async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    const { image_base64, text_content, source_type }: ExtractBiomarkersRequest = req.body;
+    const { image_base64, images_base64, text_content, source_type } = req.body;
 
-    if (!image_base64 && !text_content) {
+    // Support both single image and multiple images
+    const allImages: string[] = [];
+    if (images_base64 && Array.isArray(images_base64)) {
+      allImages.push(...images_base64);
+    } else if (image_base64) {
+      allImages.push(image_base64);
+    }
+
+    if (allImages.length === 0 && !text_content) {
       return res.status(400).json({
         success: false,
-        error: 'Either image_base64 or text_content is required',
+        error: 'Either image_base64, images_base64, or text_content is required',
         timestamp: new Date().toISOString()
       });
     }
+
+    console.log(`Processing extraction: ${allImages.length} images, text: ${!!text_content}`);
 
     const systemPrompt = `You are a precise biomarker extraction assistant. Your job is to extract health biomarker data from lab reports and match them to standard biomarker names.
 
@@ -53,6 +63,9 @@ ${KNOWN_BIOMARKERS}
 5. Include confidence scores: 1.0 for exact matches, 0.8-0.9 for close matches
 6. Extract reference ranges shown on the report
 7. Flag any values outside normal reference ranges
+8. IMPORTANT: A single biomarker may have MULTIPLE readings from different dates (e.g., historical chart data)
+9. Extract ALL date-value pairs visible for each biomarker - group them under the same biomarker entry
+10. Look for chart data showing historical values across different dates (e.g., 07/23, 10/23, 02/24, etc.)
 
 ## Output Format:
 Return ONLY valid JSON in this exact format:
@@ -61,38 +74,65 @@ Return ONLY valid JSON in this exact format:
     {
       "name": "string - standardized name from known list, or exact name if no match",
       "extracted_name": "string - original name as shown on report",
-      "value": number,
       "unit": "string - exact unit",
+      "category": "string - blood, metabolic, hormone, vitamin, mineral, lipid, thyroid, liver, kidney, inflammation, other",
+      "confidence": number between 0 and 1 - confidence in biomarker identification,
       "reference_range_low": number or null,
       "reference_range_high": number or null,
       "optimal_range_low": number or null,
       "optimal_range_high": number or null,
-      "category": "string - blood, metabolic, hormone, vitamin, mineral, lipid, thyroid, liver, kidney, inflammation, other",
-      "confidence": number between 0 and 1,
-      "flag": "string or null - 'low', 'high', 'critical_low', 'critical_high', or null if normal"
+      "readings": [
+        {
+          "date": "YYYY-MM-DD - the date of this reading",
+          "value": number,
+          "confidence": number between 0 and 1 - confidence in this specific value extraction,
+          "flag": "string or null - 'low', 'high', 'critical_low', 'critical_high', or null if normal"
+        }
+      ]
     }
   ],
   "lab_info": {
     "lab_name": "string or null",
-    "test_date": "YYYY-MM-DD or null",
+    "default_date": "YYYY-MM-DD or null - fallback date if no dates found",
     "patient_name": "string or null - only if clearly visible"
   },
   "extraction_notes": "string - any important notes about the extraction"
 }`;
 
-    let userContent: any[];
+    let userContent: any[] = [];
 
-    if (source_type === 'image' && image_base64) {
-      const sizeMB = getBase64SizeMB(image_base64);
-      const isPDF = isPDFBase64(image_base64);
+    // Helper to get media type and clean base64 data
+    const processBase64Image = (imageData: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: string } => {
+      let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+      let data = imageData;
 
-      console.log(`Processing file: ${sizeMB.toFixed(2)}MB, isPDF: ${isPDF}`);
+      if (imageData.startsWith('data:image/png')) {
+        mediaType = 'image/png';
+        data = imageData.split(',')[1];
+      } else if (imageData.startsWith('data:image/jpeg') || imageData.startsWith('data:image/jpg')) {
+        mediaType = 'image/jpeg';
+        data = imageData.split(',')[1];
+      } else if (imageData.startsWith('data:image/webp')) {
+        mediaType = 'image/webp';
+        data = imageData.split(',')[1];
+      } else if (imageData.startsWith('data:')) {
+        data = imageData.split(',')[1];
+      }
 
-      // For PDFs or large files, extract text instead of using vision
-      if (isPDF || sizeMB > MAX_IMAGE_SIZE_MB) {
+      return { mediaType, data };
+    };
+
+    // Process images if provided
+    if (allImages.length > 0) {
+      for (const imageData of allImages) {
+        const sizeMB = getBase64SizeMB(imageData);
+        const isPDF = isPDFBase64(imageData);
+
+        console.log(`Processing file: ${sizeMB.toFixed(2)}MB, isPDF: ${isPDF}`);
+
         if (isPDF) {
           console.log('PDF detected, extracting text...');
-          const pdfResult = await extractTextFromPDF(image_base64);
+          const pdfResult = await extractTextFromPDF(imageData);
 
           if (!pdfResult.success) {
             return res.status(400).json({
@@ -106,83 +146,70 @@ Return ONLY valid JSON in this exact format:
           // Handle scanned PDFs with images
           if (pdfResult.isScanned && pdfResult.images && pdfResult.images.length > 0) {
             console.log(`Processing ${pdfResult.images.length} scanned pages with Vision API`);
-
-            // Build content array with all images
-            userContent = [];
-            for (let i = 0; i < pdfResult.images.length; i++) {
+            for (const pageImage of pdfResult.images) {
               userContent.push({
                 type: 'image',
                 source: {
                   type: 'base64',
                   media_type: 'image/png',
-                  data: pdfResult.images[i]
+                  data: pageImage
                 }
               });
             }
+          } else if (pdfResult.text) {
+            // Text-based PDF - add as text content
             userContent.push({
               type: 'text',
-              text: `Extract all biomarker data from these ${pdfResult.images.length} lab report pages. Return the data as JSON.${pdfResult.truncated ? '\n\n(Note: Only showing first ' + pdfResult.images.length + ' of ' + pdfResult.pageCount + ' pages)' : ''}`
+              text: `--- PDF Document ---\n${pdfResult.text}\n--- End PDF ---`
             });
-          } else {
-            // Text-based PDF
-            console.log(`Extracted text from ${pdfResult.pageCount} pages${pdfResult.truncated ? ' (truncated)' : ''}`);
-
-            userContent = [
-              {
-                type: 'text',
-                text: `Extract all biomarker data from this lab report. Return the data as JSON.\n\n---\n${pdfResult.text}\n---${pdfResult.truncated ? '\n\n(Note: Document was truncated due to length)' : ''}`
-              }
-            ];
           }
-        } else {
+        } else if (sizeMB > MAX_IMAGE_SIZE_MB) {
           return res.status(400).json({
             success: false,
             error: `File too large (${sizeMB.toFixed(1)}MB). Maximum for images is ${MAX_IMAGE_SIZE_MB}MB. Try a smaller image or PDF.`,
             error_type: 'FILE_TOO_LARGE',
             timestamp: new Date().toISOString()
           });
-        }
-      } else {
-        // Regular image processing with vision API
-        let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
-        let base64Data = image_base64;
-
-        if (image_base64.startsWith('data:image/png')) {
-          mediaType = 'image/png';
-          base64Data = image_base64.split(',')[1];
-        } else if (image_base64.startsWith('data:image/jpeg') || image_base64.startsWith('data:image/jpg')) {
-          mediaType = 'image/jpeg';
-          base64Data = image_base64.split(',')[1];
-        } else if (image_base64.startsWith('data:image/webp')) {
-          mediaType = 'image/webp';
-          base64Data = image_base64.split(',')[1];
-        } else if (image_base64.startsWith('data:')) {
-          base64Data = image_base64.split(',')[1];
-        }
-
-        userContent = [
-          {
+        } else {
+          // Regular image - add to content
+          const { mediaType, data } = processBase64Image(imageData);
+          userContent.push({
             type: 'image',
             source: {
               type: 'base64',
               media_type: mediaType,
-              data: base64Data
+              data: data
             }
-          },
-          {
-            type: 'text',
-            text: 'Extract all biomarker data from this lab report image. Return the data as JSON.'
-          }
-        ];
-      }
-    } else {
-      userContent = [
-        {
-          type: 'text',
-          text: `Extract all biomarker data from this lab report text. Return the data as JSON.\n\n---\n${text_content}\n---`
+          });
         }
-      ];
+      }
     }
+
+    // Add text content if provided
+    if (text_content) {
+      userContent.push({
+        type: 'text',
+        text: `--- Text Content ---\n${text_content}\n--- End Text ---`
+      });
+    }
+
+    // Add final instruction
+    const imageCount = userContent.filter((c: any) => c.type === 'image').length;
+    const hasText = userContent.some((c: any) => c.type === 'text');
+    let instruction = 'Extract all biomarker data from ';
+    if (imageCount > 0 && hasText) {
+      instruction += `these ${imageCount} image${imageCount > 1 ? 's' : ''} and text content`;
+    } else if (imageCount > 0) {
+      instruction += imageCount > 1 ? `these ${imageCount} lab report images` : 'this lab report image';
+    } else {
+      instruction += 'this lab report text';
+    }
+    instruction += '. Return the data as JSON.';
+
+    userContent.push({
+      type: 'text',
+      text: instruction
+    });
 
     // Get user's Anthropic API key
     const anthropic = await getAnthropicClient(userId);
@@ -253,55 +280,72 @@ Return ONLY valid JSON in this exact format:
 
     // Post-process: Match against reference data and fill in missing ranges
     if (extractedData.biomarkers && Array.isArray(extractedData.biomarkers)) {
+      const defaultDate = (extractedData.lab_info as any)?.default_date || (extractedData.lab_info as any)?.default_test_date || null;
+
       extractedData.biomarkers = extractedData.biomarkers.map((biomarker: any) => {
         const { match, confidence: matchConfidence } = findBiomarkerMatch(biomarker.name);
 
-        if (match) {
-          // Update confidence based on our matching
-          const finalConfidence = Math.max(biomarker.confidence || 0, matchConfidence);
+        // Fill in missing reference ranges from our data
+        const referenceRangeLow = biomarker.reference_range_low ?? match?.referenceRange?.low ?? null;
+        const referenceRangeHigh = biomarker.reference_range_high ?? match?.referenceRange?.high ?? null;
+        const optimalRangeLow = biomarker.optimal_range_low ?? match?.optimalRange?.low ?? null;
+        const optimalRangeHigh = biomarker.optimal_range_high ?? match?.optimalRange?.high ?? null;
 
-          // Use reference name if different
-          const standardizedName = match.name;
+        // Helper to calculate flag for a value
+        const calculateFlag = (value: number) => {
+          if (referenceRangeLow !== null && value < referenceRangeLow * 0.8) return 'critical_low';
+          if (referenceRangeLow !== null && value < referenceRangeLow) return 'low';
+          if (referenceRangeHigh !== null && value > referenceRangeHigh * 1.2) return 'critical_high';
+          if (referenceRangeHigh !== null && value > referenceRangeHigh) return 'high';
+          return null;
+        };
 
-          // Fill in missing reference ranges from our data
-          const referenceRangeLow = biomarker.reference_range_low ?? match.referenceRange.low;
-          const referenceRangeHigh = biomarker.reference_range_high ?? match.referenceRange.high;
-          const optimalRangeLow = biomarker.optimal_range_low ?? match.optimalRange.low;
-          const optimalRangeHigh = biomarker.optimal_range_high ?? match.optimalRange.high;
-
-          // Calculate flag based on value vs ranges
-          let flag = biomarker.flag;
-          if (!flag && biomarker.value !== undefined) {
-            if (biomarker.value < referenceRangeLow * 0.8) {
-              flag = 'critical_low';
-            } else if (biomarker.value < referenceRangeLow) {
-              flag = 'low';
-            } else if (biomarker.value > referenceRangeHigh * 1.2) {
-              flag = 'critical_high';
-            } else if (biomarker.value > referenceRangeHigh) {
-              flag = 'high';
-            }
-          }
+        // Handle new multi-reading format
+        if (biomarker.readings && Array.isArray(biomarker.readings)) {
+          // Process each reading
+          const processedReadings = biomarker.readings.map((reading: any) => ({
+            date: reading.date || defaultDate,
+            value: reading.value,
+            confidence: reading.confidence ?? biomarker.confidence ?? 0.9,
+            flag: reading.flag || calculateFlag(reading.value)
+          }));
 
           return {
-            ...biomarker,
-            name: standardizedName,
+            name: match?.name || biomarker.name,
             extracted_name: biomarker.extracted_name || biomarker.name,
-            category: biomarker.category || match.category,
+            unit: biomarker.unit,
+            category: biomarker.category || match?.category || 'other',
+            confidence: Math.max(biomarker.confidence || 0, matchConfidence || 0),
+            match_confidence: matchConfidence || 0,
             reference_range_low: referenceRangeLow,
             reference_range_high: referenceRangeHigh,
             optimal_range_low: optimalRangeLow,
             optimal_range_high: optimalRangeHigh,
-            confidence: finalConfidence,
-            match_confidence: matchConfidence,
-            flag
+            readings: processedReadings
           };
         }
 
+        // Handle legacy single-value format (convert to readings array)
+        const finalConfidence = Math.max(biomarker.confidence || 0, matchConfidence || 0);
+        const singleReading = {
+          date: biomarker.test_date || defaultDate,
+          value: biomarker.value,
+          confidence: finalConfidence,
+          flag: biomarker.flag || calculateFlag(biomarker.value)
+        };
+
         return {
-          ...biomarker,
+          name: match?.name || biomarker.name,
           extracted_name: biomarker.extracted_name || biomarker.name,
-          match_confidence: 0
+          unit: biomarker.unit,
+          category: biomarker.category || match?.category || 'other',
+          confidence: finalConfidence,
+          match_confidence: matchConfidence || 0,
+          reference_range_low: referenceRangeLow,
+          reference_range_high: referenceRangeHigh,
+          optimal_range_low: optimalRangeLow,
+          optimal_range_high: optimalRangeHigh,
+          readings: [singleReading]
         };
       });
     }
@@ -351,30 +395,56 @@ router.post('/extract-supplements', async (req: Request, res: Response): Promise
       });
     }
 
-    const systemPrompt = `You are a precise supplement extraction assistant. Your job is to extract supplement information from images (bottles, labels, receipts) or text.
+    // Check if this is a URL input
+    let isUrlInput = false;
+    let actualContent = text_content;
+    if (text_content && text_content.startsWith('[URL]:')) {
+      isUrlInput = true;
+      const url = text_content.replace('[URL]:', '').trim();
+      // For URL inputs, instruct AI to identify the product from the URL pattern
+      actualContent = `Product URL: ${url}\n\nPlease identify the supplement product from this URL. Common patterns:\n- Amazon: /dp/ or /gp/product/ followed by ASIN\n- iHerb: product name in URL path\n- Other retailers: product name usually in the URL\n\nExtract what you can determine from the URL pattern (brand, product name, etc). Set confidence lower (0.6-0.8) since we're inferring from URL.`;
+    }
+
+    const systemPrompt = `You are a precise supplement extraction assistant. Your job is to extract supplement information from images (bottles, labels, receipts), text, or product URLs.
 
 ## Rules:
-1. ONLY extract data that is explicitly visible in the source
-2. NEVER guess or infer values that aren't clearly stated
+1. ONLY extract data that is explicitly visible/stated in the source
+2. For URLs, infer product details from the URL pattern and common knowledge about the product
 3. Return structured JSON
-4. Include confidence scores for each extraction
+4. Include confidence scores for each extraction (lower for URL-based inference)
 5. Extract as much detail as available (brand, dose, servings, price, etc.)
+6. For well-known supplements, include WHY someone takes it and HOW it works (mechanism)
+7. Suggest optimal timing based on the supplement type
+
+## Timing Values (use exactly these):
+- wake_up: First thing upon waking (e.g., thyroid meds, probiotics)
+- am: Morning with breakfast (e.g., B vitamins, iron)
+- lunch: Midday with food (e.g., some fat-soluble vitamins)
+- pm: Afternoon (e.g., energy supplements before 3pm)
+- dinner: Evening with dinner (e.g., fish oil, CoQ10)
+- before_bed: Before sleep (e.g., magnesium, melatonin)
 
 ## Output Format:
 Return ONLY valid JSON in this exact format:
 {
   "supplements": [
     {
-      "name": "string - supplement name (e.g., Vitamin D3, Fish Oil)",
+      "name": "string - supplement name (e.g., Vitamin D3, Fish Oil, Krill Oil)",
       "brand": "string or null - brand name if visible",
-      "dose": "string or null - dose as displayed (e.g., '5000 IU', '1000mg')",
+      "dose": "string or null - dose as displayed (e.g., '5000 IU', '1000mg', '1 softgel')",
       "dose_per_serving": number or null,
       "dose_unit": "string or null - unit only (IU, mg, mcg, g)",
       "servings_per_container": number or null,
-      "price": number or null - price in dollars if visible,
+      "price": number or null - total price in dollars if visible,
+      "price_per_serving": number or null - calculated if price and servings known,
+      "purchase_url": "string or null - if URL was provided",
       "category": "string - vitamin, mineral, amino_acid, herb, probiotic, omega, antioxidant, hormone, enzyme, other",
-      "timing": "string or null - morning, afternoon, evening, with_meals, empty_stomach, before_bed",
+      "timing": "string or null - MUST be one of: wake_up, am, lunch, pm, dinner, before_bed",
+      "timing_reason": "string or null - WHY take at this time (e.g., 'cognitive benefits during waking hours')",
       "frequency": "string or null - daily, twice_daily, three_times_daily, weekly, as_needed",
+      "reason": "string or null - WHY take this supplement (key benefits, nutrients provided)",
+      "mechanism": "string or null - HOW it works (mechanism of action, absorption, etc.)",
+      "goal_categories": ["string array - related health goals like Cardiovascular, Cognitive, Skin, Energy, Sleep, etc."],
       "confidence": number between 0 and 1
     }
   ],
@@ -462,7 +532,9 @@ Return ONLY valid JSON in this exact format:
       userContent = [
         {
           type: 'text',
-          text: `Extract all supplement information from this text. Return the data as JSON.\n\n---\n${text_content}\n---`
+          text: isUrlInput
+            ? `${actualContent}\n\nReturn the supplement data as JSON.`
+            : `Extract all supplement information from this text. Return the data as JSON.\n\n---\n${actualContent}\n---`
         }
       ];
     }

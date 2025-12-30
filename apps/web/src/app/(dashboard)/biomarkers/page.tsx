@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import Link from "next/link";
 import { useBiomarkers } from "@/hooks/useBiomarkers";
 import { BiomarkerChartCard } from "@/components/biomarkers/BiomarkerChartCard";
 import { BiomarkerExtractionModal } from "@/components/biomarkers/BiomarkerExtractionModal";
+import { BiomarkerAddModal } from "@/components/biomarkers/BiomarkerAddModal";
 import { BiomarkerChatInput } from "@/components/biomarkers/BiomarkerChatInput";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,11 +32,11 @@ import {
 import { BIOMARKER_REFERENCE, BiomarkerReference, getCategories } from "@/data/biomarkerReference";
 import { Biomarker } from "@/types";
 
-// Status colors matching the reference image
+// Status colors: green (optimal), yellow (suboptimal), brown (critical)
 const STATUS_COLORS = {
-  optimal: "#6B8E5A",
-  normal: "#C7A45C",
-  outOfRange: "#8B4513",
+  optimal: "#6B8E5A",    // Green - in optimal range
+  suboptimal: "#D4A84B", // Yellow - in suboptimal range (not optimal but not critical)
+  critical: "#8B4513",   // Brown - outside all ranges (critical)
   empty: "#9CA3AF",
 };
 
@@ -73,20 +73,27 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   immune: Shield,
 };
 
-type FilterType = "all" | "withData" | "outOfRange" | "optimal" | "normal";
+type FilterType = "all" | "withData" | "critical" | "suboptimal" | "optimal";
 type SortType = "name" | "category" | "status" | "date";
 
 function getValueStatus(
   value: number,
   ref: BiomarkerReference
-): "optimal" | "normal" | "outOfRange" {
-  if (value < ref.referenceRange.low || value > ref.referenceRange.high) {
-    return "outOfRange";
-  }
+): "optimal" | "suboptimal" | "critical" {
+  // 3 statuses: optimal (green), suboptimal (yellow), critical (brown)
   if (value >= ref.optimalRange.low && value <= ref.optimalRange.high) {
     return "optimal";
   }
-  return "normal";
+  // Check if in suboptimal range
+  const suboptLow = ref.suboptimalLowRange;
+  const suboptHigh = ref.suboptimalHighRange;
+  if (
+    (suboptLow && value >= suboptLow.low && value < ref.optimalRange.low) ||
+    (suboptHigh && value > ref.optimalRange.high && value <= suboptHigh.high)
+  ) {
+    return "suboptimal";
+  }
+  return "critical";
 }
 
 export default function BiomarkersPage() {
@@ -95,7 +102,8 @@ export default function BiomarkersPage() {
   const [sortType, setSortType] = useState<SortType>("status");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
-  const [extractionInput, setExtractionInput] = useState<{ text?: string; file?: File } | undefined>();
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [extractionInput, setExtractionInput] = useState<{ text?: string; files?: File[] } | undefined>();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { data: biomarkers, isLoading, error, refetch } = useBiomarkers({ limit: 1000 });
@@ -123,11 +131,11 @@ export default function BiomarkersPage() {
     return map;
   }, [biomarkers]);
 
-  // Calculate summary stats
+  // Calculate summary stats (3 categories: optimal, suboptimal, critical)
   const summaryStats = useMemo(() => {
     let optimal = 0;
-    let normal = 0;
-    let outOfRange = 0;
+    let suboptimal = 0;
+    let critical = 0;
     let noData = 0;
 
     BIOMARKER_REFERENCE.forEach((ref) => {
@@ -140,8 +148,8 @@ export default function BiomarkersPage() {
         )[0];
         const status = getValueStatus(latest.value, ref);
         if (status === "optimal") optimal++;
-        else if (status === "normal") normal++;
-        else outOfRange++;
+        else if (status === "suboptimal") suboptimal++;
+        else critical++;
       }
     });
 
@@ -150,14 +158,14 @@ export default function BiomarkersPage() {
 
     return {
       optimal,
-      normal,
-      outOfRange,
+      suboptimal,
+      critical,
       noData,
       total,
       withData,
       optimalPercent: withData > 0 ? Math.round((optimal / withData) * 100) : 0,
-      normalPercent: withData > 0 ? Math.round((normal / withData) * 100) : 0,
-      outOfRangePercent: withData > 0 ? Math.round((outOfRange / withData) * 100) : 0,
+      suboptimalPercent: withData > 0 ? Math.round((suboptimal / withData) * 100) : 0,
+      criticalPercent: withData > 0 ? Math.round((critical / withData) * 100) : 0,
     };
   }, [biomarkersByName]);
 
@@ -174,15 +182,15 @@ export default function BiomarkersPage() {
 
       // Filter type
       if (filterType === "withData" && !hasData) return false;
-      if (filterType === "outOfRange" || filterType === "optimal" || filterType === "normal") {
+      if (filterType === "critical" || filterType === "suboptimal" || filterType === "optimal") {
         if (!hasData) return false;
         const latest = history.sort(
           (a, b) => new Date(b.date_tested).getTime() - new Date(a.date_tested).getTime()
         )[0];
         const status = getValueStatus(latest.value, ref);
-        if (filterType === "outOfRange" && status !== "outOfRange") return false;
+        if (filterType === "critical" && status !== "critical") return false;
+        if (filterType === "suboptimal" && status !== "suboptimal") return false;
         if (filterType === "optimal" && status !== "optimal") return false;
-        if (filterType === "normal" && status !== "normal") return false;
       }
 
       return true;
@@ -209,7 +217,7 @@ export default function BiomarkersPage() {
         if (!hasDataA && hasDataB) return 1;
         if (!hasDataA && !hasDataB) return a.name.localeCompare(b.name);
 
-        // Sort by status: outOfRange first, then normal, then optimal
+        // Sort by status: critical first, then suboptimal, then optimal
         const latestA = historyA.sort(
           (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
         )[0];
@@ -219,7 +227,7 @@ export default function BiomarkersPage() {
         const statusA = getValueStatus(latestA.value, a);
         const statusB = getValueStatus(latestB.value, b);
 
-        const statusOrder = { outOfRange: 0, normal: 1, optimal: 2 };
+        const statusOrder: Record<string, number> = { critical: 0, suboptimal: 1, optimal: 2 };
         return statusOrder[statusA] - statusOrder[statusB];
       }
       if (sortType === "date") {
@@ -260,7 +268,7 @@ export default function BiomarkersPage() {
     });
   };
 
-  const handleChatSubmit = (data: { text?: string; file?: File }) => {
+  const handleChatSubmit = (data: { text?: string; files?: File[] }) => {
     setExtractionInput(data);
     setIsProcessing(true);
     setIsExtractionModalOpen(true);
@@ -329,14 +337,6 @@ export default function BiomarkersPage() {
                 })}
               </div>
 
-              <div className="ml-auto">
-                <Link href="/biomarkers/add">
-                  <Button variant="outline" size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Manually
-                  </Button>
-                </Link>
-              </div>
             </div>
 
             {/* Main Content */}
@@ -375,63 +375,45 @@ export default function BiomarkersPage() {
                           </span>
                         </div>
 
-                        {/* Normal */}
+                        {/* Suboptimal (Yellow) */}
                         <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "normal" ? "bg-muted" : ""}`}
-                          onClick={() => setFilterType(filterType === "normal" ? "all" : "normal")}
+                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "suboptimal" ? "bg-muted" : ""}`}
+                          onClick={() => setFilterType(filterType === "suboptimal" ? "all" : "suboptimal")}
                         >
-                          <Droplet className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.normal }} />
+                          <CirclePlus className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.suboptimal }} />
                           <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
-                                width: `${summaryStats.normalPercent}%`,
-                                backgroundColor: STATUS_COLORS.normal,
+                                width: `${summaryStats.suboptimalPercent}%`,
+                                backgroundColor: STATUS_COLORS.suboptimal,
                               }}
                             />
                           </div>
                           <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {summaryStats.normalPercent}%
+                            {summaryStats.suboptimalPercent}%
                           </span>
                         </div>
 
-                        {/* Out of Range */}
+                        {/* Critical (Brown/Red) */}
                         <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "outOfRange" ? "bg-muted" : ""}`}
-                          onClick={() => setFilterType(filterType === "outOfRange" ? "all" : "outOfRange")}
+                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "critical" ? "bg-muted" : ""}`}
+                          onClick={() => setFilterType(filterType === "critical" ? "all" : "critical")}
                         >
-                          <CirclePlus className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.outOfRange }} />
+                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.critical} strokeWidth="2">
+                            <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
                           <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
-                                width: `${summaryStats.outOfRangePercent}%`,
-                                backgroundColor: STATUS_COLORS.outOfRange,
+                                width: `${summaryStats.criticalPercent}%`,
+                                backgroundColor: STATUS_COLORS.critical,
                               }}
                             />
                           </div>
                           <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {summaryStats.outOfRangePercent}%
-                          </span>
-                        </div>
-
-                        {/* No Data */}
-                        <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50`}
-                          onClick={() => setFilterType("all")}
-                        >
-                          <RefreshCcw className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.empty }} />
-                          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${Math.round((summaryStats.noData / summaryStats.total) * 100)}%`,
-                                backgroundColor: STATUS_COLORS.empty,
-                              }}
-                            />
-                          </div>
-                          <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {Math.round((summaryStats.noData / summaryStats.total) * 100)}%
+                            {summaryStats.criticalPercent}%
                           </span>
                         </div>
                       </div>
@@ -446,6 +428,19 @@ export default function BiomarkersPage() {
                 {/* Chat Input - Under summary */}
                 <div className="pt-4">
                   <BiomarkerChatInput onSubmit={handleChatSubmit} isProcessing={isProcessing} />
+                </div>
+
+                {/* Add Manually Button */}
+                <div className="pt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setIsAddModalOpen(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Manually
+                  </Button>
                 </div>
               </div>
 
@@ -506,6 +501,13 @@ export default function BiomarkersPage() {
           refetch();
           handleModalClose(false);
         }}
+      />
+
+      {/* Add Manually Modal */}
+      <BiomarkerAddModal
+        open={isAddModalOpen}
+        onOpenChange={setIsAddModalOpen}
+        onSuccess={() => refetch()}
       />
     </div>
   );

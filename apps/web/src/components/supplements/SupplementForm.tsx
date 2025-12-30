@@ -38,11 +38,11 @@ const CATEGORIES = [
 ];
 
 const TIMING_OPTIONS = [
-  { value: "morning", label: "Morning" },
-  { value: "afternoon", label: "Afternoon" },
-  { value: "evening", label: "Evening" },
-  { value: "with_meals", label: "With Meals" },
-  { value: "empty_stomach", label: "Empty Stomach" },
+  { value: "wake_up", label: "Wake Up" },
+  { value: "am", label: "AM (Morning)" },
+  { value: "lunch", label: "Lunch" },
+  { value: "pm", label: "PM (Afternoon)" },
+  { value: "dinner", label: "Dinner" },
   { value: "before_bed", label: "Before Bed" },
 ];
 
@@ -121,10 +121,10 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
 
     try {
       if (isEditing && supplement) {
-        await updateSupplement.mutateAsync({ id: supplement.id, data: formData });
+        await updateSupplement.mutateAsync({ id: supplement.id, data: formData as any });
         toast.success("Supplement updated successfully");
       } else {
-        await createSupplement.mutateAsync(formData);
+        await createSupplement.mutateAsync(formData as any);
         toast.success("Supplement added successfully");
       }
       onOpenChange(false);

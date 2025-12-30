@@ -230,9 +230,14 @@ export interface CreateSupplementRequest {
   dose_unit?: string;
   servings_per_container?: number;
   price?: number;
+  price_per_serving?: number;
+  purchase_url?: string;
   category?: string;
   timing?: string;
+  timing_reason?: string;
   frequency?: string;
+  reason?: string;
+  mechanism?: string;
   notes?: string;
 }
 

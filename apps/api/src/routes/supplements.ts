@@ -183,8 +183,9 @@ router.post('/bulk', async (req: Request, res: Response): Promise<any> => {
     }
 
     const supplementsToInsert = supplements.map((s: CreateSupplementRequest) => {
-      let pricePerServing = undefined;
-      if (s.price && s.servings_per_container) {
+      // Use provided price_per_serving, or calculate it if price and servings are available
+      let pricePerServing = s.price_per_serving;
+      if (!pricePerServing && s.price && s.servings_per_container) {
         pricePerServing = s.price / s.servings_per_container;
       }
 

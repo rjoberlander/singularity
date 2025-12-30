@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { PermissionService } from '../services/permissionService';
 import { Biomarker, CreateBiomarkerRequest, ApiResponse, BiomarkerWithStatus } from '../types';
+import { BIOMARKER_REFERENCE, getCategories } from '../data/biomarkerReference';
 
 const router = Router();
 
@@ -424,6 +425,77 @@ router.get('/history/:name', async (req: Request, res: Response): Promise<any> =
     });
   } catch (error) {
     console.error('GET /biomarkers/history/:name error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/biomarkers/reference
+ * Get biomarker reference data (names, ranges, categories)
+ * This provides AI and frontend with standard reference information
+ */
+router.get('/reference/all', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { category } = req.query;
+
+    let references = BIOMARKER_REFERENCE;
+
+    if (category && typeof category === 'string') {
+      references = references.filter(r => r.category === category);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        biomarkers: references,
+        categories: getCategories(),
+        count: references.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /biomarkers/reference/all error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/biomarkers/reference/:name
+ * Get reference data for a specific biomarker
+ */
+router.get('/reference/:name', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { name } = req.params;
+    const normalizedName = name.toLowerCase();
+
+    const reference = BIOMARKER_REFERENCE.find(r =>
+      r.name.toLowerCase() === normalizedName ||
+      r.aliases.some(a => a.toLowerCase() === normalizedName)
+    );
+
+    if (!reference) {
+      return res.status(404).json({
+        success: false,
+        error: 'Biomarker reference not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: reference,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /biomarkers/reference/:name error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

@@ -65,26 +65,25 @@ test.describe("Biomarker Extraction", () => {
     console.log("Biomarkers page loaded with chat input");
   });
 
-  test("should extract biomarkers from pasted text", async ({ page }) => {
+  test("should extract biomarkers from pasted text with dates, values, and confidence", async ({ page }) => {
     // Navigate to biomarkers page
     await page.goto("/biomarkers");
     await page.waitForLoadState("networkidle");
 
-    // Sample lab results text
+    // Sample lab results text with multiple dates
     const labResultsText = `Lab Results - Quest Diagnostics
-Date: August 30, 2024
 Patient: Test User
 
-METABOLIC PANEL:
+METABOLIC PANEL (Collected: August 30, 2024):
 - LDL Cholesterol: 118 mg/dL (Reference: <100 mg/dL) HIGH
 - Hemoglobin A1c: 5.5% (Reference: 4.0-5.6%)
 - DHEA-Sulfate: 295 ug/dL (Reference: 70-495)
 
-BLOOD COUNT:
+BLOOD COUNT (Collected: August 25, 2024):
 - RBC: 5.48 x10E6/uL (Reference: 4.5-5.5)
 - Hemoglobin: 15.2 g/dL (Reference: 13.5-17.5)
 
-HORMONES:
+HORMONES (Collected: August 20, 2024):
 - Testosterone, Total: 650 ng/dL (Reference: 264-916)
 - Vitamin D, 25-Hydroxy: 45 ng/mL (Reference: 30-100)`;
 
@@ -121,7 +120,7 @@ HORMONES:
     // Wait for extraction to complete (look for "Review" in title or biomarker checkboxes)
     // This may take up to 60 seconds for AI processing
     try {
-      await page.waitForSelector('text=Review Extracted Biomarkers', { timeout: 60000 });
+      await page.waitForSelector('text=Review Extracted Biomarkers', { timeout: 90000 });
       console.log("Extraction completed - review step");
 
       // Take screenshot of review step
@@ -130,10 +129,40 @@ HORMONES:
         fullPage: true,
       });
 
-      // Check for extracted biomarkers
-      const biomarkerItems = page.locator('[class*="rounded-lg border"]');
-      const count = await biomarkerItems.count();
-      console.log(`Found ${count} extracted biomarkers`);
+      // Check for extracted biomarker rows using data-testid
+      const biomarkerRows = page.locator('[data-testid="biomarker-row"]');
+      const rowCount = await biomarkerRows.count();
+      console.log(`Found ${rowCount} extracted biomarker rows`);
+      expect(rowCount).toBeGreaterThan(0);
+
+      // Verify each row has name, value, confidence %, and date
+      for (let i = 0; i < Math.min(rowCount, 3); i++) {
+        const row = biomarkerRows.nth(i);
+
+        // Check for biomarker name
+        const name = row.locator('[data-testid="biomarker-name"]');
+        const nameText = await name.textContent();
+        console.log(`Row ${i + 1} Name: ${nameText}`);
+        expect(nameText).toBeTruthy();
+
+        // Check for biomarker value
+        const value = row.locator('[data-testid="biomarker-value"]');
+        const valueText = await value.textContent();
+        console.log(`Row ${i + 1} Value: ${valueText}`);
+        expect(valueText).toBeTruthy();
+
+        // Check for confidence %
+        const confidence = row.locator('[data-testid="biomarker-confidence"]');
+        const confidenceText = await confidence.textContent();
+        console.log(`Row ${i + 1} Confidence: ${confidenceText}`);
+        expect(confidenceText).toMatch(/\d+%/);
+
+        // Check for date input
+        const dateInput = row.locator('[data-testid="biomarker-date"]');
+        const dateValue = await dateInput.inputValue();
+        console.log(`Row ${i + 1} Date: ${dateValue}`);
+        expect(dateValue).toBeTruthy();
+      }
 
       // Look for specific biomarkers we sent
       const ldlText = page.getByText(/LDL/i);
@@ -146,33 +175,61 @@ HORMONES:
         console.log("Found Hemoglobin in results");
       }
 
-      // Check for confidence badges
-      const confidenceBadges = page.locator('text=/\\d+% match/');
-      const badgeCount = await confidenceBadges.count();
-      console.log(`Found ${badgeCount} confidence badges`);
-
       // Save the biomarkers
       const saveButton = page.getByRole("button", { name: /save/i });
-      if (await saveButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await saveButton.click();
-        console.log("Clicked save button");
+      await expect(saveButton).toBeVisible({ timeout: 5000 });
 
-        // Wait for modal to close
-        await expect(modal).not.toBeVisible({ timeout: 10000 });
-        console.log("Modal closed after save");
+      // Get the count of biomarkers being saved
+      const saveButtonText = await saveButton.textContent();
+      console.log(`Save button text: ${saveButtonText}`);
 
-        // Take final screenshot
-        await page.screenshot({
-          path: "tests/screenshots/biomarkers-after-save.png",
-          fullPage: true,
-        });
+      await saveButton.click();
+      console.log("Clicked save button");
+
+      // Wait for modal to close
+      await expect(modal).not.toBeVisible({ timeout: 15000 });
+      console.log("Modal closed after save");
+
+      // Wait for page to update
+      await page.waitForTimeout(2000);
+
+      // Take screenshot after save
+      await page.screenshot({
+        path: "tests/screenshots/biomarkers-after-save.png",
+        fullPage: true,
+      });
+
+      // Verify biomarkers appear on the page
+      // Look for biomarker cards on the page
+      const biomarkerCards = page.locator('[class*="BiomarkerChartCard"], [class*="biomarker"]').or(
+        page.locator('text=/LDL.*mg\\/dL/i').first()
+      );
+
+      // Check if any of our extracted biomarkers are now visible on the page
+      const ldlOnPage = page.getByText(/LDL/i).first();
+      if (await ldlOnPage.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log("SUCCESS: LDL Cholesterol now visible on biomarkers page!");
       }
+
+      const hemoglobinOnPage = page.getByText(/Hemoglobin A1c/i).first();
+      if (await hemoglobinOnPage.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log("SUCCESS: Hemoglobin A1c now visible on biomarkers page!");
+      }
+
+      // Final screenshot showing saved biomarkers on page
+      await page.screenshot({
+        path: "tests/screenshots/biomarkers-saved-visible.png",
+        fullPage: true,
+      });
+
+      console.log("Test completed successfully - biomarkers extracted, reviewed, and saved!");
     } catch (error) {
       console.log("Extraction may have failed or timed out:", error);
       await page.screenshot({
         path: "tests/screenshots/biomarkers-extraction-error.png",
         fullPage: true,
       });
+      throw error;
     }
   });
 

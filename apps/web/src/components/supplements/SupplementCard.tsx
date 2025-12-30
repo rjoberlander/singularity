@@ -84,7 +84,7 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
         </div>
 
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          {supplement.price_per_serving !== undefined && (
+          {supplement.price_per_serving != null && (
             <span className="flex items-center gap-1">
               <DollarSign className="w-3 h-3" />
               ${supplement.price_per_serving.toFixed(2)}/serving

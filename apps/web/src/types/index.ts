@@ -49,6 +49,9 @@ export interface CreateBiomarkerRequest {
   ai_extracted?: boolean;
 }
 
+// Supplement timing options
+export type SupplementTiming = 'wake_up' | 'am' | 'lunch' | 'pm' | 'dinner' | 'before_bed' | 'specific';
+
 // Supplement types
 export interface Supplement {
   id: string;
@@ -63,12 +66,25 @@ export interface Supplement {
   price_per_serving?: number;
   purchase_url?: string;
   category?: string;
-  timing?: string;
+  timing?: SupplementTiming | string;
+  timing_specific?: string; // HH:MM format when timing = 'specific'
+  timing_reason?: string;   // Why at this time (e.g., "cognitive benefits during waking hours")
+  reason?: string;          // Why taking (e.g., "Phospholipid-bound omega-3s + astaxanthin")
+  mechanism?: string;       // How it works (e.g., "Phospholipid form integrates into cell membranes")
   frequency?: string;
   is_active: boolean;
   notes?: string;
+  linked_goals?: SupplementGoal[]; // Populated via join
   created_at: string;
   updated_at: string;
+}
+
+export interface SupplementGoal {
+  id: string;
+  supplement_id: string;
+  goal_id: string;
+  goal?: Goal; // Populated via join
+  created_at: string;
 }
 
 export interface CreateSupplementRequest {
@@ -79,11 +95,17 @@ export interface CreateSupplementRequest {
   dose_unit?: string;
   servings_per_container?: number;
   price?: number;
+  price_per_serving?: number;
   purchase_url?: string;
   category?: string;
-  timing?: string;
+  timing?: SupplementTiming | string;
+  timing_specific?: string;
+  timing_reason?: string;
+  reason?: string;
+  mechanism?: string;
   frequency?: string;
   notes?: string;
+  goal_ids?: string[]; // IDs of goals to link
 }
 
 // Routine types
@@ -177,10 +199,17 @@ export interface UserLink {
 }
 
 // AI types
+export interface ExtractedReading {
+  date: string;
+  value: number;
+  confidence: number;
+  flag?: string | null;
+}
+
 export interface ExtractedBiomarkerData {
   biomarkers: Array<{
     name: string;
-    value: number;
+    extracted_name?: string;
     unit: string;
     reference_range_low?: number;
     reference_range_high?: number;
@@ -188,10 +217,12 @@ export interface ExtractedBiomarkerData {
     optimal_range_high?: number;
     category?: string;
     confidence: number;
+    match_confidence?: number;
+    readings: ExtractedReading[];
   }>;
   lab_info: {
     lab_name?: string;
-    test_date?: string;
+    default_date?: string;
     patient_name?: string;
   };
   extraction_notes?: string;
@@ -206,9 +237,16 @@ export interface ExtractedSupplementData {
     dose_unit?: string;
     servings_per_container?: number;
     price?: number;
+    price_per_serving?: number;
+    purchase_url?: string;
     category?: string;
     timing?: string;
+    timing_specific?: string;
+    timing_reason?: string;
+    reason?: string;
+    mechanism?: string;
     frequency?: string;
+    goal_categories?: string[]; // e.g., ["Cardiovascular", "Cognitive", "Skin"]
     confidence: number;
   }>;
   source_info: {

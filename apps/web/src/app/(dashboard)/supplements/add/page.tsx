@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CreateSupplementRequest, ExtractedSupplementData } from "@/types";
+import { CreateSupplementRequest, ExtractedSupplementData, SupplementTiming } from "@/types";
 import { Sparkles, PenLine, Upload, Loader2, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -67,8 +67,6 @@ export default function AddSupplementPage() {
     dose: "",
     dose_unit: "",
     category: "",
-    timing: "",
-    frequency: "",
   });
 
   // AI tab state - combined image + text
@@ -526,9 +524,9 @@ export default function AddSupplementPage() {
                   <div className="space-y-2">
                     <Label htmlFor="timing">Timing</Label>
                     <Select
-                      value={manualData.timing}
+                      value={manualData.timing || ""}
                       onValueChange={(value) =>
-                        setManualData({ ...manualData, timing: value })
+                        setManualData({ ...manualData, timing: value as SupplementTiming })
                       }
                     >
                       <SelectTrigger>

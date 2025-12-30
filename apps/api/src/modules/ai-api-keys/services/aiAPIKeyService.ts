@@ -75,11 +75,17 @@ export class AIAPIKeyService {
       .eq('is_active', true)
       .single();
 
+    let criticalPrimaryKey: typeof primaryKey = null;
+
     if (!primaryError && primaryKey) {
-      if (primaryKey.health_status !== 'critical') {
+      // Try to use the key unless it's critical
+      if (primaryKey.health_status === 'critical') {
+        console.warn(`Primary ${provider} key is in critical state, trying backup first`);
+        criticalPrimaryKey = primaryKey; // Save for fallback
+      } else {
         try {
           const decrypted = decryptAIAPIKey({ api_key_encrypted: primaryKey.api_key_encrypted });
-          console.log(`Using primary ${provider} key for user ${userId}`);
+          console.log(`Using primary ${provider} key for user ${userId} (health: ${primaryKey.health_status})`);
           return {
             key_id: primaryKey.id,
             api_key: decrypted.api_key,
@@ -87,10 +93,11 @@ export class AIAPIKeyService {
           };
         } catch (error) {
           console.error(`Failed to decrypt primary ${provider} key:`, error);
+          // Continue to backup if decryption fails
         }
-      } else {
-        console.warn(`Primary ${provider} key is in critical state, falling back to backup`);
       }
+    } else {
+      console.log(`No primary ${provider} key found for user ${userId}: ${primaryError?.message || 'no key'}`);
     }
 
     // Step 2: Fallback to backup key
@@ -119,7 +126,22 @@ export class AIAPIKeyService {
       }
     }
 
-    console.error(`No healthy ${provider} key found for user ${userId}`);
+    // Step 3: Last resort - use critical primary key if available
+    if (criticalPrimaryKey) {
+      try {
+        const decrypted = decryptAIAPIKey({ api_key_encrypted: criticalPrimaryKey.api_key_encrypted });
+        console.warn(`Using CRITICAL ${provider} key for user ${userId} as last resort`);
+        return {
+          key_id: criticalPrimaryKey.id,
+          api_key: decrypted.api_key,
+          key_name: criticalPrimaryKey.key_name
+        };
+      } catch (error) {
+        console.error(`Failed to decrypt critical ${provider} key:`, error);
+      }
+    }
+
+    console.error(`No ${provider} key found for user ${userId}`);
     return null;
   }
 

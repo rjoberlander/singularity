@@ -21,12 +21,12 @@ import {
 import { Biomarker } from "@/types";
 import { BiomarkerReference } from "@/data/biomarkerReference";
 
-// Status colors matching the reference image
-const STATUS_COLORS = {
-  optimal: "#6B8E5A",    // Green
-  normal: "#C7A45C",     // Tan/brown
-  outOfRange: "#8B4513", // Dark brown/maroon
-  empty: "#6B7280",      // Grey for no data
+// Status colors matching the reference image (red, yellow, green zones)
+const STATUS_COLORS: Record<string, string> = {
+  optimal: "#6B8E5A",      // Green - in optimal range
+  suboptimal: "#D4A84B",   // Yellow/Gold - in suboptimal range (borderline)
+  critical: "#8B4513",     // Brown/maroon - outside all ranges (critical)
+  empty: "#6B7280",        // Grey for no data
 };
 
 // Category colors for card backgrounds (super transparent)
@@ -201,18 +201,34 @@ export function BiomarkerChartCard({
     return chartHeight - ((value - minY) / (maxY - minY)) * chartHeight;
   };
 
-  // Calculate the reference bar segments (shows all range zones)
+  // Get suboptimal ranges
+  const suboptLow = reference.suboptimalLowRange;
+  const suboptHigh = reference.suboptimalHighRange;
+
+  // Calculate the reference bar segments (shows all range zones: critical, suboptimal, optimal)
   const referenceBarSegments = useMemo(() => {
     const segments: { y: number; height: number; color: string }[] = [];
     const baseY = valueToY(minY);
 
-    // Bottom out-of-range (below optLow) - brown
-    if (optLow > minY) {
-      const y = valueToY(optLow);
+    // Bottom critical zone (below suboptimal low or optimal low) - brown/red
+    const criticalLowEnd = suboptLow ? suboptLow.low : optLow;
+    if (criticalLowEnd > minY) {
+      const y = valueToY(criticalLowEnd);
       segments.push({
         y,
         height: baseY - y,
-        color: STATUS_COLORS.outOfRange,
+        color: STATUS_COLORS.critical,
+      });
+    }
+
+    // Suboptimal low zone (yellow) - if exists
+    if (suboptLow && suboptLow.low < optLow) {
+      const subLowStartY = valueToY(Math.max(suboptLow.low, minY));
+      const subLowEndY = valueToY(Math.min(suboptLow.high, maxY));
+      segments.push({
+        y: subLowEndY,
+        height: subLowStartY - subLowEndY,
+        color: STATUS_COLORS.suboptimal,
       });
     }
 
@@ -225,32 +241,90 @@ export function BiomarkerChartCard({
       color: STATUS_COLORS.optimal,
     });
 
-    // Normal range above optimal (optHigh to refHigh) - yellow/tan
-    if (refHigh > optHigh) {
-      const normalStartY = valueToY(optHigh);
-      const normalEndY = valueToY(Math.min(refHigh, maxY));
+    // Suboptimal high zone (yellow) - if exists
+    if (suboptHigh && suboptHigh.high > optHigh) {
+      const subHighStartY = valueToY(Math.max(suboptHigh.low, optHigh));
+      const subHighEndY = valueToY(Math.min(suboptHigh.high, maxY));
       segments.push({
-        y: normalEndY,
-        height: normalStartY - normalEndY,
-        color: STATUS_COLORS.normal,
+        y: subHighEndY,
+        height: subHighStartY - subHighEndY,
+        color: STATUS_COLORS.suboptimal,
       });
     }
 
-    // Top out-of-range (above refHigh) - brown
-    if (maxY > refHigh) {
-      const outStartY = valueToY(refHigh);
-      const outEndY = valueToY(maxY);
+    // Top critical zone (above suboptimal high or optimal high) - brown/red
+    const criticalHighStart = suboptHigh ? suboptHigh.high : optHigh;
+    if (maxY > criticalHighStart) {
+      const critStartY = valueToY(criticalHighStart);
+      const critEndY = valueToY(maxY);
       segments.push({
-        y: outEndY,
-        height: outStartY - outEndY,
-        color: STATUS_COLORS.outOfRange,
+        y: critEndY,
+        height: critStartY - critEndY,
+        color: STATUS_COLORS.critical,
       });
     }
 
     return segments;
-  }, [minY, maxY, optLow, optHigh, refHigh, valueToY]);
+  }, [minY, maxY, optLow, optHigh, suboptLow, suboptHigh, valueToY]);
 
-  // Calculate data bars - each bar is single color based on where value falls
+  // Calculate reference bar labels (show zone boundary values)
+  const referenceBarLabels = useMemo(() => {
+    const labels: { value: number; y: number; side: 'left' | 'right' }[] = [];
+    const addedValues = new Set<number>();
+
+    // Helper to add label if not too close to others
+    const addLabel = (value: number) => {
+      if (value < minY || value > maxY) return;
+      // Round to avoid floating point issues
+      const roundedValue = Math.round(value * 100) / 100;
+      if (addedValues.has(roundedValue)) return;
+      addedValues.add(roundedValue);
+      labels.push({ value: roundedValue, y: valueToY(value), side: 'left' });
+    };
+
+    // Add key boundary values (from top to bottom visually)
+    // Top of chart (critical high end or max)
+    const topValue = suboptHigh ? suboptHigh.high : optHigh;
+    if (topValue < maxY * 0.95) {
+      addLabel(topValue);
+    }
+
+    // Optimal high boundary
+    addLabel(optHigh);
+
+    // Optimal low boundary
+    addLabel(optLow);
+
+    // Suboptimal low boundary (bottom of suboptimal low zone)
+    if (suboptLow && suboptLow.low > minY) {
+      addLabel(suboptLow.low);
+    }
+
+    // Bottom (0 or minY)
+    addLabel(minY);
+
+    // Sort by Y position (top to bottom, so lower Y value first)
+    labels.sort((a, b) => a.y - b.y);
+
+    // Check for overlapping labels and offset higher values to the right
+    const minSpacing = 10; // minimum pixels between labels
+    for (let i = 0; i < labels.length - 1; i++) {
+      const current = labels[i];
+      const next = labels[i + 1];
+      if (Math.abs(next.y - current.y) < minSpacing) {
+        // They overlap - put higher value (lower Y) on right, lower value on left
+        if (current.value > next.value) {
+          current.side = 'right';
+        } else {
+          next.side = 'right';
+        }
+      }
+    }
+
+    return labels;
+  }, [minY, maxY, optLow, optHigh, suboptLow, suboptHigh, valueToY]);
+
+  // Calculate data bars - solid color based on where value falls
   const bars = useMemo(() => {
     if (isEmpty) return [];
 
@@ -269,12 +343,15 @@ export function BiomarkerChartCard({
 
       // Determine bar color based on where value falls
       let color: string;
-      if (value < optLow || value > refHigh) {
-        color = STATUS_COLORS.outOfRange;
-      } else if (value >= optLow && value <= optHigh) {
+      if (value >= optLow && value <= optHigh) {
         color = STATUS_COLORS.optimal;
+      } else if (
+        (suboptLow && value >= suboptLow.low && value < optLow) ||
+        (suboptHigh && value > optHigh && value <= suboptHigh.high)
+      ) {
+        color = STATUS_COLORS.suboptimal;
       } else {
-        color = STATUS_COLORS.normal;
+        color = STATUS_COLORS.critical;
       }
 
       return {
@@ -286,7 +363,7 @@ export function BiomarkerChartCard({
         color,
       };
     });
-  }, [sortedHistory, isEmpty, yAxisWidth, refBarWidth, refBarGap, chartWidth, barWidth, barGap, valueToY, minY, optLow, optHigh, refHigh]);
+  }, [sortedHistory, isEmpty, yAxisWidth, refBarWidth, refBarGap, chartWidth, barWidth, barGap, valueToY, minY, optLow, optHigh, suboptLow, suboptHigh]);
 
   // Generate placeholder bars for empty state
   const emptyBars = useMemo(() => {
@@ -311,26 +388,29 @@ export function BiomarkerChartCard({
     });
   }, [isEmpty, reference.name, chartWidth, yAxisWidth, refBarWidth, refBarGap, barWidth, barGap, chartHeight]);
 
-  // Get badge status
+  // Get badge status - 3 states: optimal, suboptimal, or critical
   const getBadgeStatus = () => {
     if (!latestValue) return "empty";
     const value = latestValue.value;
-    if (value < refLow || value > refHigh) {
-      return "outOfRange";
-    }
     if (value >= optLow && value <= optHigh) {
       return "optimal";
     }
-    return "normal";
+    if (
+      (suboptLow && value >= suboptLow.low && value < optLow) ||
+      (suboptHigh && value > optHigh && value <= suboptHigh.high)
+    ) {
+      return "suboptimal";
+    }
+    return "critical";
   };
 
   const badgeStatus = getBadgeStatus();
   const badgeColor = STATUS_COLORS[badgeStatus];
 
   const getStatusIcon = () => {
-    if (badgeStatus === "optimal") return "\u2191";
-    if (badgeStatus === "outOfRange") return "\u25C6";
-    return "\u25C6";
+    if (badgeStatus === "optimal") return "\u2191"; // Up arrow
+    if (badgeStatus === "suboptimal") return "\u25C6"; // Diamond
+    return "\u25C6"; // Diamond for critical too
   };
 
   // Get category background color
@@ -385,31 +465,21 @@ export function BiomarkerChartCard({
           className="overflow-visible"
         >
           {/* Y-axis labels */}
-          {yTicks.map((tick, i) => {
-            const y = valueToY(tick);
-            return (
-              <g key={i}>
-                <text
-                  x={yAxisWidth - 8}
-                  y={y}
-                  textAnchor="end"
-                  dominantBaseline="middle"
-                  className={`text-[11px] font-medium ${isEmpty ? "fill-zinc-400 dark:fill-zinc-500" : "fill-stone-600 dark:fill-zinc-400"}`}
-                >
-                  {tick}
-                </text>
-                <line
-                  x1={yAxisWidth}
-                  y1={y}
-                  x2={chartWidth}
-                  y2={y}
-                  className={isEmpty ? "stroke-zinc-300 dark:stroke-zinc-700" : "stroke-stone-300 dark:stroke-zinc-600"}
-                  strokeWidth="1"
-                  strokeDasharray="4,4"
-                />
-              </g>
-            );
-          })}
+          {/* Faint dotted lines aligned with zone boundaries (skip top line, keep bottom) */}
+          {referenceBarLabels
+            .filter((label) => label.y > 2) // Skip top line only
+            .map((label, i) => (
+              <line
+                key={i}
+                x1={yAxisWidth + refBarWidth + 2}
+                y1={label.y}
+                x2={chartWidth}
+                y2={label.y}
+                stroke={isEmpty ? "rgba(161, 161, 170, 0.3)" : "rgba(120, 113, 108, 0.25)"}
+                strokeWidth="1"
+                strokeDasharray="3,3"
+              />
+            ))}
 
           {/* Reference bar on the left showing all range zones */}
           <defs>
@@ -438,7 +508,21 @@ export function BiomarkerChartCard({
             ))}
           </g>
 
-          {/* Data bars */}
+          {/* Reference bar boundary labels - left or right based on overlap */}
+          {referenceBarLabels.map((label, i) => (
+            <text
+              key={i}
+              x={label.side === 'left' ? yAxisWidth - 4 : yAxisWidth + refBarWidth + 3}
+              y={label.y}
+              textAnchor={label.side === 'left' ? "end" : "start"}
+              dominantBaseline="middle"
+              className={`text-[9px] font-medium ${isEmpty ? "fill-zinc-400 dark:fill-zinc-500" : "fill-stone-500 dark:fill-zinc-400"}`}
+            >
+              {label.value}
+            </text>
+          ))}
+
+          {/* Data bars - solid color */}
           {bars.map((bar, i) => (
             <g key={i}>
               <rect

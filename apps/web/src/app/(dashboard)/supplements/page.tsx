@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSupplements, useSupplementCosts } from "@/hooks/useSupplements";
 import { SupplementCard } from "@/components/supplements/SupplementCard";
 import { SupplementForm } from "@/components/supplements/SupplementForm";
+import { SupplementChatInput } from "@/components/supplements/SupplementChatInput";
+import { SupplementExtractionModal } from "@/components/supplements/SupplementExtractionModal";
 import { CostSummaryCard } from "@/components/supplements/CostSummaryCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,8 +40,11 @@ export default function SupplementsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [formOpen, setFormOpen] = useState(false);
   const [editingSupplement, setEditingSupplement] = useState<Supplement | null>(null);
+  const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
+  const [extractionInput, setExtractionInput] = useState<{ text?: string; file?: File; url?: string } | undefined>();
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const { data: supplements, isLoading, error } = useSupplements({
+  const { data: supplements, isLoading, error, refetch } = useSupplements({
     category: selectedCategory === "All" ? undefined : selectedCategory.toLowerCase().replace(" ", "_"),
     is_active: statusFilter === "all" ? undefined : statusFilter === "active",
   });
@@ -61,6 +66,20 @@ export default function SupplementsPage() {
     setFormOpen(true);
   };
 
+  const handleChatSubmit = (data: { text?: string; file?: File; url?: string }) => {
+    setExtractionInput(data);
+    setIsProcessing(true);
+    setIsExtractionModalOpen(true);
+  };
+
+  const handleModalClose = (open: boolean) => {
+    setIsExtractionModalOpen(open);
+    if (!open) {
+      setExtractionInput(undefined);
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -79,6 +98,15 @@ export default function SupplementsPage() {
 
       {/* Cost Summary */}
       {supplements && supplements.length > 0 && <CostSummaryCard costs={costs} />}
+
+      {/* AI Extraction Input */}
+      <div className="p-4 border rounded-lg bg-card">
+        <h3 className="text-sm font-medium mb-2">Quick Add with AI</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Paste supplement info, drop a receipt image, or enter a product URL
+        </p>
+        <SupplementChatInput onSubmit={handleChatSubmit} isProcessing={isProcessing} />
+      </div>
 
       {/* Search and Filters */}
       <div className="space-y-4">
@@ -165,6 +193,14 @@ export default function SupplementsPage() {
         supplement={editingSupplement}
         open={formOpen}
         onOpenChange={setFormOpen}
+      />
+
+      {/* Extraction Modal */}
+      <SupplementExtractionModal
+        open={isExtractionModalOpen}
+        onOpenChange={handleModalClose}
+        onSuccess={() => refetch()}
+        initialInput={extractionInput}
       />
     </div>
   );
