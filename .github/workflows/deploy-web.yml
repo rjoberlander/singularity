@@ -23,12 +23,21 @@ jobs:
           command_timeout: 20m
           script: |
             cd /var/www/singularity
+            # Ensure swap exists to prevent OOM during npm install
+            if [ ! -f /swapfile ]; then
+              echo "Creating 2GB swap file..."
+              sudo fallocate -l 2G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+            fi
             sudo chown -R deploy:deploy .git
             git fetch origin master
             git reset --hard origin/master
-            # Clean corrupted node_modules and .next
-            sudo rm -rf node_modules apps/*/node_modules apps/web/.next
-            npm install
+            # Only clean .next build cache, keep node_modules for incremental install
+            sudo rm -rf apps/web/.next
+            # Limit Node memory during install to prevent OOM
+            NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/web
             npm run build
             pm2 restart singularity-web || pm2 start ecosystem.config.js

@@ -23,18 +23,23 @@ jobs:
           command_timeout: 20m
           script: |
             cd /var/www/singularity
+            # Ensure swap exists to prevent OOM during npm install
+            if [ ! -f /swapfile ]; then
+              echo "Creating 2GB swap file..."
+              sudo fallocate -l 2G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+            fi
             sudo chown -R deploy:deploy .git
             git fetch origin master
             git reset --hard origin/master
             echo "Deployed commit: $(git rev-parse HEAD)"
             echo "Admin routes file exists: $(test -f apps/api/src/routes/admin.ts && echo 'yes' || echo 'no')"
-            # Only clean node_modules if package-lock changed
-            if git diff HEAD~1 --name-only | grep -q "package-lock.json"; then
-              echo "package-lock.json changed, cleaning node_modules..."
-              sudo rm -rf node_modules apps/*/node_modules
-            fi
+            # Don't delete node_modules - let npm handle incremental updates to avoid OOM
             sudo rm -rf apps/api/dist
-            npm install
+            # Limit Node memory during install to prevent OOM
+            NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/api
             npm run build
             echo "Checking dist/routes/admin.js exists:"
