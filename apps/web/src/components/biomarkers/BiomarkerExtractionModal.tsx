@@ -894,7 +894,8 @@ export function BiomarkerExtractionModal({
             <div className="pt-3 border-t mt-3 space-y-2">
               {/* AI Detection Stats */}
               {detectionStats && (
-                <div className="text-[10px] sm:text-xs text-muted-foreground">
+                <div className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
+                  <Sparkles className="w-3 h-3 shrink-0" />
                   <span className="font-medium">AI Detection Result:</span>{" "}
                   <span className={detectionStats.avgConfidence >= 80 ? "text-green-500" : "text-yellow-500"}>
                     {detectionStats.avgConfidence}% Confidence
@@ -905,15 +906,12 @@ export function BiomarkerExtractionModal({
                     {detectionStats.lowConfidenceCount > 0 && " (require human review)"}
                   </span>
                   {" · "}
-                  Detected {detectionStats.markers} marker{detectionStats.markers !== 1 ? "s" : ""} &amp; {detectionStats.readings} reading{detectionStats.readings !== 1 ? "s" : ""}
+                  Detected <span className="text-blue-400">{detectionStats.markers}</span> marker{detectionStats.markers !== 1 ? "s" : ""} &amp; <span className="text-blue-400">{detectionStats.readings}</span> reading{detectionStats.readings !== 1 ? "s" : ""}
                 </div>
               )}
 
               {/* Actions row */}
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">
-                  {selectedCount}/{totalReadings} selected
-                </span>
+              <div className="flex justify-end items-center">
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={handleClose}>
                     Cancel
@@ -924,7 +922,7 @@ export function BiomarkerExtractionModal({
                     disabled={selectedCount === 0 || createBiomarkersBulk.isPending}
                   >
                     {createBiomarkersBulk.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
-                    Save {selectedCount} reading{selectedCount !== 1 ? "s" : ""}
+                    Save {selectedCount}/{totalReadings} reading{totalReadings !== 1 ? "s" : ""}
                   </Button>
                 </div>
               </div>

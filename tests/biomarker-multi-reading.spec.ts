@@ -105,10 +105,10 @@ LDL Cholesterol (mg/dL):
   // Screenshot after toggling
   await page.screenshot({ path: "tests/screenshots/multi-reading-toggled.png", fullPage: true });
 
-  // Check footer shows count
-  const footer = modal.locator("text=/\\d+\\/\\d+ readings selected/");
-  await expect(footer).toBeVisible();
-  console.log("Footer shows reading count");
+  // Check footer shows AI detection stats
+  const aiStats = modal.locator("text=/AI Detection Result/");
+  await expect(aiStats).toBeVisible();
+  console.log("Footer shows AI detection stats");
 
   // Close modal
   const cancelButton = modal.getByRole("button", { name: /cancel/i });
