@@ -47,6 +47,7 @@ export interface Biomarker {
   notes?: string;
   source_image?: string;
   ai_extracted: boolean;
+  is_calculated?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -220,6 +221,7 @@ export interface CreateBiomarkerRequest {
   notes?: string;
   source_image?: string;
   ai_extracted?: boolean;
+  is_calculated?: boolean;
 }
 
 export interface CreateSupplementRequest {

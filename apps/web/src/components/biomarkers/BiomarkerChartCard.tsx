@@ -3,6 +3,12 @@
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Plus,
   Droplet,
   CircleDot,
@@ -68,11 +74,27 @@ interface BiomarkerChartCardProps {
 }
 
 function formatDate(dateString: string): string {
+  // Parse date string directly to avoid timezone issues
+  // dateString is in format "YYYY-MM-DD"
+  const parts = dateString.split('-');
+  if (parts.length === 3) {
+    const month = parts[1];
+    const year = parts[0].slice(-2);
+    return `${month}/${year}`;
+  }
+  // Fallback to UTC parsing
   const date = new Date(dateString);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(-2);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = String(date.getUTCFullYear()).slice(-2);
   return `${month}/${year}`;
 }
+
+// Tooltip text for calculated LDL values
+const CALCULATED_LDL_TOOLTIP = `Calculated LDL (Friedewald equation)
+
+This value was calculated, not directly measured. The Friedewald equation becomes less accurate when triglycerides are very low (<100) or very high (>400).
+
+Consider requesting a direct LDL measurement for more accuracy.`;
 
 export function BiomarkerChartCard({
   reference,
@@ -361,6 +383,7 @@ export function BiomarkerChartCard({
         value,
         date: b.date_tested,
         color,
+        is_calculated: b.is_calculated || false,
       };
     });
   }, [sortedHistory, isEmpty, yAxisWidth, refBarWidth, refBarGap, chartWidth, barWidth, barGap, valueToY, minY, optLow, optHigh, suboptLow, suboptHigh]);
@@ -439,15 +462,36 @@ export function BiomarkerChartCard({
             </h3>
           </div>
           {latestValue ? (
-            <span
-              className="px-2 py-1 rounded-full text-xs font-medium text-white flex items-center gap-1"
-              style={{ backgroundColor: badgeColor }}
-            >
-              <span>{getStatusIcon()}</span>
-              <span>
-                {latestValue.value} {reference.unit}
+            latestValue.is_calculated ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="px-2 py-1 rounded-full text-xs font-medium text-white flex items-center gap-1 cursor-help"
+                      style={{ backgroundColor: badgeColor }}
+                    >
+                      <span>{getStatusIcon()}</span>
+                      <span>
+                        {latestValue.value}{reference.unit}<span className="text-yellow-300">*</span>
+                      </span>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs whitespace-pre-line text-xs">
+                    {CALCULATED_LDL_TOOLTIP}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <span
+                className="px-2 py-1 rounded-full text-xs font-medium text-white flex items-center gap-1"
+                style={{ backgroundColor: badgeColor }}
+              >
+                <span>{getStatusIcon()}</span>
+                <span>
+                  {latestValue.value} {reference.unit}
+                </span>
               </span>
-            </span>
+            )
           ) : (
             <span
               className="px-2 py-1 rounded-full text-xs font-medium text-white"
@@ -541,7 +585,7 @@ export function BiomarkerChartCard({
                 dominantBaseline="middle"
                 className="text-[11px] fill-white font-semibold"
               >
-                {bar.value}
+                {bar.value}{bar.is_calculated && <tspan fill="#FDE047">*</tspan>}
               </text>
               {/* Date label below bar */}
               <text

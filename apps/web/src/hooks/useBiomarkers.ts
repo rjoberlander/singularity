@@ -93,3 +93,17 @@ export function useDeleteBiomarker() {
     },
   });
 }
+
+export function useDeleteBiomarkersBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await biomarkersApi.deleteBulk(ids);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["biomarkers"] });
+    },
+  });
+}

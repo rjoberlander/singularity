@@ -54,6 +54,7 @@ export const biomarkersApi = {
   createBulk: (biomarkers: any[]) => api.post("/biomarkers/bulk", { biomarkers }),
   update: (id: string, data: any) => api.put(`/biomarkers/${id}`, data),
   delete: (id: string) => api.delete(`/biomarkers/${id}`),
+  deleteBulk: (ids: string[]) => api.delete("/biomarkers/bulk", { data: { ids } }),
 };
 
 // Supplements

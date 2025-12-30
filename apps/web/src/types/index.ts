@@ -28,6 +28,7 @@ export interface Biomarker {
   notes?: string;
   source_image?: string;
   ai_extracted: boolean;
+  is_calculated?: boolean;
   status?: "low" | "normal" | "high" | "optimal";
   created_at: string;
   updated_at: string;
@@ -47,6 +48,7 @@ export interface CreateBiomarkerRequest {
   notes?: string;
   source_image?: string;
   ai_extracted?: boolean;
+  is_calculated?: boolean;
 }
 
 // Supplement timing options
@@ -204,6 +206,7 @@ export interface ExtractedReading {
   value: number;
   confidence: number;
   flag?: string | null;
+  is_calculated?: boolean;
 }
 
 export interface ExtractedBiomarkerData {

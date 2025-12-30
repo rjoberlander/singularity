@@ -15,6 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Loader2,
   Check,
   X,
@@ -136,6 +142,48 @@ function formatRefNumber(val: number): string {
   }
   // Otherwise, 1 decimal place
   return val.toFixed(1);
+}
+
+// Get triglyceride value from extracted biomarkers for a specific date
+function getTriglycerideValue(
+  biomarkers: ExtractedBiomarkerData["biomarkers"],
+  targetDate: string
+): number | null {
+  const trigBiomarker = biomarkers.find(b =>
+    b.name.toLowerCase().includes("triglyceride") ||
+    b.name.toLowerCase() === "tg"
+  );
+  if (!trigBiomarker) return null;
+
+  // Find reading with matching or closest date
+  const matchingReading = trigBiomarker.readings.find(r => r.date === targetDate);
+  if (matchingReading) return matchingReading.value;
+
+  // If no exact match, return the most recent reading
+  if (trigBiomarker.readings.length > 0) {
+    return trigBiomarker.readings[0].value;
+  }
+  return null;
+}
+
+// Generate calculated LDL tooltip text
+function getCalculatedLDLTooltip(trigValue: number | null, ldlValue: number): string {
+  const baseText = "About calculated LDL (aka the Friedewald equation): It becomes less accurate when triglycerides are very low (<100) or very high (>400).";
+
+  if (trigValue === null) {
+    return `${baseText}\n\nYour LDL of ${ldlValue} mg/dL may differ from a direct measurement.`;
+  }
+
+  let accuracyNote = "";
+  if (trigValue < 100) {
+    accuracyNote = `Your triglycerides are ${trigValue} mg/dL — well below 100.\n\nThe result: Calculated LDL tends to overestimate your actual LDL when triglycerides are this low. Your reported LDL of ${ldlValue} mg/dL may actually be lower if measured directly.`;
+  } else if (trigValue > 400) {
+    accuracyNote = `Your triglycerides are ${trigValue} mg/dL — above 400.\n\nThe result: Calculated LDL becomes unreliable when triglycerides are this high. Consider requesting a direct LDL measurement.`;
+  } else {
+    accuracyNote = `Your triglycerides are ${trigValue} mg/dL — within the reliable range (100-400).\n\nYour calculated LDL of ${ldlValue} mg/dL should be reasonably accurate.`;
+  }
+
+  return `${baseText}\n\n${accuracyNote}`;
 }
 
 // Horizontal reference bar component (placed above readings)
@@ -837,14 +885,37 @@ export function BiomarkerExtractionModal({
                                   {formatDate(readingDate)}
                                 </span>
 
-                                {/* Value with status color */}
-                                <span
-                                  className={`font-semibold text-xs sm:text-sm ${isDuplicate ? "line-through text-muted-foreground" : ""}`}
-                                  style={{ color: isDuplicate ? undefined : valueColor }}
-                                  data-testid="reading-value"
-                                >
-                                  {reading.value}
-                                </span>
+                                {/* Value with status color and calculated indicator */}
+                                {reading.is_calculated ? (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span
+                                          className={`font-semibold text-xs sm:text-sm cursor-help ${isDuplicate ? "line-through text-muted-foreground" : ""}`}
+                                          style={{ color: isDuplicate ? undefined : valueColor }}
+                                          data-testid="reading-value"
+                                        >
+                                          {reading.value}
+                                          <span className="text-yellow-500 ml-0.5">*</span>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs whitespace-pre-line text-xs">
+                                        {getCalculatedLDLTooltip(
+                                          getTriglycerideValue(extractedData.biomarkers, readingDate),
+                                          reading.value
+                                        )}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                ) : (
+                                  <span
+                                    className={`font-semibold text-xs sm:text-sm ${isDuplicate ? "line-through text-muted-foreground" : ""}`}
+                                    style={{ color: isDuplicate ? undefined : valueColor }}
+                                    data-testid="reading-value"
+                                  >
+                                    {reading.value}
+                                  </span>
+                                )}
 
                                 {/* Already saved tag for duplicates */}
                                 {isDuplicate && (

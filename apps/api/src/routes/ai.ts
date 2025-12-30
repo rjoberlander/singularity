@@ -66,6 +66,7 @@ ${KNOWN_BIOMARKERS}
 8. IMPORTANT: A single biomarker may have MULTIPLE readings from different dates (e.g., historical chart data)
 9. Extract ALL date-value pairs visible for each biomarker - group them under the same biomarker entry
 10. Look for chart data showing historical values across different dates (e.g., 07/23, 10/23, 02/24, etc.)
+11. CALCULATED VALUES: For LDL Cholesterol, check if the report indicates it was "calculated" (using Friedewald equation) vs "direct" measurement. Look for keywords like "calculated", "calc", "Friedewald", "(c)", or notes about calculation. Mark is_calculated: true for calculated values.
 
 ## Output Format:
 Return ONLY valid JSON in this exact format:
@@ -86,7 +87,8 @@ Return ONLY valid JSON in this exact format:
           "date": "YYYY-MM-DD - the date of this reading",
           "value": number,
           "confidence": number between 0 and 1 - confidence in this specific value extraction,
-          "flag": "string or null - 'low', 'high', 'critical_low', 'critical_high', or null if normal"
+          "flag": "string or null - 'low', 'high', 'critical_low', 'critical_high', or null if normal",
+          "is_calculated": boolean or null - true if this is a calculated value (e.g., LDL via Friedewald), false or null if direct measurement
         }
       ]
     }
@@ -307,7 +309,8 @@ Return ONLY valid JSON in this exact format:
             date: reading.date || defaultDate,
             value: reading.value,
             confidence: reading.confidence ?? biomarker.confidence ?? 0.9,
-            flag: reading.flag || calculateFlag(reading.value)
+            flag: reading.flag || calculateFlag(reading.value),
+            is_calculated: reading.is_calculated || false
           }));
 
           return {
@@ -331,7 +334,8 @@ Return ONLY valid JSON in this exact format:
           date: biomarker.test_date || defaultDate,
           value: biomarker.value,
           confidence: finalConfidence,
-          flag: biomarker.flag || calculateFlag(biomarker.value)
+          flag: biomarker.flag || calculateFlag(biomarker.value),
+          is_calculated: biomarker.is_calculated || false
         };
 
         return {

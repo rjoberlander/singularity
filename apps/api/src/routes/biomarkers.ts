@@ -319,6 +319,76 @@ router.put('/:id', async (req: Request, res: Response): Promise<any> => {
 });
 
 /**
+ * DELETE /api/v1/biomarkers/bulk
+ * Delete multiple biomarkers at once
+ */
+router.delete('/bulk', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids array is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Verify ownership of all biomarkers
+    const { data: existing, error: findError } = await supabase
+      .from('biomarkers')
+      .select('id, user_id')
+      .in('id', ids);
+
+    if (findError) {
+      return res.status(500).json({
+        success: false,
+        error: findError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check that all biomarkers belong to the user
+    const notOwned = existing?.filter(b => b.user_id !== userId) || [];
+    if (notOwned.length > 0) {
+      return res.status(403).json({
+        success: false,
+        error: 'Some biomarkers do not belong to you',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { error } = await supabase
+      .from('biomarkers')
+      .delete()
+      .in('id', ids);
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${ids.length} biomarkers`,
+      count: ids.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('DELETE /biomarkers/bulk error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * DELETE /api/v1/biomarkers/:id
  * Delete a biomarker
  */

@@ -6,6 +6,7 @@ import { BiomarkerChartCard } from "@/components/biomarkers/BiomarkerChartCard";
 import { BiomarkerExtractionModal } from "@/components/biomarkers/BiomarkerExtractionModal";
 import { BiomarkerAddModal } from "@/components/biomarkers/BiomarkerAddModal";
 import { BiomarkerChatInput } from "@/components/biomarkers/BiomarkerChatInput";
+import { BiomarkerDuplicatesModal, findDuplicateBiomarkers } from "@/components/biomarkers/BiomarkerDuplicatesModal";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -28,6 +29,7 @@ import {
   Heart,
   Shield,
   LucideIcon,
+  Copy,
 } from "lucide-react";
 import { BIOMARKER_REFERENCE, BiomarkerReference, getCategories } from "@/data/biomarkerReference";
 import { Biomarker } from "@/types";
@@ -103,10 +105,21 @@ export default function BiomarkersPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
   const [extractionInput, setExtractionInput] = useState<{ text?: string; files?: File[] } | undefined>();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { data: biomarkers, isLoading, error, refetch } = useBiomarkers({ limit: 1000 });
+
+  // Detect duplicates in the biomarkers data
+  const duplicateGroups = useMemo(() => {
+    if (!biomarkers) return [];
+    return findDuplicateBiomarkers(biomarkers);
+  }, [biomarkers]);
+
+  const totalDuplicates = useMemo(() => {
+    return duplicateGroups.reduce((sum, group) => sum + group.entries.length - 1, 0);
+  }, [duplicateGroups]);
 
   // Group user biomarkers by name for quick lookup
   const biomarkersByName = useMemo(() => {
@@ -425,6 +438,21 @@ export default function BiomarkersPage() {
                   )}
                 </div>
 
+                {/* Duplicates Warning */}
+                {totalDuplicates > 0 && (
+                  <div className="pt-3">
+                    <Button
+                      variant="outline"
+                      className="w-full bg-yellow-500/10 border-yellow-500/30 text-yellow-600 hover:bg-yellow-500/20"
+                      onClick={() => setIsDuplicatesModalOpen(true)}
+                      data-testid="duplicates-button"
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      {totalDuplicates} Duplicate{totalDuplicates !== 1 ? "s" : ""} detected
+                    </Button>
+                  </div>
+                )}
+
                 {/* Chat Input - Under summary */}
                 <div className="pt-4">
                   <BiomarkerChatInput onSubmit={handleChatSubmit} isProcessing={isProcessing} />
@@ -507,6 +535,14 @@ export default function BiomarkersPage() {
       <BiomarkerAddModal
         open={isAddModalOpen}
         onOpenChange={setIsAddModalOpen}
+        onSuccess={() => refetch()}
+      />
+
+      {/* Duplicates Modal */}
+      <BiomarkerDuplicatesModal
+        open={isDuplicatesModalOpen}
+        onOpenChange={setIsDuplicatesModalOpen}
+        duplicates={duplicateGroups}
         onSuccess={() => refetch()}
       />
     </div>
