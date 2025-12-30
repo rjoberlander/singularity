@@ -44,7 +44,8 @@ import { toast } from "sonner";
 interface ExtractedSupplement {
   name: string;
   brand?: string;
-  dose?: string;
+  intake_quantity?: number;
+  intake_form?: string;
   dose_per_serving?: number;
   dose_unit?: string;
   servings_per_container?: number;
@@ -106,6 +107,35 @@ const CATEGORY_OPTIONS = [
   "hormone",
   "enzyme",
   "other",
+];
+
+const INTAKE_FORM_OPTIONS = [
+  { value: "pill", label: "Pill" },
+  { value: "capsule", label: "Capsule" },
+  { value: "softgel", label: "Softgel" },
+  { value: "tablet", label: "Tablet" },
+  { value: "scoop", label: "Scoop" },
+  { value: "dropper", label: "Dropper" },
+  { value: "drop", label: "Drop" },
+  { value: "spray", label: "Spray" },
+  { value: "gummy", label: "Gummy" },
+  { value: "lozenge", label: "Lozenge" },
+  { value: "packet", label: "Packet" },
+  { value: "teaspoon", label: "Teaspoon" },
+  { value: "tablespoon", label: "Tablespoon" },
+  { value: "chewable", label: "Chewable" },
+  { value: "patch", label: "Patch" },
+  { value: "powder", label: "Powder (serving)" },
+];
+
+const DOSE_UNIT_OPTIONS = [
+  { value: "mg", label: "mg" },
+  { value: "g", label: "g" },
+  { value: "mcg", label: "mcg" },
+  { value: "IU", label: "IU" },
+  { value: "ml", label: "ml" },
+  { value: "CFU", label: "CFU" },
+  { value: "%", label: "%" },
 ];
 
 // Helper to parse and display URLs smartly
@@ -347,7 +377,8 @@ export function SupplementExtractionModal({
       .map((s: ExtractedSupplement) => ({
         name: s.name,
         brand: s.brand,
-        dose: s.dose,
+        intake_quantity: s.intake_quantity || 1,
+        intake_form: s.intake_form,
         dose_per_serving: s.dose_per_serving,
         dose_unit: s.dose_unit,
         servings_per_container: s.servings_per_container,
@@ -564,14 +595,40 @@ export function SupplementExtractionModal({
                                   className="h-8"
                                 />
                                 <div className="flex items-center gap-2">
-                                  <Input
-                                    value={editValues.dose || ""}
-                                    onChange={(e) =>
-                                      setEditValues({ ...editValues, dose: e.target.value })
+                                  <Select
+                                    value={(editValues.intake_quantity || 1).toString()}
+                                    onValueChange={(v) =>
+                                      setEditValues({ ...editValues, intake_quantity: parseInt(v, 10) })
                                     }
-                                    placeholder="Dose (e.g., 1000mg)"
-                                    className="h-8 flex-1"
-                                  />
+                                  >
+                                    <SelectTrigger className="h-8 w-16">
+                                      <SelectValue placeholder="Qty" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                                        <SelectItem key={num} value={num.toString()}>
+                                          {num}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Select
+                                    value={editValues.intake_form || ""}
+                                    onValueChange={(v) =>
+                                      setEditValues({ ...editValues, intake_form: v })
+                                    }
+                                  >
+                                    <SelectTrigger className="h-8 flex-1">
+                                      <SelectValue placeholder="Form" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {INTAKE_FORM_OPTIONS.map((opt) => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
                                   <Input
                                     type="number"
                                     step="0.01"
@@ -677,11 +734,11 @@ export function SupplementExtractionModal({
                                   })()}
                                 </div>
 
-                                {/* Row 2: Dose, Timing, Price */}
+                                {/* Row 2: Intake, Timing, Price */}
                                 <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
-                                  {supplement.dose && (
+                                  {supplement.intake_form && (
                                     <span className="bg-muted px-1.5 py-0.5 rounded text-xs">
-                                      {supplement.dose}
+                                      {supplement.intake_quantity || 1} {supplement.intake_form}{(supplement.intake_quantity || 1) > 1 ? 's' : ''}
                                     </span>
                                   )}
                                   {supplement.timing && (

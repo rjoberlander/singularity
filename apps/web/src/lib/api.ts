@@ -69,6 +69,18 @@ export const supplementsApi = {
   delete: (id: string) => api.delete(`/supplements/${id}`),
 };
 
+// Equipment
+export const equipmentApi = {
+  list: (params?: { category?: string; is_active?: boolean }) =>
+    api.get("/equipment", { params }),
+  get: (id: string) => api.get(`/equipment/${id}`),
+  create: (data: any) => api.post("/equipment", data),
+  createBulk: (equipment: any[]) => api.post("/equipment/bulk", { equipment }),
+  update: (id: string, data: any) => api.put(`/equipment/${id}`, data),
+  toggle: (id: string) => api.patch(`/equipment/${id}/toggle`),
+  delete: (id: string) => api.delete(`/equipment/${id}`),
+};
+
 // Routines
 export const routinesApi = {
   list: () => api.get("/routines"),
@@ -93,6 +105,8 @@ export const aiApi = {
     api.post("/ai/extract-biomarkers", data),
   extractSupplements: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text" }) =>
     api.post("/ai/extract-supplements", data),
+  extractEquipment: (data: { text_content: string }) =>
+    api.post("/ai/extract-equipment", data),
   chat: (data: { message: string; context?: string; include_user_data?: boolean }) =>
     api.post("/ai/chat", data),
   getConversations: (params?: { context?: string; limit?: number }) =>

@@ -67,8 +67,15 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
           />
         </div>
 
-        {supplement.dose && (
-          <p className="text-lg font-medium mb-2">{supplement.dose}</p>
+        {supplement.intake_form && (
+          <p className="text-lg font-medium mb-2">
+            {supplement.intake_quantity || 1} {supplement.intake_form}{(supplement.intake_quantity || 1) > 1 ? 's' : ''}
+            {supplement.dose_per_serving && supplement.dose_unit && (
+              <span className="text-sm text-muted-foreground ml-2">
+                ({supplement.dose_per_serving} {supplement.dose_unit})
+              </span>
+            )}
+          </p>
         )}
 
         <div className="flex flex-wrap gap-2 mb-3">

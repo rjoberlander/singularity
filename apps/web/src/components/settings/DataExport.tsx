@@ -120,7 +120,10 @@ export function DataExport() {
       const headers = [
         "Name",
         "Brand",
-        "Dose",
+        "Intake Quantity",
+        "Intake Form",
+        "Dose Per Serving",
+        "Dose Unit",
         "Category",
         "Timing",
         "Frequency",
@@ -134,7 +137,10 @@ export function DataExport() {
       const rows = supplements.map((s) => [
         s.name,
         s.brand || "",
-        s.dose || "",
+        s.intake_quantity || 1,
+        s.intake_form || "",
+        s.dose_per_serving || "",
+        s.dose_unit || "",
         s.category || "",
         s.timing || "",
         s.frequency || "",

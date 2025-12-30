@@ -13,6 +13,7 @@ import './config/proxy';
 import authRoutes from './routes/auth';
 import biomarkerRoutes from './routes/biomarkers';
 import supplementRoutes from './routes/supplements';
+import equipmentRoutes from './routes/equipment';
 import routineRoutes from './routes/routines';
 import goalRoutes from './routes/goals';
 import aiRoutes from './routes/ai';
@@ -101,6 +102,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
       auth: '/api/v1/auth',
       biomarkers: '/api/v1/biomarkers',
       supplements: '/api/v1/supplements',
+      equipment: '/api/v1/equipment',
       routines: '/api/v1/routines',
       goals: '/api/v1/goals',
       ai: '/api/v1/ai',
@@ -119,6 +121,7 @@ app.use('/api/v1/auth', authRoutes);
 // Protected routes (require authentication)
 app.use('/api/v1/biomarkers', authenticateUser, biomarkerRoutes);
 app.use('/api/v1/supplements', authenticateUser, supplementRoutes);
+app.use('/api/v1/equipment', authenticateUser, equipmentRoutes);
 app.use('/api/v1/routines', authenticateUser, routineRoutes);
 app.use('/api/v1/goals', authenticateUser, goalRoutes);
 app.use('/api/v1/ai', authenticateUser, aiRoutes);

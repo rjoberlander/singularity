@@ -54,6 +54,35 @@ const FREQUENCY_OPTIONS = [
   { value: "as_needed", label: "As Needed" },
 ];
 
+const INTAKE_FORM_OPTIONS = [
+  { value: "pill", label: "Pill" },
+  { value: "capsule", label: "Capsule" },
+  { value: "softgel", label: "Softgel" },
+  { value: "tablet", label: "Tablet" },
+  { value: "scoop", label: "Scoop" },
+  { value: "dropper", label: "Dropper" },
+  { value: "drop", label: "Drop" },
+  { value: "spray", label: "Spray" },
+  { value: "gummy", label: "Gummy" },
+  { value: "lozenge", label: "Lozenge" },
+  { value: "packet", label: "Packet" },
+  { value: "teaspoon", label: "Teaspoon" },
+  { value: "tablespoon", label: "Tablespoon" },
+  { value: "chewable", label: "Chewable" },
+  { value: "patch", label: "Patch" },
+  { value: "powder", label: "Powder (serving)" },
+];
+
+const DOSE_UNIT_OPTIONS = [
+  { value: "mg", label: "mg (milligrams)" },
+  { value: "g", label: "g (grams)" },
+  { value: "mcg", label: "mcg (micrograms)" },
+  { value: "IU", label: "IU (International Units)" },
+  { value: "ml", label: "ml (milliliters)" },
+  { value: "CFU", label: "CFU (Colony Forming Units)" },
+  { value: "%", label: "% (percent)" },
+];
+
 interface SupplementFormProps {
   supplement?: Supplement | null;
   open: boolean;
@@ -66,7 +95,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
   const [formData, setFormData] = useState<CreateSupplementRequest>({
     name: "",
     brand: "",
-    dose: "",
+    intake_quantity: 1,
+    intake_form: "",
     dose_per_serving: undefined,
     dose_unit: "",
     servings_per_container: undefined,
@@ -87,7 +117,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
       setFormData({
         name: supplement.name,
         brand: supplement.brand || "",
-        dose: supplement.dose || "",
+        intake_quantity: supplement.intake_quantity || 1,
+        intake_form: supplement.intake_form || "",
         dose_per_serving: supplement.dose_per_serving,
         dose_unit: supplement.dose_unit || "",
         servings_per_container: supplement.servings_per_container,
@@ -102,7 +133,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
       setFormData({
         name: "",
         brand: "",
-        dose: "",
+        intake_quantity: 1,
+        intake_form: "",
         dose_per_serving: undefined,
         dose_unit: "",
         servings_per_container: undefined,
@@ -183,18 +215,46 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Intake Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="dose">Dose</Label>
-              <Input
-                id="dose"
-                value={formData.dose}
-                onChange={(e) => setFormData({ ...formData, dose: e.target.value })}
-                placeholder="e.g., 5000 IU"
-              />
+              <Label htmlFor="intake_quantity">Intake</Label>
+              <Select
+                value={(formData.intake_quantity || 1).toString()}
+                onValueChange={(value) => setFormData({ ...formData, intake_quantity: parseInt(value, 10) })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Qty" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                    <SelectItem key={num} value={num.toString()}>
+                      {num}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dose_per_serving">Dose Per Serving</Label>
+              <Label htmlFor="intake_form">Form</Label>
+              <Select
+                value={formData.intake_form || ""}
+                onValueChange={(value) => setFormData({ ...formData, intake_form: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select form" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INTAKE_FORM_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="dose_per_serving">Per Serving</Label>
               <Input
                 id="dose_per_serving"
                 type="number"
@@ -206,16 +266,26 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                     dose_per_serving: e.target.value ? parseFloat(e.target.value) : undefined,
                   })
                 }
+                placeholder="e.g., 1000"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="dose_unit">Unit</Label>
-              <Input
-                id="dose_unit"
+              <Select
                 value={formData.dose_unit}
-                onChange={(e) => setFormData({ ...formData, dose_unit: e.target.value })}
-                placeholder="e.g., IU, mg, mcg"
-              />
+                onValueChange={(value) => setFormData({ ...formData, dose_unit: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOSE_UNIT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

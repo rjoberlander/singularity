@@ -619,6 +619,143 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
+ * POST /api/v1/ai/extract-equipment
+ * Extract equipment/devices from text description
+ */
+router.post('/extract-equipment', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { text_content } = req.body;
+
+    if (!text_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'text_content is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const systemPrompt = `You are a precise health equipment extraction assistant. Your job is to extract health device and equipment information from text descriptions.
+
+## Rules:
+1. Extract ALL equipment/devices mentioned in the text
+2. Parse detailed information about each device including usage protocols
+3. Include confidence scores for each extraction
+4. Extract as much detail as available (brand, model, purpose, usage timing, etc.)
+
+## Category Values (use exactly these):
+- lllt: Low-Level Light Therapy devices (red light, infrared, laser helmets)
+- microneedling: Derma pens, microneedling devices
+- sleep: Sleep tracking/optimization devices (Eight Sleep, Oura, etc.)
+- skincare: LED masks, facial devices
+- recovery: Massage guns, compression, cold therapy
+- other: Any other health equipment
+
+## Output Format:
+Return ONLY valid JSON in this exact format:
+{
+  "equipment": [
+    {
+      "name": "string - device name (e.g., iRestore Elite, Eight Sleep Pod)",
+      "brand": "string or null - brand name",
+      "model": "string or null - model name/number",
+      "category": "string - MUST be one of: lllt, microneedling, sleep, skincare, recovery, other",
+      "purpose": "string - what the device is used for",
+      "specs": {} - object with key specifications (e.g., {"diodes": 500, "wavelength": "triple"}),
+      "usage_frequency": "string or null - how often used (Daily, Weekly, 3-5x/week, etc.)",
+      "usage_timing": "string or null - when to use (Morning, Evening, After shower, etc.)",
+      "usage_duration": "string or null - how long per session",
+      "usage_protocol": "string or null - detailed usage instructions/notes",
+      "contraindications": "string or null - warnings, things to avoid",
+      "confidence": number between 0 and 1
+    }
+  ],
+  "extraction_notes": "string - any important notes about the extraction"
+}`;
+
+    const userContent: Array<{ type: 'text'; text: string }> = [
+      {
+        type: 'text',
+        text: `Extract all health equipment and device information from this text. Return the data as JSON.\n\n---\n${text_content}\n---`
+      }
+    ];
+
+    // Get user's Anthropic API key
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        error_type: 'NO_API_KEY',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: AI_CONFIG.maxTokens,
+      temperature: AI_CONFIG.temperature,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userContent
+        }
+      ]
+    });
+
+    const responseText = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as any).text)
+      .join('');
+
+    let extractedData: any;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        extractedData = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse AI response',
+        raw_response: responseText,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Store conversation for reference
+    await supabase.from('ai_conversations').insert({
+      user_id: userId,
+      context: 'equipment_extraction',
+      messages: [
+        { role: 'user', content: text_content?.substring(0, 500) },
+        { role: 'assistant', content: responseText }
+      ],
+      extracted_data: extractedData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      data: extractedData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('POST /ai/extract-equipment error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'AI extraction failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * POST /api/v1/ai/chat
  * Health assistant chat
  */

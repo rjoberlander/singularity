@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { AccountSwitcher } from "./AccountSwitcher";
 import {
   LayoutDashboard,
   Activity,
   Pill,
+  Cpu,
   Clock,
   Target,
   History,
@@ -20,6 +20,7 @@ const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Biomarkers", href: "/biomarkers", icon: Activity },
   { name: "Supplements", href: "/supplements", icon: Pill },
+  { name: "Equipment", href: "/equipment", icon: Cpu },
   { name: "Routines", href: "/routines", icon: Clock },
   { name: "Goals", href: "/goals", icon: Target },
   { name: "Change Log", href: "/changelog", icon: History },
@@ -40,11 +41,6 @@ export function Sidebar() {
           </div>
           <span className="text-xl font-bold">Singularity</span>
         </Link>
-      </div>
-
-      {/* Account Switcher */}
-      <div className="p-2 border-b border-border">
-        <AccountSwitcher />
       </div>
 
       {/* Navigation */}

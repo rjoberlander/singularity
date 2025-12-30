@@ -1,12 +1,35 @@
 const { chromium } = require('playwright');
 
+// Import biomarker reference data (copy the relevant part)
+const BIOMARKER_REFERENCE = [
+  { name: "Vitamin D, 25-Hydroxy", aliases: ["Vitamin D", "25-OH Vitamin D", "25-Hydroxyvitamin D", "25(OH)D", "Calcidiol"] },
+  { name: "Cholesterol, Total", aliases: ["Total Cholesterol", "TC"] },
+  { name: "LDL Cholesterol", aliases: ["LDL", "LDL-C", "Low-Density Lipoprotein"] },
+  { name: "HDL Cholesterol", aliases: ["HDL", "HDL-C", "High-Density Lipoprotein"] },
+];
+
+function normalizeBiomarkerName(name) {
+  const lowerName = name.toLowerCase().trim();
+  const ref = BIOMARKER_REFERENCE.find(r => {
+    if (r.name.toLowerCase() === lowerName) return true;
+    return r.aliases.some(alias => alias.toLowerCase() === lowerName);
+  });
+  return ref ? ref.name : name;
+}
+
+function getYearMonth(dateStr) {
+  const date = new Date(dateStr + "T00:00:00");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
 (async () => {
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page = await context.newPage();
 
   try {
-    // Login
     await page.goto('http://localhost:3000/login');
     await page.getByLabel(/email/i).fill('rjoberlander@gmail.com');
     await page.getByLabel(/password/i).fill('Cookie123!');
@@ -14,11 +37,9 @@ const { chromium } = require('playwright');
     await page.waitForURL('**/dashboard', { timeout: 15000 });
     console.log('Logged in');
 
-    // Go to biomarkers to get auth context
     await page.goto('http://localhost:3000/biomarkers');
     await page.waitForLoadState('networkidle');
 
-    // Get auth token
     const cookies = await context.cookies();
     const authCookie = cookies.find(c => c.name.includes('auth-token'));
 
@@ -30,7 +51,6 @@ const { chromium } = require('playwright');
       const parsed = JSON.parse(decoded);
       const token = parsed.access_token;
 
-      // Fetch biomarkers
       const response = await page.evaluate(async (token) => {
         const res = await fetch('http://localhost:3001/api/v1/biomarkers?limit=1000', {
           headers: { 'Authorization': 'Bearer ' + token }
@@ -40,55 +60,38 @@ const { chromium } = require('playwright');
 
       if (response.success && response.data) {
         const biomarkers = response.data;
-        console.log('\nTotal biomarkers in database:', biomarkers.length);
+        console.log('\nTotal biomarkers:', biomarkers.length);
 
-        // Check 1: Exact duplicates (same name + date + value)
-        const exactGroups = new Map();
+        // Check with normalized names AND month-based matching
+        const groups = new Map();
         biomarkers.forEach(b => {
-          const key = b.name.toLowerCase() + '|' + b.date_tested + '|' + b.value;
-          if (!exactGroups.has(key)) exactGroups.set(key, []);
-          exactGroups.get(key).push(b);
+          const normalizedName = normalizeBiomarkerName(b.name);
+          const yearMonth = getYearMonth(b.date_tested);
+          const key = `${normalizedName.toLowerCase()}|${yearMonth}|${b.value}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(b);
         });
 
-        let exactDupCount = 0;
-        console.log('\n=== EXACT DUPLICATES (same name + date + value) ===');
-        exactGroups.forEach((entries, key) => {
+        console.log('\n=== DUPLICATES DETECTED (same name + month + value) ===');
+        let totalDupes = 0;
+        groups.forEach((entries, key) => {
           if (entries.length > 1) {
-            const [name, date, value] = key.split('|');
-            console.log(`- ${entries[0].name} | Date: ${date} | Value: ${value} | ${entries.length} copies`);
-            exactDupCount += entries.length - 1;
+            const [name, yearMonth, value] = key.split('|');
+            console.log(`\n${entries[0].name} (normalized: ${normalizeBiomarkerName(entries[0].name)})`);
+            console.log(`  Month: ${yearMonth} | Value: ${value}`);
+            console.log(`  Entries: ${entries.length}`);
+            entries.forEach((e, i) => {
+              console.log(`    ${i+1}. "${e.name}" - Date: ${e.date_tested} - ID: ${e.id.substring(0,8)}...`);
+            });
+            totalDupes += entries.length - 1;
           }
         });
-        if (exactDupCount === 0) console.log('None found');
-        else console.log(`Total: ${exactDupCount} duplicates to remove`);
 
-        // Check 2: Same name + date (possibly different values)
-        const sameDateGroups = new Map();
-        biomarkers.forEach(b => {
-          const key = b.name.toLowerCase() + '|' + b.date_tested;
-          if (!sameDateGroups.has(key)) sameDateGroups.set(key, []);
-          sameDateGroups.get(key).push(b);
-        });
-
-        let sameDateCount = 0;
-        console.log('\n=== SAME NAME + SAME DATE (may have different values) ===');
-        sameDateGroups.forEach((entries, key) => {
-          if (entries.length > 1) {
-            const [name, date] = key.split('|');
-            const values = entries.map(e => e.value).join(', ');
-            console.log(`- ${entries[0].name} | Date: ${date} | Values: [${values}] | ${entries.length} entries`);
-            sameDateCount += entries.length - 1;
-          }
-        });
-        if (sameDateCount === 0) console.log('None found');
-        else console.log(`Total: ${sameDateCount} potential duplicates`);
-
-        // Show sample of biomarkers
-        console.log('\n=== SAMPLE OF BIOMARKERS ===');
-        const sample = biomarkers.slice(0, 10);
-        sample.forEach(b => {
-          console.log(`${b.name} | ${b.date_tested} | ${b.value} ${b.unit}`);
-        });
+        if (totalDupes === 0) {
+          console.log('No duplicates found');
+        } else {
+          console.log(`\n=== TOTAL DUPLICATES TO REMOVE: ${totalDupes} ===`);
+        }
       }
     }
   } catch (e) {

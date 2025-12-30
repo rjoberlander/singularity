@@ -55,6 +55,33 @@ export function useExtractSupplements() {
   });
 }
 
+interface ExtractedEquipmentData {
+  equipment: Array<{
+    name: string;
+    brand?: string;
+    model?: string;
+    category?: string;
+    purpose?: string;
+    specs?: Record<string, any>;
+    usage_frequency?: string;
+    usage_timing?: string;
+    usage_duration?: string;
+    usage_protocol?: string;
+    contraindications?: string;
+    confidence: number;
+  }>;
+  extraction_notes?: string;
+}
+
+export function useExtractEquipment() {
+  return useMutation({
+    mutationFn: async (data: { text_content: string }) => {
+      const response = await aiApi.extractEquipment(data);
+      return response.data.data as ExtractedEquipmentData;
+    },
+  });
+}
+
 export function useAIChat() {
   const queryClient = useQueryClient();
 

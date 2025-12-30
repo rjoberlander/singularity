@@ -54,15 +54,27 @@ export interface CreateBiomarkerRequest {
 // Supplement timing options
 export type SupplementTiming = 'wake_up' | 'am' | 'lunch' | 'pm' | 'dinner' | 'before_bed' | 'specific';
 
+// Supplement intake form options
+export type SupplementIntakeForm =
+  | 'pill' | 'capsule' | 'softgel' | 'tablet'
+  | 'scoop' | 'dropper' | 'drop' | 'spray'
+  | 'gummy' | 'lozenge' | 'chewable'
+  | 'packet' | 'teaspoon' | 'tablespoon'
+  | 'patch' | 'powder';
+
+// Supplement dose unit options
+export type SupplementDoseUnit = 'mg' | 'g' | 'mcg' | 'IU' | 'ml' | 'CFU' | '%';
+
 // Supplement types
 export interface Supplement {
   id: string;
   user_id: string;
   name: string;
   brand?: string;
-  dose?: string;
+  intake_quantity?: number;
+  intake_form?: SupplementIntakeForm | string;
   dose_per_serving?: number;
-  dose_unit?: string;
+  dose_unit?: SupplementDoseUnit | string;
   servings_per_container?: number;
   price?: number;
   price_per_serving?: number;
@@ -92,9 +104,10 @@ export interface SupplementGoal {
 export interface CreateSupplementRequest {
   name: string;
   brand?: string;
-  dose?: string;
+  intake_quantity?: number;
+  intake_form?: SupplementIntakeForm | string;
   dose_per_serving?: number;
-  dose_unit?: string;
+  dose_unit?: SupplementDoseUnit | string;
   servings_per_container?: number;
   price?: number;
   price_per_serving?: number;
@@ -235,9 +248,10 @@ export interface ExtractedSupplementData {
   supplements: Array<{
     name: string;
     brand?: string;
-    dose?: string;
+    intake_quantity?: number;
+    intake_form?: SupplementIntakeForm | string;
     dose_per_serving?: number;
-    dose_unit?: string;
+    dose_unit?: SupplementDoseUnit | string;
     servings_per_container?: number;
     price?: number;
     price_per_serving?: number;
@@ -274,6 +288,50 @@ export interface AIConversation {
   extracted_data?: any;
   created_at: string;
   updated_at: string;
+}
+
+// Equipment types
+export interface Equipment {
+  id: string;
+  user_id: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  category?: string; // 'LLLT', 'microneedling', 'sleep', 'skincare', 'recovery'
+  purpose?: string;
+  specs?: Record<string, any>;
+  usage_frequency?: string;
+  usage_timing?: string;
+  usage_duration?: string;
+  usage_protocol?: string;
+  contraindications?: string;
+  purchase_date?: string;
+  purchase_price?: number;
+  purchase_url?: string;
+  warranty_expiry?: string;
+  is_active: boolean;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEquipmentRequest {
+  name: string;
+  brand?: string;
+  model?: string;
+  category?: string;
+  purpose?: string;
+  specs?: Record<string, any>;
+  usage_frequency?: string;
+  usage_timing?: string;
+  usage_duration?: string;
+  usage_protocol?: string;
+  contraindications?: string;
+  purchase_date?: string;
+  purchase_price?: number;
+  purchase_url?: string;
+  warranty_expiry?: string;
+  notes?: string;
 }
 
 // API Response types

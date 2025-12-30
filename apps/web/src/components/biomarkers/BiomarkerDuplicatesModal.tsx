@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Biomarker } from "@/types";
+import { BIOMARKER_REFERENCE } from "@/data/biomarkerReference";
 
 export interface DuplicateGroup {
   name: string;
@@ -108,6 +109,16 @@ export function BiomarkerDuplicatesModal({
   };
 
   const formatDate = (dateStr: string) => {
+    // Handle year-month format (e.g., "2024-08")
+    if (dateStr.length === 7) {
+      const [year, month] = dateStr.split("-");
+      const d = new Date(parseInt(year), parseInt(month) - 1, 1);
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        year: "numeric",
+      });
+    }
+    // Handle full date format
     const d = new Date(dateStr + "T00:00:00");
     return d.toLocaleDateString("en-US", {
       month: "short",
@@ -248,15 +259,47 @@ export function BiomarkerDuplicatesModal({
 }
 
 /**
+ * Normalize a biomarker name to its reference name.
+ * This ensures "Vitamin D" and "Vitamin D, 25-Hydroxy" are treated as the same biomarker.
+ */
+function normalizeBiomarkerName(name: string): string {
+  const lowerName = name.toLowerCase().trim();
+
+  // Find matching reference by name or alias
+  const ref = BIOMARKER_REFERENCE.find(r => {
+    if (r.name.toLowerCase() === lowerName) return true;
+    return r.aliases.some(alias => alias.toLowerCase() === lowerName);
+  });
+
+  // Return the canonical reference name, or the original name if no match
+  return ref ? ref.name : name;
+}
+
+/**
+ * Extract year-month from a date string (e.g., "2024-08-30" -> "2024-08")
+ */
+function getYearMonth(dateStr: string): string {
+  const date = new Date(dateStr + "T00:00:00");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+/**
  * Find duplicate biomarker entries within the data.
- * Duplicates are entries with the same name, date_tested, AND value.
+ * Duplicates are entries with the same normalized name, same MONTH, AND same value.
+ * Names are normalized using the biomarker reference to catch aliases.
  */
 export function findDuplicateBiomarkers(biomarkers: Biomarker[]): DuplicateGroup[] {
   const groups = new Map<string, Biomarker[]>();
 
   biomarkers.forEach((b) => {
-    // Key: name (lowercase) + date + value
-    const key = `${b.name.toLowerCase()}|${b.date_tested}|${b.value}`;
+    // Normalize the name using the biomarker reference
+    const normalizedName = normalizeBiomarkerName(b.name);
+    // Extract year-month for comparison (not exact date)
+    const yearMonth = getYearMonth(b.date_tested);
+    // Key: normalized name (lowercase) + year-month + value
+    const key = `${normalizedName.toLowerCase()}|${yearMonth}|${b.value}`;
     if (!groups.has(key)) {
       groups.set(key, []);
     }
@@ -269,10 +312,12 @@ export function findDuplicateBiomarkers(biomarkers: Biomarker[]): DuplicateGroup
     if (entries.length > 1) {
       // Sort by created_at to keep the oldest entry
       entries.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      const [name, date, value] = key.split("|");
+      const [name, yearMonth, value] = key.split("|");
+      // Use the normalized reference name for display
+      const normalizedName = normalizeBiomarkerName(entries[0].name);
       duplicateGroups.push({
-        name: entries[0].name, // Use the actual name from first entry
-        date,
+        name: normalizedName,
+        date: yearMonth, // This is now year-month format
         value: parseFloat(value),
         unit: entries[0].unit,
         entries,

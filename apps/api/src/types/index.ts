@@ -288,3 +288,47 @@ export interface HealthChatRequest {
   context?: 'general' | 'biomarkers' | 'supplements' | 'routines' | 'goals';
   include_user_data?: boolean;
 }
+
+// Equipment Types
+export interface Equipment {
+  id: string;
+  user_id: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  category?: string; // 'LLLT', 'microneedling', 'sleep', 'skincare', 'recovery'
+  purpose?: string;
+  specs?: Record<string, any>;
+  usage_frequency?: string;
+  usage_timing?: string;
+  usage_duration?: string;
+  usage_protocol?: string;
+  contraindications?: string;
+  purchase_date?: string;
+  purchase_price?: number;
+  purchase_url?: string;
+  warranty_expiry?: string;
+  is_active: boolean;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEquipmentRequest {
+  name: string;
+  brand?: string;
+  model?: string;
+  category?: string;
+  purpose?: string;
+  specs?: Record<string, any>;
+  usage_frequency?: string;
+  usage_timing?: string;
+  usage_duration?: string;
+  usage_protocol?: string;
+  contraindications?: string;
+  purchase_date?: string;
+  purchase_price?: number;
+  purchase_url?: string;
+  warranty_expiry?: string;
+  notes?: string;
+}

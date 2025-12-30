@@ -53,6 +53,35 @@ const FREQUENCY_OPTIONS = [
   { value: "as_needed", label: "As Needed" },
 ];
 
+const INTAKE_FORM_OPTIONS = [
+  { value: "pill", label: "Pill" },
+  { value: "capsule", label: "Capsule" },
+  { value: "softgel", label: "Softgel" },
+  { value: "tablet", label: "Tablet" },
+  { value: "scoop", label: "Scoop" },
+  { value: "dropper", label: "Dropper" },
+  { value: "drop", label: "Drop" },
+  { value: "spray", label: "Spray" },
+  { value: "gummy", label: "Gummy" },
+  { value: "lozenge", label: "Lozenge" },
+  { value: "packet", label: "Packet" },
+  { value: "teaspoon", label: "Teaspoon" },
+  { value: "tablespoon", label: "Tablespoon" },
+  { value: "chewable", label: "Chewable" },
+  { value: "patch", label: "Patch" },
+  { value: "powder", label: "Powder (serving)" },
+];
+
+const DOSE_UNIT_OPTIONS = [
+  { value: "mg", label: "mg" },
+  { value: "g", label: "g" },
+  { value: "mcg", label: "mcg" },
+  { value: "IU", label: "IU" },
+  { value: "ml", label: "ml" },
+  { value: "CFU", label: "CFU" },
+  { value: "%", label: "%" },
+];
+
 export default function AddSupplementPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("ai");
@@ -64,7 +93,9 @@ export default function AddSupplementPage() {
   const [manualData, setManualData] = useState<CreateSupplementRequest>({
     name: "",
     brand: "",
-    dose: "",
+    intake_quantity: 1,
+    intake_form: "",
+    dose_per_serving: undefined,
     dose_unit: "",
     category: "",
   });
@@ -171,7 +202,8 @@ export default function AddSupplementPage() {
       .map((s) => ({
         name: s.name,
         brand: s.brand,
-        dose: s.dose,
+        intake_quantity: s.intake_quantity || 1,
+        intake_form: s.intake_form,
         dose_per_serving: s.dose_per_serving,
         dose_unit: s.dose_unit,
         servings_per_container: s.servings_per_container,
@@ -262,8 +294,10 @@ export default function AddSupplementPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  {supplement.dose && (
-                    <p className="text-lg font-semibold">{supplement.dose}</p>
+                  {supplement.intake_form && (
+                    <p className="text-lg font-semibold">
+                      {supplement.intake_quantity || 1} {supplement.intake_form}{(supplement.intake_quantity || 1) > 1 ? 's' : ''}
+                    </p>
                   )}
                   {supplement.servings_per_container && (
                     <p className="text-xs text-muted-foreground">
@@ -475,28 +509,66 @@ export default function AddSupplementPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="dose">Dose</Label>
-                    <Input
-                      id="dose"
-                      value={manualData.dose}
-                      onChange={(e) =>
-                        setManualData({ ...manualData, dose: e.target.value })
+                    <Label htmlFor="intake_quantity">Intake</Label>
+                    <Select
+                      value={(manualData.intake_quantity || 1).toString()}
+                      onValueChange={(value) =>
+                        setManualData({ ...manualData, intake_quantity: parseInt(value, 10) })
                       }
-                      placeholder="e.g., 5000 IU"
-                    />
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Qty" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                          <SelectItem key={num} value={num.toString()}>
+                            {num}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="intake_form">Form</Label>
+                    <Select
+                      value={manualData.intake_form || ""}
+                      onValueChange={(value) =>
+                        setManualData({ ...manualData, intake_form: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INTAKE_FORM_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="dose_unit">Unit</Label>
-                    <Input
-                      id="dose_unit"
-                      value={manualData.dose_unit}
-                      onChange={(e) =>
-                        setManualData({ ...manualData, dose_unit: e.target.value })
+                    <Select
+                      value={manualData.dose_unit || ""}
+                      onValueChange={(value) =>
+                        setManualData({ ...manualData, dose_unit: value })
                       }
-                      placeholder="e.g., IU, mg"
-                    />
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DOSE_UNIT_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="category">Category</Label>
