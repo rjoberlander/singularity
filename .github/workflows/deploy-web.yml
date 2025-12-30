@@ -22,8 +22,12 @@ jobs:
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/singularity
-            git pull origin master
+            sudo chown -R deploy:deploy .git
+            git fetch origin master
+            git reset --hard origin/master
             cd apps/web
+            # Clean .next folder to avoid permission issues
+            sudo rm -rf .next
             npm ci --production=false
             npm run build
             pm2 restart singularity-web || pm2 start ecosystem.config.js
