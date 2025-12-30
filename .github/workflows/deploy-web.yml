@@ -20,15 +20,16 @@ jobs:
           host: ${{ secrets.DO_WEB_HOST }}
           username: deploy
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          command_timeout: 20m
           script: |
             cd /var/www/singularity
             sudo chown -R deploy:deploy .git
             git fetch origin master
             git reset --hard origin/master
+            # Clean corrupted node_modules and .next
+            sudo rm -rf node_modules apps/*/node_modules apps/web/.next
+            npm install
             cd apps/web
-            # Clean .next folder to avoid permission issues
-            sudo rm -rf .next
-            npm ci --production=false
             npm run build
             pm2 restart singularity-web || pm2 start ecosystem.config.js
             pm2 save
