@@ -124,6 +124,20 @@ function getValueStatus(
   return "critical";
 }
 
+// Format number for display: max 3 characters, 1 decimal max for small numbers
+function formatRefNumber(val: number): string {
+  // If it's a whole number or very close to it
+  if (Math.abs(val - Math.round(val)) < 0.01) {
+    return Math.round(val).toString();
+  }
+  // If integer part is 2+ digits, no decimal
+  if (Math.abs(val) >= 10) {
+    return Math.round(val).toString();
+  }
+  // Otherwise, 1 decimal place
+  return val.toFixed(1);
+}
+
 // Horizontal reference bar component (placed above readings)
 function HorizontalReferenceBar({
   reference,
@@ -212,7 +226,7 @@ function HorizontalReferenceBar({
       <div className="flex justify-between mt-0.5">
         {labelValues.map((val, i) => (
           <span key={i} className="text-[9px] text-muted-foreground">
-            {val}
+            {formatRefNumber(val)}
           </span>
         ))}
       </div>
@@ -660,16 +674,6 @@ export function BiomarkerExtractionModal({
         {/* Review Step */}
         {step === "review" && extractedData && (
           <>
-            {/* Duplicate warning */}
-            {duplicateReadings.size > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-orange-500/10 border border-orange-500/30 mb-3">
-                <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
-                <span className="text-xs text-orange-600 dark:text-orange-400">
-                  {duplicateReadings.size} duplicate{duplicateReadings.size > 1 ? "s" : ""} auto-deselected (already in database)
-                </span>
-              </div>
-            )}
-
             {/* Biomarker cards grid */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
@@ -801,12 +805,12 @@ export function BiomarkerExtractionModal({
                             return (
                               <div
                                 key={rIndex}
-                                className={`flex items-center gap-1.5 py-0.5 px-1.5 rounded cursor-pointer transition-colors ${
+                                className={`flex items-center gap-1.5 py-0.5 px-1.5 rounded transition-colors ${
                                   isDuplicate
-                                    ? "bg-orange-500/10 opacity-50"
+                                    ? "bg-muted/30 opacity-60"
                                     : isSelected
-                                    ? "bg-primary/10"
-                                    : "hover:bg-muted/30 opacity-60"
+                                    ? "bg-primary/10 cursor-pointer"
+                                    : "hover:bg-muted/30 opacity-60 cursor-pointer"
                                 }`}
                                 onClick={() => !isDuplicate && toggleReadingSelection(key)}
                                 data-testid="reading-item"
@@ -815,35 +819,42 @@ export function BiomarkerExtractionModal({
                                 <div
                                   className={`w-2.5 h-2.5 rounded-sm border flex items-center justify-center shrink-0 ${
                                     isDuplicate
-                                      ? "border-orange-500 bg-orange-500/20"
+                                      ? "border-muted-foreground/30 bg-muted/50"
                                       : isSelected
                                       ? "bg-primary border-primary"
                                       : "border-muted-foreground/30"
                                   }`}
                                 >
                                   {isDuplicate ? (
-                                    <AlertTriangle className="w-1.5 h-1.5 text-orange-500" />
+                                    <Check className="w-1.5 h-1.5 text-muted-foreground" />
                                   ) : isSelected ? (
                                     <Check className="w-1.5 h-1.5 text-primary-foreground" />
                                   ) : null}
                                 </div>
 
                                 {/* Date */}
-                                <span className="text-[10px] sm:text-xs text-muted-foreground flex-1">
+                                <span className={`text-[10px] sm:text-xs text-muted-foreground flex-1 ${isDuplicate ? "line-through" : ""}`}>
                                   {formatDate(readingDate)}
                                 </span>
 
                                 {/* Value with status color */}
                                 <span
-                                  className="font-semibold text-xs sm:text-sm"
-                                  style={{ color: valueColor }}
+                                  className={`font-semibold text-xs sm:text-sm ${isDuplicate ? "line-through text-muted-foreground" : ""}`}
+                                  style={{ color: isDuplicate ? undefined : valueColor }}
                                   data-testid="reading-value"
                                 >
                                   {reading.value}
                                 </span>
 
+                                {/* Already saved tag for duplicates */}
+                                {isDuplicate && (
+                                  <span className="text-[8px] sm:text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap">
+                                    Already Saved
+                                  </span>
+                                )}
+
                                 {/* Low confidence warning */}
-                                {isLowConfidence && (
+                                {!isDuplicate && isLowConfidence && (
                                   <span className="text-[8px] sm:text-[10px] px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-600 whitespace-nowrap">
                                     ?
                                   </span>
@@ -907,6 +918,14 @@ export function BiomarkerExtractionModal({
                   </span>
                   {" · "}
                   Detected <span className="text-blue-400">{detectionStats.markers}</span> marker{detectionStats.markers !== 1 ? "s" : ""} &amp; <span className="text-blue-400">{detectionStats.readings}</span> reading{detectionStats.readings !== 1 ? "s" : ""}
+                  {duplicateReadings.size > 0 && (
+                    <>
+                      {" · "}
+                      <span className="text-muted-foreground">
+                        <span className="text-blue-400">{duplicateReadings.size}</span> already in database (will skip)
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
 
