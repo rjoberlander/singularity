@@ -20,6 +20,7 @@ jobs:
           host: ${{ secrets.DO_WEB_HOST }}
           username: deploy
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          command_timeout: 20m
           script: |
             cd /var/www/singularity
             sudo chown -R deploy:deploy .git
@@ -27,7 +28,12 @@ jobs:
             git reset --hard origin/master
             echo "Deployed commit: $(git rev-parse HEAD)"
             echo "Admin routes file exists: $(test -f apps/api/src/routes/admin.ts && echo 'yes' || echo 'no')"
-            sudo rm -rf node_modules apps/*/node_modules apps/api/dist
+            # Only clean node_modules if package-lock changed
+            if git diff HEAD~1 --name-only | grep -q "package-lock.json"; then
+              echo "package-lock.json changed, cleaning node_modules..."
+              sudo rm -rf node_modules apps/*/node_modules
+            fi
+            sudo rm -rf apps/api/dist
             npm install
             cd apps/api
             npm run build
