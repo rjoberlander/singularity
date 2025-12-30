@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -103,9 +104,12 @@ export default function DashboardPage() {
       const fileToProcess = attachedFile;
       handleRemoveFile();
 
+      const isPDF = fileToProcess.type === "application/pdf" || fileToProcess.name.toLowerCase().endsWith(".pdf");
+      const isImageOrPDF = isImage || isPDF;
+
       try {
-        if (isImage) {
-          // Extract biomarkers from image
+        if (isImageOrPDF) {
+          // Extract biomarkers from image or PDF
           const base64 = await processFileForAI(fileToProcess);
           if (base64) {
             const extractResult = await extractMutation.mutateAsync({
@@ -119,7 +123,7 @@ export default function DashboardPage() {
               : "Please analyze these extracted biomarkers and provide insights.";
 
             const response = await chatMutation.mutateAsync({
-              message: `${analysisPrompt}\n\nExtracted data from uploaded image:\n${JSON.stringify(extractResult, null, 2)}`,
+              message: `${analysisPrompt}\n\nExtracted data from uploaded ${isPDF ? "PDF" : "image"}:\n${JSON.stringify(extractResult, null, 2)}`,
               include_user_data: true,
             });
 
@@ -131,7 +135,7 @@ export default function DashboardPage() {
             setMessages((prev) => [...prev, assistantMessage]);
           }
         } else {
-          // Read text file content
+          // Read text file content (for .txt, .csv, .json files)
           const textContent = await fileToProcess.text();
           const analysisPrompt = userMessageContent
             ? userMessageContent
@@ -149,15 +153,29 @@ export default function DashboardPage() {
           };
           setMessages((prev) => [...prev, assistantMessage]);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Processing error:", error);
-        toast.error("Failed to process file. Please try again.");
-        const errorMessage: ChatMessage = {
-          role: "assistant",
-          content: "Sorry, I had trouble processing that file. Please try again or paste the content directly.",
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errorMessage]);
+        const errorData = error?.response?.data;
+        const isNoApiKey = errorData?.error_type === "NO_API_KEY";
+        const apiErrorMessage = errorData?.error;
+
+        if (isNoApiKey) {
+          toast.error("No API key configured");
+          const errorMessage: ChatMessage = {
+            role: "assistant",
+            content: "You don't have an AI API key configured yet.\n\nTo use the AI assistant, please go to Settings → AI Keys and add your Anthropic API key.",
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        } else {
+          toast.error("Failed to process file");
+          const errorMessage: ChatMessage = {
+            role: "assistant",
+            content: apiErrorMessage || "Sorry, I had trouble processing that file. Please try again or paste the content directly.",
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       }
     } else {
       // Regular chat message
@@ -173,15 +191,28 @@ export default function DashboardPage() {
           timestamp: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Chat error:", error);
-        toast.error("Failed to get response. Please try again.");
-        const errorMessage: ChatMessage = {
-          role: "assistant",
-          content: "Sorry, I encountered an error. Please try again.",
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errorMessage]);
+        const errorData = error?.response?.data;
+        const isNoApiKey = errorData?.error_type === "NO_API_KEY";
+
+        if (isNoApiKey) {
+          toast.error("No API key configured");
+          const errorMessage: ChatMessage = {
+            role: "assistant",
+            content: "You don't have an AI API key configured yet.\n\nTo use the AI assistant, please go to Settings → AI Keys and add your Anthropic API key.",
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        } else {
+          toast.error("Failed to get response. Please try again.");
+          const errorMessage: ChatMessage = {
+            role: "assistant",
+            content: "Sorry, I encountered an error. Please try again.",
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       }
     }
   };
@@ -198,10 +229,62 @@ export default function DashboardPage() {
     textareaRef.current?.focus();
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      setAttachedFile(file);
+
+      // Create preview for images
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setFilePreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setFilePreview(null);
+      }
+
+      toast.success(`File attached: ${file.name}`);
+    }
+  };
+
   const isLoading = chatMutation.isPending || extractMutation.isPending;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]" data-testid="ai-chat-dashboard">
+    <div
+      className="flex flex-col h-[calc(100vh-8rem)] relative"
+      data-testid="ai-chat-dashboard"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-primary/10 border-2 border-dashed border-primary rounded-lg z-50 flex items-center justify-center">
+          <div className="text-center">
+            <FileText className="w-12 h-12 text-primary mx-auto mb-2" />
+            <p className="text-lg font-medium text-primary">Drop file here</p>
+          </div>
+        </div>
+      )}
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4">
         {messages.length === 0 ? (

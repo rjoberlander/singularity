@@ -32,12 +32,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid - redirect to login
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
-    }
+    // Don't auto-redirect on 401 - let individual components handle auth errors
+    // Auto-redirecting causes issues when some API calls fail due to missing data (not auth)
     return Promise.reject(error);
   }
 );

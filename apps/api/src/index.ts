@@ -64,9 +64,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Body parsing
-app.use(express.json({ limit: '50mb' })); // Large limit for base64 images
-app.use(express.urlencoded({ extended: true }));
+// Body parsing - 100MB limit for large PDF files (base64 encoded)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Rate limiting
 app.use(rateLimiter);
