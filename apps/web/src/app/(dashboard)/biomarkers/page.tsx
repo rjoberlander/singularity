@@ -17,6 +17,17 @@ import {
   RefreshCcw,
   CircleDot,
   CirclePlus,
+  Activity,
+  Zap,
+  Sparkles,
+  Sun,
+  Gem,
+  Beaker,
+  Bean,
+  Flame,
+  Heart,
+  Shield,
+  LucideIcon,
 } from "lucide-react";
 import { BIOMARKER_REFERENCE, BiomarkerReference, getCategories } from "@/data/biomarkerReference";
 import { Biomarker } from "@/types";
@@ -44,6 +55,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   inflammation: "rgba(239, 68, 68, 0.2)", // red-500
   cardiac: "rgba(244, 63, 94, 0.2)",   // rose
   immune: "rgba(6, 182, 212, 0.2)",    // cyan
+};
+
+// Category icons
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  blood: Droplet,
+  lipid: CircleDot,
+  metabolic: Activity,
+  thyroid: Zap,
+  hormone: Sparkles,
+  vitamin: Sun,
+  mineral: Gem,
+  liver: Beaker,
+  kidney: Bean,
+  inflammation: Flame,
+  cardiac: Heart,
+  immune: Shield,
 };
 
 type FilterType = "all" | "withData" | "outOfRange" | "optimal" | "normal";
@@ -274,26 +301,32 @@ export default function BiomarkersPage() {
               </div>
 
               {/* Category Buttons */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 <Button
                   variant={selectedCategory === "all" ? "default" : "outline"}
                   size="sm"
+                  className="px-2"
                   onClick={() => setSelectedCategory("all")}
                   style={selectedCategory !== "all" ? { backgroundColor: CATEGORY_COLORS.all } : undefined}
                 >
                   All
                 </Button>
-                {categories.map((cat) => (
-                  <Button
-                    key={cat}
-                    variant={selectedCategory === cat ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedCategory(cat)}
-                    style={selectedCategory !== cat ? { backgroundColor: CATEGORY_COLORS[cat] || "transparent" } : undefined}
-                  >
-                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                  </Button>
-                ))}
+                {categories.map((cat) => {
+                  const IconComponent = CATEGORY_ICONS[cat];
+                  return (
+                    <Button
+                      key={cat}
+                      variant={selectedCategory === cat ? "default" : "outline"}
+                      size="sm"
+                      className="px-2"
+                      onClick={() => setSelectedCategory(cat)}
+                      style={selectedCategory !== cat ? { backgroundColor: CATEGORY_COLORS[cat] || "transparent" } : undefined}
+                    >
+                      {IconComponent && <IconComponent className="w-3.5 h-3.5 mr-1" />}
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </Button>
+                  );
+                })}
               </div>
 
               <div className="ml-auto">

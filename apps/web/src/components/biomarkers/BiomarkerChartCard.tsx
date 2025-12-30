@@ -2,7 +2,22 @@
 
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus } from "lucide-react";
+import {
+  Plus,
+  Droplet,
+  CircleDot,
+  Activity,
+  Zap,
+  Sparkles,
+  Sun,
+  Gem,
+  Beaker,
+  Bean,
+  Flame,
+  Heart,
+  Shield,
+  LucideIcon,
+} from "lucide-react";
 import { Biomarker } from "@/types";
 import { BiomarkerReference } from "@/data/biomarkerReference";
 
@@ -12,6 +27,38 @@ const STATUS_COLORS = {
   normal: "#C7A45C",     // Tan/brown
   outOfRange: "#8B4513", // Dark brown/maroon
   empty: "#6B7280",      // Grey for no data
+};
+
+// Category colors for card backgrounds (super transparent)
+const CATEGORY_COLORS: Record<string, string> = {
+  blood: "rgba(220, 38, 38, 0.08)",     // red
+  lipid: "rgba(249, 115, 22, 0.08)",    // orange
+  metabolic: "rgba(234, 179, 8, 0.08)", // yellow
+  thyroid: "rgba(139, 92, 246, 0.08)",  // purple
+  hormone: "rgba(236, 72, 153, 0.08)",  // pink
+  vitamin: "rgba(34, 197, 94, 0.08)",   // green
+  mineral: "rgba(20, 184, 166, 0.08)",  // teal
+  liver: "rgba(168, 85, 247, 0.08)",    // violet
+  kidney: "rgba(59, 130, 246, 0.08)",   // blue
+  inflammation: "rgba(239, 68, 68, 0.08)", // red-500
+  cardiac: "rgba(244, 63, 94, 0.08)",   // rose
+  immune: "rgba(6, 182, 212, 0.08)",    // cyan
+};
+
+// Category icons
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  blood: Droplet,
+  lipid: CircleDot,
+  metabolic: Activity,
+  thyroid: Zap,
+  hormone: Sparkles,
+  vitamin: Sun,
+  mineral: Gem,
+  liver: Beaker,
+  kidney: Bean,
+  inflammation: Flame,
+  cardiac: Heart,
+  immune: Shield,
 };
 
 interface BiomarkerChartCardProps {
@@ -286,20 +333,27 @@ export function BiomarkerChartCard({
     return "\u25C6";
   };
 
+  // Get category background color
+  const categoryBgColor = CATEGORY_COLORS[reference.category] || "transparent";
+
   return (
     <Card
       className={`hover:border-primary/50 transition-colors cursor-pointer ${
         isEmpty
-          ? "bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
-          : "bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700"
+          ? "border-zinc-200 dark:border-zinc-800"
+          : "border-stone-200 dark:border-zinc-700"
       }`}
+      style={{ backgroundColor: categoryBgColor }}
       onClick={onClick}
     >
       <CardContent className="p-2.5 pb-1.5">
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5">
-            <Plus className={`w-3.5 h-3.5 ${isEmpty ? "text-zinc-400 dark:text-zinc-500" : "text-foreground"}`} />
+            {(() => {
+              const IconComponent = CATEGORY_ICONS[reference.category] || Plus;
+              return <IconComponent className={`w-3.5 h-3.5 ${isEmpty ? "text-zinc-400 dark:text-zinc-500" : "text-foreground"}`} />;
+            })()}
             <h3 className={`font-medium text-sm ${isEmpty ? "text-zinc-500 dark:text-zinc-400" : "text-foreground"}`}>
               {reference.name}
             </h3>

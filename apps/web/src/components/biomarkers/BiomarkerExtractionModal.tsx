@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useExtractBiomarkers } from "@/hooks/useAI";
 import { useCreateBiomarkersBulk } from "@/hooks/useBiomarkers";
 import {
@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   Loader2,
   Check,
@@ -22,6 +23,9 @@ import {
   ArrowDown,
   Minus,
   Edit2,
+  FileSearch,
+  Brain,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,7 +38,7 @@ interface ExtractedBiomarker {
   reference_range_high?: number;
   optimal_range_low?: number;
   optimal_range_high?: number;
-  category: string;
+  category?: string;
   confidence: number;
   match_confidence?: number;
   flag?: string;
@@ -71,9 +75,53 @@ export function BiomarkerExtractionModal({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<{ value?: number; name?: string }>({});
   const [extractionStarted, setExtractionStarted] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const extractBiomarkers = useExtractBiomarkers();
   const createBiomarkersBulk = useCreateBiomarkersBulk();
+
+  // Simulated progress animation
+  useEffect(() => {
+    if (step === "extracting" && extractionStarted) {
+      setProgress(0);
+      setProgressStage("preparing");
+
+      progressIntervalRef.current = setInterval(() => {
+        setProgress((prev) => {
+          // Stage transitions
+          if (prev < 15) {
+            setProgressStage("preparing");
+            return prev + 3; // Quick start
+          } else if (prev < 75) {
+            setProgressStage("analyzing");
+            return prev + 0.5; // Slow middle (this is where AI does most work)
+          } else if (prev < 90) {
+            setProgressStage("extracting");
+            return prev + 0.3; // Even slower near end
+          }
+          return prev; // Hold at 90 until complete
+        });
+      }, 200);
+
+      return () => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+        }
+      };
+    }
+  }, [step, extractionStarted]);
+
+  // Complete progress when extraction finishes
+  useEffect(() => {
+    if (step === "review") {
+      setProgress(100);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    }
+  }, [step]);
 
   const resetState = useCallback(() => {
     setStep("extracting");
@@ -84,6 +132,11 @@ export function BiomarkerExtractionModal({
     setEditingIndex(null);
     setEditValues({});
     setExtractionStarted(false);
+    setProgress(0);
+    setProgressStage("preparing");
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
   }, []);
 
   const handleClose = useCallback(() => {
@@ -254,11 +307,43 @@ export function BiomarkerExtractionModal({
 
         {/* Extracting Step */}
         {step === "extracting" && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-            <p className="text-muted-foreground">Analyzing lab results...</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              This may take up to a minute for large PDFs
+          <div className="flex flex-col items-center justify-center py-8">
+            {/* Progress stages */}
+            <div className="flex items-center justify-center gap-8 mb-6">
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "preparing" ? "text-primary" : progress > 15 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "preparing" ? "border-primary bg-primary/10" : progress > 15 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress > 15 ? <Check className="w-5 h-5" /> : <FileSearch className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Preparing</span>
+              </div>
+
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "analyzing" ? "text-primary" : progress > 75 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "analyzing" ? "border-primary bg-primary/10" : progress > 75 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress > 75 ? <Check className="w-5 h-5" /> : progressStage === "analyzing" ? <Brain className="w-5 h-5 animate-pulse" /> : <Brain className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Analyzing</span>
+              </div>
+
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "extracting" ? "text-primary" : progress >= 100 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "extracting" ? "border-primary bg-primary/10" : progress >= 100 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress >= 100 ? <Check className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Extracting</span>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full max-w-md mb-4">
+              <Progress value={progress} className="h-2" />
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              {progressStage === "preparing" && "Reading file..."}
+              {progressStage === "analyzing" && "AI is analyzing your lab results..."}
+              {progressStage === "extracting" && "Extracting biomarker values..."}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {Math.round(progress)}% complete
             </p>
           </div>
         )}
@@ -403,8 +488,8 @@ export function BiomarkerExtractionModal({
                 {selectedBiomarkers.size} of {extractedData.biomarkers.length} selected
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setStep("upload")}>
-                  Back
+                <Button variant="outline" onClick={handleClose}>
+                  Cancel
                 </Button>
                 <Button
                   onClick={handleSave}
