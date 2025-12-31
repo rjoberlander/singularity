@@ -65,6 +65,9 @@ export type SupplementIntakeForm =
 // Supplement dose unit options
 export type SupplementDoseUnit = 'mg' | 'g' | 'mcg' | 'IU' | 'ml' | 'CFU' | '%';
 
+// Supplement data source
+export type SupplementDataSource = 'human' | 'ai';
+
 // Supplement types
 export interface Supplement {
   id: string;
@@ -89,6 +92,8 @@ export interface Supplement {
   frequency?: string;
   is_active: boolean;
   notes?: string;
+  product_data_source?: SupplementDataSource;  // Whether product data was entered by human or AI
+  product_updated_at?: string;                  // When product specs were last updated
   linked_goals?: SupplementGoal[]; // Populated via join
   created_at: string;
   updated_at: string;
@@ -122,6 +127,8 @@ export interface CreateSupplementRequest {
   mechanism?: string;
   frequency?: string;
   notes?: string;
+  product_data_source?: SupplementDataSource;  // Whether product data was entered by human or AI
+  product_updated_at?: string;                  // When product specs were last updated
   goal_ids?: string[]; // IDs of goals to link
 }
 

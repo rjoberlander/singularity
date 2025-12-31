@@ -229,11 +229,26 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     timing: "",
     frequency: "",
     notes: "",
+    product_data_source: undefined,
+    product_updated_at: undefined,
   });
 
   const createSupplement = useCreateSupplement();
   const updateSupplement = useUpdateSupplement();
   const deleteSupplement = useDeleteSupplement();
+
+  // Product fields that trigger "human" data source when manually edited
+  const PRODUCT_FIELD_KEYS = ['brand', 'price', 'intake_form', 'serving_size', 'servings_per_container', 'dose_per_serving', 'dose_unit', 'category'];
+
+  // Helper to update product fields and mark as human-edited
+  const updateProductField = (field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value,
+      product_data_source: 'human',
+      product_updated_at: new Date().toISOString(),
+    }));
+  };
 
   useEffect(() => {
     if (supplement) {
@@ -252,6 +267,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         timing: supplement.timing || "",
         frequency: supplement.frequency || "",
         notes: supplement.notes || "",
+        product_data_source: supplement.product_data_source,
+        product_updated_at: supplement.product_updated_at,
       });
     } else {
       setFormData({
@@ -269,6 +286,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         timing: "",
         frequency: "",
         notes: "",
+        product_data_source: undefined,
+        product_updated_at: undefined,
       });
     }
     setCopied(false);
@@ -473,6 +492,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
           servings_per_container: s.servings_per_container ?? undefined,
           price: s.price ?? undefined,
           category: normalizeValue(s.category) || "",
+          product_data_source: 'ai',
+          product_updated_at: new Date().toISOString(),
         }));
 
         // Calculate overall confidence as average of found fields
@@ -604,7 +625,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
               value={formData.purchase_url}
               onChange={(e) => setFormData({ ...formData, purchase_url: e.target.value })}
               placeholder="https://..."
-              className="h-7 text-sm w-52 min-w-0"
+              className="h-7 text-sm flex-1 min-w-0"
             />
             {formData.purchase_url && (
               <>
@@ -619,7 +640,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             <Button
               type="button"
               size="sm"
-              className="h-7 px-2 gap-1 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50"
+              className="h-7 px-2 gap-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/50"
               onClick={handleAIFetch}
               disabled={isAIFetching || !formData.name}
             >
@@ -645,19 +666,12 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
 
           {/* Product Section */}
           <div className="pt-2 border-t border-muted">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <Label className="text-sm font-semibold">Product</Label>
-                {aiFields && aiFields.overallConfidence > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-500">
-                    {Math.round(aiFields.overallConfidence * 100)}% confidence
-                  </span>
-                )}
-              </div>
+            <div className="flex items-center gap-2 mb-1">
+              <Label className="text-sm font-semibold">Product</Label>
               <Button
                 type="button"
                 size="sm"
-                className="h-6 px-3 gap-1.5 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50"
+                className="h-6 px-3 gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/50"
                 onClick={handleAIFetch}
                 disabled={isAIFetching || !formData.name}
               >
@@ -668,6 +682,20 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 )}
                 <span className="text-xs">Populate by AI</span>
               </Button>
+              {/* Data source and last updated */}
+              {formData.product_updated_at && (
+                <span className="text-[10px] text-blue-400">
+                  Updated {new Date(formData.product_updated_at).toLocaleDateString()}
+                  {formData.product_data_source && (
+                    <> by <span className={formData.product_data_source === 'ai' ? 'text-purple-400' : ''}>{formData.product_data_source === 'ai' ? 'AI' : 'Human'}</span></>
+                  )}
+                </span>
+              )}
+              {aiFields && aiFields.overallConfidence > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-500">
+                  {Math.round(aiFields.overallConfidence * 100)}% confidence
+                </span>
+              )}
             </div>
 
             {/* AI Extraction Progress */}
@@ -681,7 +709,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                   type="number"
                   step="0.01"
                   value={formData.price ?? ""}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  onChange={(e) => updateProductField('price', e.target.value ? parseFloat(e.target.value) : undefined)}
                   className="h-7 text-sm w-20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
@@ -692,7 +720,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => setFormData({ ...formData, intake_form: opt.value === formData.intake_form ? "" : opt.value })}
+                      onClick={() => updateProductField('intake_form', opt.value === formData.intake_form ? "" : opt.value)}
                       className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
                         formData.intake_form === opt.value
                           ? "bg-primary text-primary-foreground border-primary"
@@ -708,7 +736,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">Brand<AIIndicator field="brand" aiFields={aiFields} /></Label>
                 <Input
                   value={formData.brand}
-                  onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+                  onChange={(e) => updateProductField('brand', e.target.value)}
                   placeholder="Thorne"
                   className="h-7 text-sm flex-1 min-w-0"
                 />
@@ -721,7 +749,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
               <Input
                 type="number"
                 value={formData.servings_per_container ?? ""}
-                onChange={(e) => setFormData({ ...formData, servings_per_container: e.target.value ? parseInt(e.target.value) : undefined })}
+                onChange={(e) => updateProductField('servings_per_container', e.target.value ? parseInt(e.target.value) : undefined)}
                 className="h-7 text-sm w-14 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <span className="text-xs text-muted-foreground">@</span>
@@ -729,7 +757,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 type="number"
                 min={1}
                 value={formData.serving_size ?? 1}
-                onChange={(e) => setFormData({ ...formData, serving_size: e.target.value ? parseInt(e.target.value) : 1 })}
+                onChange={(e) => updateProductField('serving_size', e.target.value ? parseInt(e.target.value) : 1)}
                 className="h-7 text-sm w-10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <span className="text-xs whitespace-nowrap">
@@ -748,7 +776,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 type="number"
                 step="any"
                 value={formData.dose_per_serving ?? ""}
-                onChange={(e) => setFormData({ ...formData, dose_per_serving: e.target.value ? parseFloat(e.target.value) : undefined })}
+                onChange={(e) => updateProductField('dose_per_serving', e.target.value ? parseFloat(e.target.value) : undefined)}
                 placeholder="1000"
                 className="h-7 text-sm w-20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
@@ -760,7 +788,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setFormData({ ...formData, dose_unit: opt.value === formData.dose_unit ? "" : opt.value })}
+                    onClick={() => updateProductField('dose_unit', opt.value === formData.dose_unit ? "" : opt.value)}
                     className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
                       formData.dose_unit === opt.value
                         ? "bg-primary text-primary-foreground border-primary"
@@ -775,7 +803,9 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             {/* Calculated Dose per Unit (read-only) */}
             {formData.dose_per_serving && formData.serving_size && formData.serving_size > 0 && (
               <div className="flex items-center gap-1 text-xs">
-                <span className="text-muted-foreground">Dose/Unit:</span>
+                <span className="text-muted-foreground">
+                  Dose/<span className={formData.intake_form ? "text-blue-400" : ""}>{formData.intake_form ? INTAKE_FORM_OPTIONS.find(f => f.value === formData.intake_form)?.label : 'Unit'}</span>:
+                </span>
                 <span className="font-medium text-blue-400">
                   {(formData.dose_per_serving / formData.serving_size).toFixed(formData.dose_per_serving / formData.serving_size % 1 === 0 ? 0 : 1)}
                   {formData.dose_unit || ''}
@@ -792,7 +822,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setFormData({ ...formData, category: opt.value === formData.category ? "" : opt.value })}
+                  onClick={() => updateProductField('category', opt.value === formData.category ? "" : opt.value)}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
                     formData.category === opt.value
                       ? "bg-primary text-primary-foreground border-primary"
@@ -808,7 +838,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setFormData({ ...formData, category: opt.value === formData.category ? "" : opt.value })}
+                  onClick={() => updateProductField('category', opt.value === formData.category ? "" : opt.value)}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
                     formData.category === opt.value
                       ? "bg-primary text-primary-foreground border-primary"

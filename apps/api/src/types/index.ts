@@ -60,6 +60,8 @@ export interface BiomarkerWithStatus extends Biomarker {
 }
 
 // Supplement Types
+export type SupplementDataSource = 'human' | 'ai';
+
 export interface Supplement {
   id: string;
   user_id: string;
@@ -83,6 +85,8 @@ export interface Supplement {
   frequency?: string;
   is_active: boolean;
   notes?: string;
+  product_data_source?: SupplementDataSource;  // Whether product data was entered by human or AI
+  product_updated_at?: string;                  // When product specs were last updated
   created_at: string;
   updated_at: string;
 }
@@ -276,6 +280,8 @@ export interface CreateSupplementRequest {
   reason?: string;
   mechanism?: string;
   notes?: string;
+  product_data_source?: SupplementDataSource;  // Whether product data was entered by human or AI
+  product_updated_at?: string;                  // When product specs were last updated
 }
 
 export interface CreateRoutineRequest {

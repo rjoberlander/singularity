@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useExtractSupplements } from "@/hooks/useAI";
 import { useCreateSupplementsBulk, useSupplements } from "@/hooks/useSupplements";
 import {
@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -25,28 +24,25 @@ import {
 import {
   Loader2,
   Check,
-  X,
   Sparkles,
-  Edit2,
   FileSearch,
   Brain,
   CheckCircle2,
-  Clock,
-  DollarSign,
   AlertTriangle,
-  Pill,
   ExternalLink,
-  Target,
-  Info,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+
+interface FieldConfidence {
+  [key: string]: number; // -1 = not found, 0-1 = confidence level
+}
 
 interface ExtractedSupplement {
   name: string;
   brand?: string;
   intake_quantity?: number;
   intake_form?: string;
+  serving_size?: number;
   dose_per_serving?: number;
   dose_unit?: string;
   servings_per_container?: number;
@@ -61,6 +57,7 @@ interface ExtractedSupplement {
   mechanism?: string;
   goal_categories?: string[];
   confidence: number;
+  field_confidence?: FieldConfidence;
 }
 
 interface ExtractedData {
@@ -140,24 +137,64 @@ const DOSE_UNIT_OPTIONS = [
   { value: "%", label: "%" },
 ];
 
+// Field definitions for the dense table
+type FieldType = 'text' | 'number' | 'select' | 'url';
+interface FieldDef {
+  key: keyof ExtractedSupplement;
+  label: string;
+  shortLabel: string;
+  type: FieldType;
+  options?: { value: string; label: string }[];
+  required?: boolean;
+  width?: string;
+}
+
+const TABLE_FIELDS: FieldDef[] = [
+  { key: 'name', label: 'Name', shortLabel: 'Name', type: 'text', required: true, width: 'min-w-[120px]' },
+  { key: 'brand', label: 'Brand', shortLabel: 'Brand', type: 'text', width: 'min-w-[100px]' },
+  { key: 'intake_quantity', label: 'Qty', shortLabel: 'Qty', type: 'number', width: 'w-14' },
+  { key: 'intake_form', label: 'Form', shortLabel: 'Form', type: 'select', options: INTAKE_FORM_OPTIONS, width: 'min-w-[80px]' },
+  { key: 'serving_size', label: 'Srv Size', shortLabel: 'Srv', type: 'number', width: 'w-14' },
+  { key: 'dose_per_serving', label: 'Dose/Srv', shortLabel: 'Dose', type: 'number', width: 'w-16' },
+  { key: 'dose_unit', label: 'Unit', shortLabel: 'Unit', type: 'select', options: DOSE_UNIT_OPTIONS, width: 'w-14' },
+  { key: 'servings_per_container', label: 'Servings', shortLabel: '#Srv', type: 'number', width: 'w-16' },
+  { key: 'price', label: 'Price', shortLabel: '$', type: 'number', width: 'w-16' },
+  { key: 'category', label: 'Category', shortLabel: 'Cat', type: 'select', options: CATEGORY_OPTIONS.map(c => ({ value: c, label: c })), width: 'min-w-[80px]' },
+  { key: 'timing', label: 'Timing', shortLabel: 'Time', type: 'select', options: TIMING_OPTIONS, width: 'min-w-[80px]' },
+  { key: 'purchase_url', label: 'URL', shortLabel: 'URL', type: 'url', width: 'min-w-[60px]' },
+];
+
+// Get confidence color classes based on confidence level
+function getConfidenceColor(confidence: number | undefined): { bg: string; text: string; border: string } {
+  if (confidence === undefined || confidence === -1) {
+    return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/50' };
+  }
+  if (confidence >= 0.8) {
+    return { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/50' };
+  }
+  if (confidence >= 0.6) {
+    return { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/50' };
+  }
+  return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/50' };
+}
+
+// Get field confidence from supplement
+function getFieldConfidence(supplement: ExtractedSupplement, field: string): number {
+  if (supplement.field_confidence && field in supplement.field_confidence) {
+    return supplement.field_confidence[field];
+  }
+  // Fall back to overall confidence if field-specific not available
+  const value = supplement[field as keyof ExtractedSupplement];
+  if (value === undefined || value === null || value === '') {
+    return -1; // Not found
+  }
+  return supplement.confidence;
+}
+
 // Helper to check if supplement has complete dosage info
 function hasDosageInfo(supplement: ExtractedSupplement): boolean {
   // Must have either: (intake_form) OR (dose_per_serving + dose_unit)
   return !!(supplement.intake_form || (supplement.dose_per_serving && supplement.dose_unit));
-}
-
-// Helper to format dosage display
-function formatDosageDisplay(supplement: ExtractedSupplement): string | null {
-  const parts: string[] = [];
-  if (supplement.intake_form) {
-    const qty = supplement.intake_quantity || 1;
-    const plural = qty > 1 ? 's' : '';
-    parts.push(`${qty} ${supplement.intake_form}${plural}`);
-  }
-  if (supplement.dose_per_serving && supplement.dose_unit) {
-    parts.push(`(${supplement.dose_per_serving}${supplement.dose_unit})`);
-  }
-  return parts.length > 0 ? parts.join(' ') : null;
 }
 
 // Helper to parse and display URLs smartly
@@ -211,8 +248,7 @@ export function SupplementExtractionModal({
   const [inputUrl, setInputUrl] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [selectedSupplements, setSelectedSupplements] = useState<Set<number>>(new Set());
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editValues, setEditValues] = useState<Partial<ExtractedSupplement>>({});
+  const [editingCell, setEditingCell] = useState<{ row: number; field: string } | null>(null);
   const [extractionStarted, setExtractionStarted] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
@@ -304,8 +340,7 @@ export function SupplementExtractionModal({
     setInputUrl(null);
     setExtractedData(null);
     setSelectedSupplements(new Set());
-    setEditingIndex(null);
-    setEditValues({});
+    setEditingCell(null);
     setExtractionStarted(false);
     setProgress(0);
     setProgressStage("preparing");
@@ -429,6 +464,7 @@ export function SupplementExtractionModal({
       brand: s.brand,
       intake_quantity: s.intake_quantity || 1,
       intake_form: s.intake_form,
+      serving_size: s.serving_size,
       dose_per_serving: s.dose_per_serving,
       dose_unit: s.dose_unit,
       servings_per_container: s.servings_per_container,
@@ -441,6 +477,8 @@ export function SupplementExtractionModal({
       frequency: s.frequency || "daily",
       reason: s.reason,
       mechanism: s.mechanism,
+      product_data_source: 'ai' as const,
+      product_updated_at: new Date().toISOString(),
       // Note: goal_categories would need to be linked after creation via supplement_goals table
     }));
 
@@ -465,40 +503,145 @@ export function SupplementExtractionModal({
     setSelectedSupplements(newSelected);
   };
 
-  const startEditing = (index: number, supplement: ExtractedSupplement) => {
-    setEditingIndex(index);
-    setEditValues({ ...supplement });
-  };
-
-  const saveEditing = () => {
-    if (editingIndex === null || !extractedData) return;
+  // Update a single cell value
+  const updateCellValue = (rowIndex: number, field: string, value: any) => {
+    if (!extractedData) return;
 
     const updatedSupplements = [...extractedData.supplements];
-    updatedSupplements[editingIndex] = {
-      ...updatedSupplements[editingIndex],
-      ...editValues,
+    updatedSupplements[rowIndex] = {
+      ...updatedSupplements[rowIndex],
+      [field]: value,
     };
+
+    // Update field confidence to 1.0 when user edits
+    if (updatedSupplements[rowIndex].field_confidence) {
+      updatedSupplements[rowIndex].field_confidence = {
+        ...updatedSupplements[rowIndex].field_confidence,
+        [field]: 1.0,
+      };
+    }
 
     setExtractedData({
       ...extractedData,
       supplements: updatedSupplements,
     });
-
-    setEditingIndex(null);
-    setEditValues({});
+    setEditingCell(null);
   };
 
-  const getConfidenceBadge = (confidence: number) => {
-    const displayConfidence = Math.round(confidence * 100);
-    let variant: "default" | "secondary" | "outline" = "default";
-    if (displayConfidence >= 90) variant = "default";
-    else if (displayConfidence >= 70) variant = "secondary";
-    else variant = "outline";
+  // Render cell value (display or edit mode)
+  const renderCell = (supplement: ExtractedSupplement, rowIndex: number, field: FieldDef) => {
+    const isEditing = editingCell?.row === rowIndex && editingCell?.field === field.key;
+    const value = supplement[field.key as keyof ExtractedSupplement];
+    const confidence = getFieldConfidence(supplement, field.key);
+    const colors = getConfidenceColor(confidence);
+    const isDuplicate = duplicates.has(rowIndex);
 
+    // Display value
+    const displayValue = (): React.ReactNode => {
+      if (value === undefined || value === null || value === '') {
+        return <span className="text-muted-foreground/50">-</span>;
+      }
+      // Handle objects/arrays - convert to string
+      if (typeof value === 'object') {
+        if (Array.isArray(value)) {
+          return value.join(', ') || '-';
+        }
+        return JSON.stringify(value);
+      }
+      if (field.key === 'purchase_url') {
+        const urlInfo = parseProductUrl(value as string);
+        if (urlInfo) {
+          return (
+            <a
+              href={value as string}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-0.5 text-blue-400 hover:text-blue-300"
+            >
+              {urlInfo.isAmazon ? (
+                <AmazonIcon className="w-3 h-3" />
+              ) : (
+                <ExternalLink className="w-3 h-3" />
+              )}
+              <span className="truncate max-w-[60px]">{urlInfo.display}</span>
+            </a>
+          );
+        }
+      }
+      if (field.key === 'price') {
+        return `$${value}`;
+      }
+      if (field.type === 'select' && field.options) {
+        const opt = field.options.find(o => o.value === value);
+        return opt?.label || String(value);
+      }
+      return String(value);
+    };
+
+    // Edit mode
+    if (isEditing && !isDuplicate) {
+      if (field.type === 'select' && field.options) {
+        return (
+          <Select
+            defaultValue={value as string || ''}
+            onValueChange={(v) => updateCellValue(rowIndex, field.key, v)}
+            open={true}
+            onOpenChange={(open) => !open && setEditingCell(null)}
+          >
+            <SelectTrigger className="h-6 text-[10px] p-1 border-0 bg-transparent">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {field.options.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      }
+      return (
+        <Input
+          autoFocus
+          defaultValue={value as string | number || ''}
+          type={field.type === 'number' ? 'number' : 'text'}
+          className="h-6 text-[10px] p-1 border-0 bg-transparent"
+          onBlur={(e) => {
+            const newValue = field.type === 'number' ? Number(e.target.value) || undefined : e.target.value;
+            updateCellValue(rowIndex, field.key, newValue);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLInputElement;
+              const newValue = field.type === 'number' ? Number(target.value) || undefined : target.value;
+              updateCellValue(rowIndex, field.key, newValue);
+            } else if (e.key === 'Escape') {
+              setEditingCell(null);
+            }
+          }}
+        />
+      );
+    }
+
+    // Display mode - clickable to edit
     return (
-      <Badge variant={variant} className="text-xs">
-        {displayConfidence}%
-      </Badge>
+      <div
+        className={`px-1.5 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-primary/50 ${colors.bg} ${
+          isDuplicate ? 'opacity-50' : ''
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!isDuplicate) {
+            setEditingCell({ row: rowIndex, field: field.key });
+          }
+        }}
+      >
+        <span className={`text-[10px] sm:text-xs ${colors.text}`}>
+          {displayValue()}
+        </span>
+      </div>
     );
   };
 
@@ -628,318 +771,125 @@ export function SupplementExtractionModal({
           </div>
         )}
 
-        {/* Review Step */}
+        {/* Review Step - Dense Table Layout */}
         {step === "review" && extractedData && (
           <>
-            {/* Supplement cards grid */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {extractedData.supplements.map((supplement, index) => {
-                  const isDuplicate = duplicates.has(index);
-                  const isEditing = editingIndex === index;
-                  const isSelected = selectedSupplements.has(index);
-
-                  return (
-                    <Card
-                      key={index}
-                      className={`overflow-hidden transition-all cursor-pointer ${
-                        isDuplicate
-                          ? "border-orange-500/50 opacity-60"
-                          : isSelected
-                          ? "ring-1 ring-primary/50"
-                          : "opacity-60"
-                      }`}
-                      onClick={() => !isEditing && !isDuplicate && toggleSupplementSelection(index)}
-                    >
-                      <CardContent className="p-2 sm:p-3">
-                        {/* Header row */}
-                        <div className="flex items-start justify-between mb-1">
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                            {/* Checkbox */}
-                            <div
-                              className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-                                isDuplicate
-                                  ? "border-orange-500 bg-orange-500/20"
-                                  : isSelected
-                                  ? "bg-primary border-primary"
-                                  : "border-muted-foreground/50"
-                              }`}
-                            >
-                              {isDuplicate ? (
-                                <AlertTriangle className="w-2 h-2 text-orange-500" />
-                              ) : isSelected ? (
-                                <Check className="w-2 h-2 text-primary-foreground" />
-                              ) : null}
-                            </div>
-                            {/* Icon + Name */}
-                            <div className="flex items-center gap-1 min-w-0">
-                              <Pill className="w-3.5 h-3.5 text-primary shrink-0" />
-                              <span className="font-medium text-xs sm:text-sm truncate">{supplement.name}</span>
-                            </div>
-                          </div>
-                          {/* Confidence badge + Edit button */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            {isDuplicate ? (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 border-orange-500 text-orange-500">
-                                Dupe
-                              </Badge>
-                            ) : (
-                              getConfidenceBadge(supplement.confidence)
-                            )}
-                            {!isEditing && !isDuplicate && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 shrink-0"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startEditing(index, supplement);
-                                }}
-                              >
-                                <Edit2 className="w-2.5 h-2.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Brand row */}
-                        {supplement.brand && (
-                          <div className="text-[10px] sm:text-xs text-muted-foreground mb-1">
-                            {supplement.brand}
-                          </div>
-                        )}
-
-                        {/* Dosage - prominently displayed */}
-                        {(() => {
-                          const dosageDisplay = formatDosageDisplay(supplement);
-                          const hasDosage = hasDosageInfo(supplement);
-                          return (
-                            <div className={`text-sm font-semibold mb-1.5 ${
-                              hasDosage ? 'text-primary' : 'text-orange-500'
-                            }`}>
-                              {hasDosage ? (
-                                dosageDisplay
-                              ) : (
-                                <span className="flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3" />
-                                  Add dosage
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* URL link */}
-                        {(() => {
-                          const urlInfo = parseProductUrl(supplement.purchase_url);
-                          if (!urlInfo) return null;
-                          return (
-                            <a
-                              href={supplement.purchase_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-muted hover:bg-muted/80 transition-colors w-fit mb-1"
-                            >
-                              {urlInfo.isAmazon ? (
-                                <>
-                                  <AmazonIcon className="w-2.5 h-2.5" />
-                                  <span>{urlInfo.display}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ExternalLink className="w-2.5 h-2.5" />
-                                  <span>{urlInfo.display}</span>
-                                </>
-                              )}
-                            </a>
-                          );
-                        })()}
-
-                        {isEditing ? (
-                          <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                            <Input
-                              value={editValues.name || ""}
-                              onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
-                              placeholder="Name"
-                              className="h-7 text-xs"
-                            />
-                            <Input
-                              value={editValues.brand || ""}
-                              onChange={(e) => setEditValues({ ...editValues, brand: e.target.value })}
-                              placeholder="Brand"
-                              className="h-7 text-xs"
-                            />
-
-                            {/* Dosage section - highlighted if missing */}
-                            <div className={`p-1.5 rounded border ${
-                              !hasDosageInfo(editValues as ExtractedSupplement)
-                                ? 'border-orange-500 bg-orange-500/10'
-                                : 'border-muted'
-                            }`}>
-                              <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1">
-                                {!hasDosageInfo(editValues as ExtractedSupplement) && (
-                                  <AlertTriangle className="w-3 h-3 text-orange-500" />
-                                )}
-                                Dosage (required)
-                              </div>
-                              <div className="flex gap-1">
-                                <Input
-                                  type="number"
-                                  value={editValues.intake_quantity || ""}
-                                  onChange={(e) => setEditValues({
-                                    ...editValues,
-                                    intake_quantity: e.target.value ? Number(e.target.value) : undefined
-                                  })}
-                                  placeholder="Qty"
-                                  className="h-7 text-xs w-14"
-                                  min={1}
-                                />
-                                <Select
-                                  value={editValues.intake_form || ""}
-                                  onValueChange={(v) => setEditValues({ ...editValues, intake_form: v })}
-                                >
-                                  <SelectTrigger className="h-7 text-xs flex-1">
-                                    <SelectValue placeholder="Form" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {INTAKE_FORM_OPTIONS.map((opt) => (
-                                      <SelectItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="flex gap-1 mt-1">
-                                <Input
-                                  type="number"
-                                  value={editValues.dose_per_serving || ""}
-                                  onChange={(e) => setEditValues({
-                                    ...editValues,
-                                    dose_per_serving: e.target.value ? Number(e.target.value) : undefined
-                                  })}
-                                  placeholder="Dose"
-                                  className="h-7 text-xs flex-1"
-                                />
-                                <Select
-                                  value={editValues.dose_unit || ""}
-                                  onValueChange={(v) => setEditValues({ ...editValues, dose_unit: v })}
-                                >
-                                  <SelectTrigger className="h-7 text-xs w-16">
-                                    <SelectValue placeholder="Unit" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {DOSE_UNIT_OPTIONS.map((opt) => (
-                                      <SelectItem key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-1">
-                              <Select
-                                value={editValues.timing || ""}
-                                onValueChange={(v) => setEditValues({ ...editValues, timing: v })}
-                              >
-                                <SelectTrigger className="h-7 text-xs flex-1">
-                                  <SelectValue placeholder="Timing" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {TIMING_OPTIONS.map((opt) => (
-                                    <SelectItem key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex justify-end gap-1 pt-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => {
-                                  setEditingIndex(null);
-                                  setEditValues({});
-                                }}
-                              >
-                                <X className="w-3 h-3 mr-1" />
-                                Cancel
-                              </Button>
-                              <Button size="sm" className="h-6 px-2 text-xs" onClick={saveEditing}>
-                                <Check className="w-3 h-3 mr-1" />
-                                Save
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Timing row */}
-                            {supplement.timing && (
-                              <div className="flex items-center gap-1 text-[10px] sm:text-xs text-muted-foreground mb-1">
-                                <Clock className="w-3 h-3" />
-                                {TIMING_OPTIONS.find(t => t.value === supplement.timing)?.label || supplement.timing}
-                              </div>
-                            )}
-
-                            {/* Reason (Why) */}
-                            {supplement.reason && (
-                              <div className="text-[10px] sm:text-xs text-muted-foreground mb-1">
-                                <span className="flex items-start gap-1">
-                                  <Info className="w-3 h-3 mt-0.5 shrink-0 text-blue-500" />
-                                  <span className="line-clamp-2">{supplement.reason}</span>
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Mechanism (How) */}
-                            {supplement.mechanism && (
-                              <div className="text-[10px] sm:text-xs text-muted-foreground mb-1">
-                                <span className="flex items-start gap-1">
-                                  <Zap className="w-3 h-3 mt-0.5 shrink-0 text-yellow-500" />
-                                  <span className="line-clamp-2">{supplement.mechanism}</span>
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Goals */}
-                            {supplement.goal_categories && supplement.goal_categories.length > 0 && (
-                              <div className="flex flex-wrap items-center gap-1 mt-1">
-                                <Target className="w-3 h-3 text-green-500" />
-                                {supplement.goal_categories.map((goal, i) => (
-                                  <Badge key={i} variant="secondary" className="text-[8px] sm:text-[10px] px-1 py-0">
-                                    {goal}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Timing reason */}
-                            {supplement.timing_reason && (
-                              <div className="mt-1 text-[9px] sm:text-[10px] text-muted-foreground italic line-clamp-1">
-                                {supplement.timing_reason}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+            {/* Legend */}
+            <div className="flex items-center gap-4 text-[10px] mb-2">
+              <span className="text-muted-foreground">Confidence:</span>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded bg-green-500/20 border border-green-500/50" />
+                <span className="text-green-400">&gt;80%</span>
               </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded bg-orange-500/20 border border-orange-500/50" />
+                <span className="text-orange-400">60-80%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded bg-red-500/20 border border-red-500/50" />
+                <span className="text-red-400">&lt;60%</span>
+              </div>
+              <span className="text-muted-foreground ml-2">Click cell to edit</span>
+            </div>
+
+            {/* Dense Table */}
+            <div className="flex-1 overflow-auto border rounded-lg">
+              <table className="w-full text-[10px] sm:text-xs border-collapse">
+                <thead className="bg-muted/50 sticky top-0">
+                  <tr>
+                    {/* Checkbox column */}
+                    <th className="p-1.5 border-b border-r text-left font-medium w-8">
+                      <div className="flex items-center justify-center">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    </th>
+                    {/* Field columns */}
+                    {TABLE_FIELDS.map((field) => (
+                      <th
+                        key={field.key}
+                        className={`p-1.5 border-b border-r text-left font-medium ${field.width || ''}`}
+                      >
+                        <span className="hidden sm:inline">{field.label}</span>
+                        <span className="sm:hidden">{field.shortLabel}</span>
+                      </th>
+                    ))}
+                    {/* Overall confidence column */}
+                    <th className="p-1.5 border-b text-left font-medium w-12">
+                      <span className="hidden sm:inline">Conf</span>
+                      <span className="sm:hidden">%</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extractedData.supplements.map((supplement, rowIndex) => {
+                    const isDuplicate = duplicates.has(rowIndex);
+                    const isSelected = selectedSupplements.has(rowIndex);
+
+                    return (
+                      <tr
+                        key={rowIndex}
+                        className={`border-b last:border-b-0 transition-colors ${
+                          isDuplicate
+                            ? 'bg-orange-500/5 opacity-60'
+                            : isSelected
+                            ? 'bg-primary/5'
+                            : 'bg-muted/20 opacity-60'
+                        } hover:bg-muted/30`}
+                      >
+                        {/* Checkbox cell */}
+                        <td className="p-1 border-r">
+                          <div
+                            className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer mx-auto ${
+                              isDuplicate
+                                ? 'border-orange-500 bg-orange-500/20 cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-primary border-primary'
+                                : 'border-muted-foreground/50 hover:border-primary'
+                            }`}
+                            onClick={() => !isDuplicate && toggleSupplementSelection(rowIndex)}
+                          >
+                            {isDuplicate ? (
+                              <AlertTriangle className="w-2.5 h-2.5 text-orange-500" />
+                            ) : isSelected ? (
+                              <Check className="w-2.5 h-2.5 text-primary-foreground" />
+                            ) : null}
+                          </div>
+                        </td>
+                        {/* Field cells */}
+                        {TABLE_FIELDS.map((field) => (
+                          <td key={field.key} className={`p-0.5 border-r ${field.width || ''}`}>
+                            {renderCell(supplement, rowIndex, field)}
+                          </td>
+                        ))}
+                        {/* Overall confidence cell */}
+                        <td className="p-1 text-center">
+                          {isDuplicate ? (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500 text-orange-500">
+                              Dupe
+                            </Badge>
+                          ) : (
+                            <span className={`font-medium ${
+                              supplement.confidence >= 0.8 ? 'text-green-400' :
+                              supplement.confidence >= 0.6 ? 'text-orange-400' : 'text-red-400'
+                            }`}>
+                              {Math.round(supplement.confidence * 100)}%
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
             {/* Footer */}
-            <div className="pt-3 border-t mt-3 flex justify-between items-center">
-              <div className="text-sm text-muted-foreground">
+            <div className="pt-3 border-t mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div className="text-xs sm:text-sm text-muted-foreground">
                 {selectedSupplements.size} of {extractedData.supplements.length} selected
                 {duplicates.size > 0 && (
                   <span className="text-orange-500 ml-2">
-                    ({duplicates.size} duplicate{duplicates.size > 1 ? "s" : ""})
+                    ({duplicates.size} duplicate{duplicates.size > 1 ? 's' : ''})
                   </span>
                 )}
                 {(() => {
