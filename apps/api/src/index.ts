@@ -26,6 +26,7 @@ import eightSleepRoutes from './modules/eight-sleep/routes';
 import adminRoutes from './routes/admin';
 import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
+import accessTokenRoutes from './routes/accessTokens';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -140,6 +141,7 @@ app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sle
 app.use('/api/v1/admin', adminRoutes); // Admin routes (auth handled in routes)
 app.use('/api/v1/changelog', authenticateUser, changelogRoutes); // Protocol change log
 app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Protocol documents
+app.use('/api/v1/access-tokens', authenticateUser, accessTokenRoutes); // MCP/AI connector tokens
 
 // ==============================================
 // Error Handling

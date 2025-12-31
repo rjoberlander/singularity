@@ -1,0 +1,36 @@
+{
+  "name": "@singularity/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Singularity Health - Connect Claude/ChatGPT to your health data",
+  "main": "dist/index.js",
+  "bin": {
+    "singularity-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "inspect": "npx @anthropics/inspector dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "health",
+    "singularity"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}
