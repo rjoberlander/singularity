@@ -61,19 +61,19 @@ const CATEGORY_ICON_COLORS: Record<string, string> = {
   "enzyme": "rgb(107, 114, 128)",
 };
 
-// Timing icons and colors
-const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: string }> = {
-  wake_up: { icon: Sunrise, color: "text-orange-400", label: "Wake" },
-  morning: { icon: Sunrise, color: "text-orange-400", label: "Morning" },
-  am: { icon: Sun, color: "text-yellow-400", label: "AM" },
-  lunch: { icon: Utensils, color: "text-amber-500", label: "Lunch" },
-  with_meals: { icon: Utensils, color: "text-amber-500", label: "With Meals" },
-  afternoon: { icon: Sun, color: "text-amber-400", label: "Afternoon" },
-  pm: { icon: Sunset, color: "text-orange-500", label: "PM" },
-  evening: { icon: Sunset, color: "text-orange-500", label: "Evening" },
-  dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner" },
-  before_bed: { icon: Moon, color: "text-indigo-400", label: "Bed" },
-  empty_stomach: { icon: Pill, color: "text-gray-400", label: "Empty Stomach" },
+// Timing icons, colors, and card background colors
+const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: string; bgColor: string; iconBg: string }> = {
+  wake_up: { icon: Sunrise, color: "text-orange-400", label: "Wake", bgColor: "rgba(251, 146, 60, 0.08)", iconBg: "rgba(251, 146, 60, 0.15)" },
+  morning: { icon: Sunrise, color: "text-orange-400", label: "Morning", bgColor: "rgba(251, 146, 60, 0.08)", iconBg: "rgba(251, 146, 60, 0.15)" },
+  am: { icon: Sun, color: "text-yellow-400", label: "AM", bgColor: "rgba(250, 204, 21, 0.08)", iconBg: "rgba(250, 204, 21, 0.15)" },
+  lunch: { icon: Utensils, color: "text-amber-500", label: "Lunch", bgColor: "rgba(245, 158, 11, 0.08)", iconBg: "rgba(245, 158, 11, 0.15)" },
+  with_meals: { icon: Utensils, color: "text-amber-500", label: "With Meals", bgColor: "rgba(245, 158, 11, 0.08)", iconBg: "rgba(245, 158, 11, 0.15)" },
+  afternoon: { icon: Sun, color: "text-amber-400", label: "Afternoon", bgColor: "rgba(251, 191, 36, 0.08)", iconBg: "rgba(251, 191, 36, 0.15)" },
+  pm: { icon: Sunset, color: "text-orange-500", label: "PM", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
+  evening: { icon: Sunset, color: "text-orange-500", label: "Evening", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
+  dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner", bgColor: "rgba(192, 132, 252, 0.08)", iconBg: "rgba(192, 132, 252, 0.15)" },
+  before_bed: { icon: Moon, color: "text-indigo-400", label: "Bed", bgColor: "rgba(129, 140, 248, 0.08)", iconBg: "rgba(129, 140, 248, 0.15)" },
+  empty_stomach: { icon: Pill, color: "text-gray-400", label: "Empty Stomach", bgColor: "rgba(156, 163, 175, 0.08)", iconBg: "rgba(156, 163, 175, 0.15)" },
 };
 
 // Intake form icons and colors
@@ -247,14 +247,24 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
   const iconBgColor = CATEGORY_COLORS[category] || CATEGORY_COLORS.other;
   const iconColor = CATEGORY_ICON_COLORS[category] || CATEGORY_ICON_COLORS.other;
 
+  // Get primary timing for card background and large icon
+  const rawTimings = getRawTimings();
+  const primaryTiming = rawTimings[0];
+  const primaryTimingConfig = primaryTiming ? TIMING_CONFIG[primaryTiming] : null;
+  const PrimaryTimingIcon = primaryTimingConfig?.icon || Sun;
+  const cardBgColor = primaryTimingConfig?.bgColor || "transparent";
+  const timingIconBg = primaryTimingConfig?.iconBg || "rgba(156, 163, 175, 0.1)";
+  const timingIconColor = primaryTimingConfig?.color || "text-muted-foreground";
+
   return (
     <Card
-      className={`transition-all cursor-pointer hover:border-primary/50 ${
+      className={`transition-all cursor-pointer hover:border-primary/50 relative overflow-hidden ${
         !supplement.is_active ? "opacity-60" : ""
       }`}
+      style={{ backgroundColor: cardBgColor }}
       onClick={() => onEdit?.(supplement)}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-4 relative z-10">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg" style={{ backgroundColor: iconBgColor }}>
@@ -392,6 +402,13 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
           </div>
         )}
       </CardContent>
+
+      {/* Large timing icon as background watermark - partially cut off */}
+      {primaryTiming && (
+        <div className="absolute -bottom-4 -right-4 opacity-15 pointer-events-none">
+          <PrimaryTimingIcon className={`w-24 h-24 ${timingIconColor}`} />
+        </div>
+      )}
     </Card>
   );
 }
