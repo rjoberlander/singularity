@@ -319,3 +319,36 @@ export const userLinksApi = {
   accept: (code: string) => api.post("/users/links/accept", { code }),
   revoke: (id: string) => api.delete(`/users/links/${id}`),
 };
+
+// Eight Sleep
+export const eightSleepApi = {
+  // Connection
+  connect: (data: { email: string; password: string; sync_time?: string; sync_timezone?: string }) =>
+    api.post("/eight-sleep/connect", data),
+  disconnect: () => api.delete("/eight-sleep/disconnect"),
+  getStatus: () => api.get("/eight-sleep/status"),
+
+  // Sync
+  sync: (data?: { from_date?: string; to_date?: string; initial?: boolean }) =>
+    api.post("/eight-sleep/sync", data || {}),
+
+  // Sleep data
+  getSessions: (params?: { from_date?: string; to_date?: string; limit?: number; offset?: number }) =>
+    api.get("/eight-sleep/sessions", { params }),
+  getSession: (id: string) => api.get(`/eight-sleep/sessions/${id}`),
+
+  // Analysis
+  getAnalysis: (days?: number) => api.get("/eight-sleep/analysis", { params: { days } }),
+  getTrends: (days?: number) => api.get("/eight-sleep/trends", { params: { days } }),
+
+  // Correlations
+  getCorrelations: (days?: number) => api.get("/eight-sleep/correlations", { params: { days } }),
+  getCorrelationSummary: (days?: number) => api.get("/eight-sleep/correlations/summary", { params: { days } }),
+  getFactorCorrelations: (days?: number) => api.get("/eight-sleep/correlations/factors", { params: { days } }),
+  buildCorrelations: (days?: number) => api.post("/eight-sleep/correlations/build", { days }),
+
+  // Settings
+  updateSettings: (data: { sync_enabled?: boolean; sync_time?: string; sync_timezone?: string }) =>
+    api.patch("/eight-sleep/settings", data),
+  getTimezones: () => api.get("/eight-sleep/timezones"),
+};
