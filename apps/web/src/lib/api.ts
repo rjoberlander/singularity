@@ -127,8 +127,70 @@ export const goalsApi = {
 export const aiApi = {
   extractBiomarkers: (data: { image_base64?: string; images_base64?: string[]; text_content?: string; source_type: "image" | "text" }) =>
     api.post("/ai/extract-biomarkers", data),
-  extractSupplements: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text" }) =>
+  extractSupplements: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text"; product_url?: string }) =>
     api.post("/ai/extract-supplements", data),
+
+  // Streaming supplement extraction for real-time progress
+  extractSupplementsStream: async (
+    data: { text_content: string; source_type: "image" | "text"; product_url?: string },
+    onProgress: (event: { step: string; [key: string]: any }) => void,
+    onComplete: (result: any) => void,
+    onError: (error: string) => void
+  ) => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token;
+
+    try {
+      const response = await fetch(`${API_URL}/ai/extract-supplements/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': accessToken ? `Bearer ${accessToken}` : '',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Stream error: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.step === 'complete') {
+                onComplete(event.data);
+              } else if (event.step === 'error') {
+                onError(event.message);
+                return;
+              } else {
+                onProgress(event);
+              }
+            } catch {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      onError(error.message || 'Stream failed');
+    }
+  },
   extractEquipment: (data: { text_content: string }) =>
     api.post("/ai/extract-equipment", data),
   analyzeBiomarkerTrend: (data: {

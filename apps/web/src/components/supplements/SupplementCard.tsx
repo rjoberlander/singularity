@@ -6,8 +6,22 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useToggleSupplement } from "@/hooks/useSupplements";
-import { Pill, Clock, DollarSign, ExternalLink, Plus } from "lucide-react";
+import { Pill, Clock, DollarSign, ExternalLink, Plus, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+
+// Check which important fields are missing
+function getMissingFields(supplement: Supplement): string[] {
+  const missing: string[] = [];
+  if (!supplement.brand) missing.push("brand");
+  if (!supplement.price) missing.push("price");
+  if (!supplement.dose_per_serving) missing.push("dose");
+  if (!supplement.dose_unit) missing.push("unit");
+  if (!supplement.category) missing.push("category");
+  if (!supplement.timing) missing.push("timing");
+  if (!supplement.servings_per_container) missing.push("servings");
+  if (!supplement.intake_form) missing.push("form");
+  return missing;
+}
 
 interface SupplementCardProps {
   supplement: Supplement;
@@ -16,6 +30,7 @@ interface SupplementCardProps {
 
 export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
   const toggleSupplement = useToggleSupplement();
+  const missingFields = getMissingFields(supplement);
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -148,6 +163,27 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
               <DollarSign className="w-3 h-3" />
               ${supplement.price_per_serving.toFixed(2)}/serving
             </span>
+          </div>
+        )}
+
+        {/* Missing fields indicator */}
+        {missingFields.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-muted-foreground/10">
+            <div className="flex flex-wrap gap-1">
+              {missingFields.slice(0, 4).map((field) => (
+                <span
+                  key={field}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400"
+                >
+                  +{field}
+                </span>
+              ))}
+              {missingFields.length > 4 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                  +{missingFields.length - 4} more
+                </span>
+              )}
+            </div>
           </div>
         )}
       </CardContent>

@@ -275,6 +275,96 @@ async function getAnthropicClient(userId: string): Promise<Anthropic | null> {
   return new Anthropic({ apiKey: keyData.api_key });
 }
 
+// Helper function to get Perplexity API key for a user
+async function getPerplexityKey(userId: string): Promise<string | null> {
+  const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'perplexity');
+  if (!keyData) {
+    console.log(`No Perplexity API key found for user ${userId}`);
+    return null;
+  }
+  return keyData.api_key;
+}
+
+/**
+ * Web search using Perplexity API for supplement information
+ */
+async function webSearchForSupplement(
+  perplexityKey: string,
+  supplementName: string,
+  brand: string | null,
+  missingFields: string[]
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const fieldDescriptions: Record<string, string> = {
+      brand: 'brand/manufacturer name',
+      price: 'current retail price in USD',
+      servings_per_container: 'number of servings per container/bottle',
+      serving_size: 'number of units (capsules, scoops, etc.) per serving (e.g., 2 for "2 capsules per serving")',
+      intake_form: 'form (capsule, powder, liquid, spray, gummy, or patch)',
+      dose_per_serving: 'dose amount per serving (number only)',
+      dose_unit: 'dose unit (mg, g, mcg, IU, ml, or CFU)',
+      category: 'category (vitamin, mineral, amino_acid, herb, probiotic, omega, antioxidant, hormone, enzyme, other)'
+    };
+
+    const searchQuery = `${supplementName}${brand ? ` ${brand}` : ''} supplement. Find: ${missingFields.map(f => fieldDescriptions[f] || f).join(', ')}. Provide specific values.`;
+
+    console.log('Perplexity web search query:', searchQuery);
+
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${perplexityKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sonar',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a supplement research assistant. Return ONLY valid JSON with supplement details. For each field requested, provide the value or null if not found. Format:
+{
+  "brand": "string or null",
+  "price": number or null,
+  "servings_per_container": number or null,
+  "serving_size": number or null (how many units per serving, e.g., 2 for "2 capsules"),
+  "intake_form": "capsule|powder|liquid|spray|gummy|patch or null",
+  "dose_per_serving": number or null,
+  "dose_unit": "mg|g|mcg|IU|ml|CFU or null",
+  "category": "vitamin|mineral|amino_acid|herb|probiotic|omega|antioxidant|hormone|enzyme|other or null",
+  "confidence": number 0-1
+}`
+          },
+          { role: 'user', content: searchQuery }
+        ],
+        max_tokens: 500,
+        temperature: 0.1
+      })
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error('Perplexity API error:', response.status, errorBody);
+      return { success: false, error: `Perplexity API error: ${response.status}` };
+    }
+
+    const result: any = await response.json();
+    const content = result.choices?.[0]?.message?.content || '';
+    console.log('Perplexity response:', content);
+
+    // Parse JSON from response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return { success: true, data: parsed };
+    }
+
+    return { success: false, error: 'No JSON found in Perplexity response' };
+  } catch (error: any) {
+    console.error('Perplexity search error:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * POST /api/v1/ai/extract-biomarkers
  * Extract biomarkers from image or text
@@ -676,13 +766,68 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
+ * Fetch webpage content from URL
+ */
+async function fetchWebpageContent(url: string): Promise<{ success: boolean; content?: string; error?: string }> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    const html = await response.text();
+
+    // Simple HTML to text conversion - extract useful content
+    let text = html
+      // Remove scripts and styles
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      // Convert common elements
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
+      // Remove all remaining tags
+      .replace(/<[^>]+>/g, ' ')
+      // Decode HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Clean up whitespace
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+
+    // Truncate to reasonable length
+    if (text.length > 15000) {
+      text = text.substring(0, 15000) + '...[truncated]';
+    }
+
+    return { success: true, content: text };
+  } catch (error: any) {
+    console.error('URL fetch error:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * POST /api/v1/ai/extract-supplements
  * Extract supplements from image or text (e.g., supplement bottle photos, receipt text)
  */
 router.post('/extract-supplements', async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    const { image_base64, text_content, source_type } = req.body;
+    const { image_base64, text_content, source_type, product_url } = req.body;
 
     if (!image_base64 && !text_content) {
       return res.status(400).json({
@@ -692,14 +837,24 @@ router.post('/extract-supplements', async (req: Request, res: Response): Promise
       });
     }
 
-    // Check if this is a URL input
-    let isUrlInput = false;
-    let actualContent = text_content;
-    if (text_content && text_content.startsWith('[URL]:')) {
-      isUrlInput = true;
-      const url = text_content.replace('[URL]:', '').trim();
-      // For URL inputs, instruct AI to identify the product from the URL pattern
-      actualContent = `Product URL: ${url}\n\nPlease identify the supplement product from this URL. Common patterns:\n- Amazon: /dp/ or /gp/product/ followed by ASIN\n- iHerb: product name in URL path\n- Other retailers: product name usually in the URL\n\nExtract what you can determine from the URL pattern (brand, product name, etc). Set confidence lower (0.6-0.8) since we're inferring from URL.`;
+    // Fetch URL content if provided
+    let urlContent = '';
+    let fetchedUrl = product_url;
+    if (product_url) {
+      console.log('Fetching URL content:', product_url);
+      const fetchResult = await fetchWebpageContent(product_url);
+      if (fetchResult.success && fetchResult.content) {
+        urlContent = `\n\n--- Product Page Content (from ${product_url}) ---\n${fetchResult.content}\n--- End Product Page ---\n`;
+        console.log('URL fetch successful, content length:', fetchResult.content.length);
+      } else {
+        console.log('URL fetch failed:', fetchResult.error);
+      }
+    }
+
+    // Combine text content with URL content
+    let actualContent = text_content || '';
+    if (urlContent) {
+      actualContent = actualContent + urlContent;
     }
 
     const systemPrompt = `You are a precise supplement extraction assistant. Your job is to extract supplement information from images (bottles, labels, receipts), text, or product URLs.
@@ -709,7 +864,7 @@ router.post('/extract-supplements', async (req: Request, res: Response): Promise
 2. For URLs, infer product details from the URL pattern and common knowledge about the product
 3. Return structured JSON
 4. Include confidence scores for each extraction (lower for URL-based inference)
-5. Extract as much detail as available (brand, dose, servings, price, etc.)
+5. Extract as much detail as available (brand, dose, servings, serving size, price, etc.)
 6. For well-known supplements, include WHY someone takes it and HOW it works (mechanism)
 7. Suggest optimal timing based on the supplement type
 
@@ -729,6 +884,8 @@ Return ONLY valid JSON in this exact format:
       "name": "string - supplement name (e.g., Vitamin D3, Fish Oil, Krill Oil)",
       "brand": "string or null - brand name if visible",
       "dose": "string or null - dose as displayed (e.g., '5000 IU', '1000mg', '1 softgel')",
+      "intake_form": "string or null - physical form (capsule, powder, liquid, spray, gummy, patch)",
+      "serving_size": number or null - how many units (capsules, scoops, etc.) per serving (e.g., 2 for "2 capsules per serving"),
       "dose_per_serving": number or null,
       "dose_unit": "string or null - unit only (IU, mg, mcg, g)",
       "servings_per_container": number or null,
@@ -829,11 +986,13 @@ Return ONLY valid JSON in this exact format:
         ];
       }
     } else {
+      // Text-based extraction (including URL content)
+      const hasUrlContent = product_url && urlContent.length > 0;
       userContent = [
         {
           type: 'text',
-          text: isUrlInput
-            ? `${actualContent}\n\nReturn the supplement data as JSON.`
+          text: hasUrlContent
+            ? `Extract all supplement information from this product page content. Return the data as JSON.\n\n${actualContent}`
             : `Extract all supplement information from this text. Return the data as JSON.\n\n---\n${actualContent}\n---`
         }
       ];
@@ -886,6 +1045,101 @@ Return ONLY valid JSON in this exact format:
       });
     }
 
+    // Second pass: Check confidence and do web search for low-confidence fields
+    const CONFIDENCE_THRESHOLD = 0.8;
+    const REQUIRED_FIELDS = ['brand', 'price', 'servings_per_container', 'serving_size', 'intake_form', 'dose_per_serving', 'dose_unit', 'category'];
+
+    if (extractedData.supplements && extractedData.supplements.length > 0) {
+      const supplement = extractedData.supplements[0];
+      const baseConfidence = supplement.confidence || 0.5;
+
+      // Initialize per-field confidence tracking
+      if (!supplement.field_confidence) {
+        supplement.field_confidence = {};
+      }
+
+      // Check which fields are missing or low confidence
+      const lowConfidenceFields: string[] = [];
+      for (const field of REQUIRED_FIELDS) {
+        const value = supplement[field];
+        const fieldConf = supplement.field_confidence[field] || baseConfidence;
+
+        if (value === undefined || value === null || value === '' || fieldConf < CONFIDENCE_THRESHOLD) {
+          lowConfidenceFields.push(field);
+          // Mark initial confidence
+          supplement.field_confidence[field] = value ? fieldConf : 0;
+        } else {
+          supplement.field_confidence[field] = fieldConf;
+        }
+      }
+
+      console.log(`First pass confidence: ${baseConfidence}, low-confidence fields: ${lowConfidenceFields.join(', ') || 'none'}`);
+
+      // If any fields need improvement, try web search
+      if (lowConfidenceFields.length > 0) {
+        const perplexityKey = await getPerplexityKey(userId);
+
+        if (perplexityKey) {
+          console.log(`Starting web search for ${lowConfidenceFields.length} fields...`);
+          const searchResult = await webSearchForSupplement(
+            perplexityKey,
+            supplement.name || text_content?.split(' ')[0] || 'supplement',
+            supplement.brand || null,
+            lowConfidenceFields
+          );
+
+          if (searchResult.success && searchResult.data) {
+            console.log('Web search successful, merging results...');
+            const webData = searchResult.data;
+            const webConfidence = webData.confidence || 0.85;
+
+            // Merge web search results into supplement data
+            for (const field of lowConfidenceFields) {
+              const webValue = webData[field];
+              const currentValue = supplement[field];
+              const currentConf = supplement.field_confidence[field] || 0;
+
+              // Only update if web value is valid and better than current
+              if (webValue !== undefined && webValue !== null && webValue !== '') {
+                // Update value if empty or web confidence is higher
+                if (!currentValue || currentConf < webConfidence) {
+                  supplement[field] = webValue;
+                  supplement.field_confidence[field] = webConfidence;
+                  console.log(`Updated ${field}: ${webValue} (conf: ${webConfidence})`);
+                }
+              } else {
+                // Mark as not found (-1)
+                supplement.field_confidence[field] = -1;
+              }
+            }
+
+            // Update extraction notes
+            extractedData.extraction_notes = (extractedData.extraction_notes || '') +
+              ` | Web search filled ${lowConfidenceFields.filter(f => supplement.field_confidence[f] > 0).length}/${lowConfidenceFields.length} fields`;
+          } else {
+            console.log('Web search failed or returned no data:', searchResult.error);
+            // Mark unfilled fields as not found
+            for (const field of lowConfidenceFields) {
+              if (!supplement[field] || supplement.field_confidence[field] === 0) {
+                supplement.field_confidence[field] = -1;
+              }
+            }
+          }
+        } else {
+          console.log('No Perplexity key available, skipping web search');
+          // Mark unfilled fields as not found
+          for (const field of lowConfidenceFields) {
+            if (!supplement[field] || supplement.field_confidence[field] === 0) {
+              supplement.field_confidence[field] = -1;
+            }
+          }
+        }
+      }
+
+      // Update the supplement in the array
+      extractedData.supplements[0] = supplement;
+    }
+
     // Store conversation for reference
     await supabase.from('ai_conversations').insert({
       user_id: userId,
@@ -911,6 +1165,163 @@ Return ONLY valid JSON in this exact format:
       error: error.message || 'AI extraction failed',
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+/**
+ * POST /api/v1/ai/extract-supplements/stream
+ * Extract supplements with real-time progress streaming (SSE)
+ */
+router.post('/extract-supplements/stream', async (req: Request, res: Response): Promise<any> => {
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  const sendProgress = (step: string, data: any) => {
+    res.write(`data: ${JSON.stringify({ step, ...data })}\n\n`);
+  };
+
+  try {
+    const userId = req.user!.id;
+    const { text_content, source_type, product_url } = req.body;
+
+    if (!text_content) {
+      sendProgress('error', { message: 'text_content is required' });
+      res.end();
+      return;
+    }
+
+    const REQUIRED_FIELDS = ['brand', 'price', 'servings_per_container', 'serving_size', 'intake_form', 'dose_per_serving', 'dose_unit', 'category'];
+
+    // Step 1: URL scraping
+    let urlContent = '';
+    if (product_url) {
+      sendProgress('scraping', { message: `Fetching ${product_url}...` });
+      const fetchResult = await fetchWebpageContent(product_url);
+      if (fetchResult.success && fetchResult.content) {
+        urlContent = `\n\n--- Product Page Content ---\n${fetchResult.content}\n--- End ---\n`;
+        sendProgress('scraping_done', { message: 'URL scraped successfully', contentLength: fetchResult.content.length });
+      } else {
+        sendProgress('scraping_failed', { message: fetchResult.error || 'Could not fetch URL' });
+      }
+    }
+
+    // Step 2: AI Analysis
+    sendProgress('analyzing', { message: 'AI analyzing supplement data...', fields: REQUIRED_FIELDS.map(f => ({ key: f, status: 'pending' })) });
+
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      sendProgress('error', { message: 'No Anthropic API key configured' });
+      res.end();
+      return;
+    }
+
+    const actualContent = (text_content || '') + urlContent;
+    const systemPrompt = `You are a supplement extraction assistant. Extract: brand, price, servings_per_container, serving_size (how many units per serving, e.g., 2 capsules = 1 serving), intake_form (capsule/powder/liquid/spray/gummy/patch), dose_per_serving, dose_unit (mg/g/mcg/IU/ml/CFU), category (vitamin/mineral/amino_acid/herb/probiotic/omega/antioxidant/hormone/enzyme/other). Return JSON with field_confidence for each field (0-1).`;
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: 1000,
+      temperature: 0.1,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `Extract supplement info:\n${actualContent}\nReturn JSON with supplements array including field_confidence object.` }]
+    });
+
+    const responseText = response.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    let extractedData: any = { supplements: [] };
+    if (jsonMatch) {
+      extractedData = JSON.parse(jsonMatch[0]);
+    }
+
+    // Process first pass results
+    if (extractedData.supplements && extractedData.supplements.length > 0) {
+      const supplement = extractedData.supplements[0];
+      const baseConfidence = supplement.confidence || 0.7;
+
+      if (!supplement.field_confidence) {
+        supplement.field_confidence = {};
+      }
+
+      // Check each field
+      const lowConfidenceFields: string[] = [];
+      const fieldStatuses: Array<{ key: string; status: string; confidence?: number }> = [];
+
+      for (const field of REQUIRED_FIELDS) {
+        const value = supplement[field];
+        const fieldConf = supplement.field_confidence[field] || (value ? baseConfidence : 0);
+        supplement.field_confidence[field] = fieldConf;
+
+        if (!value || fieldConf < 0.8) {
+          lowConfidenceFields.push(field);
+          fieldStatuses.push({ key: field, status: 'missing', confidence: fieldConf });
+        } else {
+          fieldStatuses.push({ key: field, status: 'found', confidence: fieldConf });
+        }
+      }
+
+      sendProgress('first_pass_done', {
+        message: `First pass: found ${REQUIRED_FIELDS.length - lowConfidenceFields.length}/${REQUIRED_FIELDS.length} fields`,
+        fields: fieldStatuses,
+        supplement
+      });
+
+      // Step 3: Web search if needed
+      if (lowConfidenceFields.length > 0) {
+        sendProgress('web_search', {
+          message: `Searching web for ${lowConfidenceFields.length} missing fields...`,
+          missingFields: lowConfidenceFields
+        });
+
+        const perplexityKey = await getPerplexityKey(userId);
+        if (perplexityKey) {
+          const searchResult = await webSearchForSupplement(
+            perplexityKey,
+            supplement.name || text_content?.split(' ')[0] || 'supplement',
+            supplement.brand || null,
+            lowConfidenceFields
+          );
+
+          if (searchResult.success && searchResult.data) {
+            const webData = searchResult.data;
+            const webConfidence = webData.confidence || 0.95;
+
+            // Update fields one by one with progress
+            for (const field of lowConfidenceFields) {
+              const webValue = webData[field];
+              if (webValue !== undefined && webValue !== null && webValue !== '') {
+                supplement[field] = webValue;
+                supplement.field_confidence[field] = webConfidence;
+                sendProgress('field_found', { field, value: webValue, confidence: webConfidence, source: 'web_search' });
+              } else {
+                supplement.field_confidence[field] = -1;
+                sendProgress('field_not_found', { field });
+              }
+            }
+          } else {
+            sendProgress('web_search_failed', { message: searchResult.error || 'Web search failed' });
+            for (const field of lowConfidenceFields) {
+              supplement.field_confidence[field] = -1;
+            }
+          }
+        } else {
+          sendProgress('web_search_skipped', { message: 'No Perplexity API key' });
+        }
+      }
+
+      extractedData.supplements[0] = supplement;
+    }
+
+    // Final result
+    sendProgress('complete', { data: extractedData });
+    res.end();
+
+  } catch (error: any) {
+    console.error('POST /ai/extract-supplements/stream error:', error);
+    sendProgress('error', { message: error.message || 'Extraction failed' });
+    res.end();
   }
 });
 

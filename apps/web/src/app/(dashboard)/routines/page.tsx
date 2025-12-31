@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useRoutines, filterRoutineItemsByDay } from "@/hooks/useRoutines";
-import { useSupplements } from "@/hooks/useSupplements";
-import { useEquipment } from "@/hooks/useEquipment";
+import { useState, useMemo, DragEvent } from "react";
+import { useRoutines } from "@/hooks/useRoutines";
+import { useSupplements, useUpdateSupplement } from "@/hooks/useSupplements";
+import { useEquipment, useUpdateEquipment } from "@/hooks/useEquipment";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -12,83 +12,61 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Supplement, Equipment, RoutineItem, Routine } from "@/types";
-import { Pill, Zap, Clock, Calendar, ListTodo } from "lucide-react";
+import { Supplement, Equipment, RoutineItem } from "@/types";
+import { Pill, Zap, Clock, ListTodo, GripVertical } from "lucide-react";
+import { toast } from "sonner";
 
-// Days of the week
-const DAYS = [
-  { value: "sun", label: "SUN", fullLabel: "Sunday" },
-  { value: "mon", label: "MON", fullLabel: "Monday" },
-  { value: "tue", label: "TUE", fullLabel: "Tuesday" },
-  { value: "wed", label: "WED", fullLabel: "Wednesday" },
-  { value: "thu", label: "THU", fullLabel: "Thursday" },
-  { value: "fri", label: "FRI", fullLabel: "Friday" },
-  { value: "sat", label: "SAT", fullLabel: "Saturday" },
-];
-
-// Time slots
-const TIME_SLOTS = [
-  { value: "morning", label: "Morning", timeRange: "6 AM - 12 PM" },
-  { value: "afternoon", label: "Afternoon", timeRange: "12 PM - 5 PM" },
-  { value: "evening", label: "Evening", timeRange: "5 PM - 9 PM" },
-  { value: "night", label: "Night", timeRange: "9 PM - 6 AM" },
-];
-
-// Map timing values to time of day
-const TIMING_TO_TIME_OF_DAY: Record<string, string> = {
-  wake_up: "morning",
-  am: "morning",
-  lunch: "afternoon",
-  pm: "afternoon",
-  dinner: "evening",
-  before_bed: "night",
-  all_night: "night",
-  specific: "morning",
+// Day abbreviations for display
+const DAY_ABBREVS: Record<string, string> = {
+  sun: "Su",
+  mon: "Mo",
+  tue: "Tu",
+  wed: "We",
+  thu: "Th",
+  fri: "Fr",
+  sat: "Sa",
 };
 
-// Smart function to determine time of day from various timing formats
-function getTimeOfDay(timing: string): string {
+// Time slots - matching the actual timing options used in forms
+const TIME_SLOTS = [
+  { value: "wake_up", label: "Wake" },
+  { value: "am", label: "AM" },
+  { value: "lunch", label: "Lunch" },
+  { value: "pm", label: "PM" },
+  { value: "dinner", label: "Dinner" },
+  { value: "before_bed", label: "Before Bed" },
+];
+
+// Normalize timing values to canonical form
+function normalizeTiming(timing: string): string {
   const lowerTiming = timing.toLowerCase();
 
-  if (TIMING_TO_TIME_OF_DAY[timing]) {
-    return TIMING_TO_TIME_OF_DAY[timing];
+  // Direct matches
+  if (["wake_up", "am", "lunch", "pm", "dinner", "before_bed"].includes(timing)) {
+    return timing;
   }
 
-  if (lowerTiming.includes("wake") || lowerTiming.includes("morning") || lowerTiming.includes("am") || lowerTiming.includes("shower")) {
-    return "morning";
+  // Fuzzy matching
+  if (lowerTiming.includes("wake") || lowerTiming.includes("shower")) {
+    return "wake_up";
   }
-  if (lowerTiming.includes("lunch") || lowerTiming.includes("afternoon") || lowerTiming.includes("midday")) {
-    return "afternoon";
+  if (lowerTiming.includes("morning") || lowerTiming === "am") {
+    return "am";
   }
-  if (lowerTiming.includes("evening") || lowerTiming.includes("dinner") || lowerTiming.includes("pm")) {
-    return "evening";
+  if (lowerTiming.includes("lunch") || lowerTiming.includes("midday") || lowerTiming.includes("noon")) {
+    return "lunch";
   }
-  if (lowerTiming.includes("night") || lowerTiming.includes("bed") || lowerTiming.includes("sleep")) {
-    return "night";
+  if (lowerTiming.includes("afternoon") || lowerTiming === "pm") {
+    return "pm";
   }
-
-  return "morning";
-}
-
-// Get current day abbreviation
-function getCurrentDayAbbrev(): string {
-  const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-  return days[new Date().getDay()];
-}
-
-// Get dates for the current week
-function getWeekDates(): Date[] {
-  const today = new Date();
-  const currentDay = today.getDay();
-  const dates: Date[] = [];
-
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - currentDay + i);
-    dates.push(date);
+  if (lowerTiming.includes("dinner") || lowerTiming.includes("evening")) {
+    return "dinner";
+  }
+  if (lowerTiming.includes("bed") || lowerTiming.includes("night") || lowerTiming.includes("sleep")) {
+    return "before_bed";
   }
 
-  return dates;
+  return "am"; // Default
 }
 
 // Unified schedule item type
@@ -107,52 +85,66 @@ interface ScheduleItem {
   routineName?: string;
 }
 
-// Check if item should show on a specific day based on frequency
-function shouldShowOnDay(item: ScheduleItem, dayValue: string): boolean {
-  // If item has specific days set, use those
-  if (item.days && item.days.length > 0) {
-    return item.days.includes(dayValue);
+// Check if item is "daily" (shows every day) vs "special" (specific days only)
+function isDaily(item: ScheduleItem): boolean {
+  // If item has specific days that aren't all 7, it's special
+  if (item.days && item.days.length > 0 && item.days.length < 7) {
+    return false;
   }
 
   // Handle frequency-based display
   const freq = item.frequency?.toLowerCase() || "";
 
   if (freq.includes("daily") || freq === "") {
-    return true; // Show every day
+    return true;
   }
 
+  // Weekly, 2x, 3x etc are special
+  if (freq.includes("weekly") || freq.includes("1x") || freq.includes("2x") || freq.includes("twice") || freq.includes("3x") || freq.includes("3-5x")) {
+    return false;
+  }
+
+  return true;
+}
+
+// Get the days an item shows on for display
+function getItemDays(item: ScheduleItem): string[] {
+  if (item.days && item.days.length > 0) {
+    return item.days;
+  }
+
+  const freq = item.frequency?.toLowerCase() || "";
+
   if (freq.includes("weekly") || freq.includes("1x")) {
-    // Show only on one day (e.g., Sunday)
-    return dayValue === "sun";
+    return ["sun"];
   }
 
   if (freq.includes("2x") || freq.includes("twice")) {
-    // Show on Sun and Wed
-    return dayValue === "sun" || dayValue === "wed";
+    return ["sun", "wed"];
   }
 
   if (freq.includes("3x") || freq.includes("3-5x")) {
-    // Show on Mon, Wed, Fri
-    return dayValue === "mon" || dayValue === "wed" || dayValue === "fri";
+    return ["mon", "wed", "fri"];
   }
 
-  // Default: show every day
-  return true;
+  return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 }
 
 export default function RoutinesPage() {
   const [selectedItem, setSelectedItem] = useState<ScheduleItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [draggedItem, setDraggedItem] = useState<ScheduleItem | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const { data: routines, isLoading: routinesLoading, error: routinesError } = useRoutines();
   const { data: supplements, isLoading: supplementsLoading } = useSupplements({ is_active: true });
   const { data: equipment, isLoading: equipmentLoading } = useEquipment({ is_active: true });
 
+  const updateSupplement = useUpdateSupplement();
+  const updateEquipment = useUpdateEquipment();
+
   const isLoading = routinesLoading || supplementsLoading || equipmentLoading;
   const error = routinesError;
-
-  const todayAbbrev = getCurrentDayAbbrev();
-  const weekDates = useMemo(() => getWeekDates(), []);
 
   // Convert supplements to schedule items
   const supplementScheduleItems: ScheduleItem[] = useMemo(() => {
@@ -164,7 +156,7 @@ export default function RoutinesPage() {
         name: s.name,
         brand: s.brand,
         timing: s.timing!,
-        timeOfDay: getTimeOfDay(s.timing!),
+        timeOfDay: normalizeTiming(s.timing!),
         frequency: s.frequency,
         notes: s.timing_reason || s.reason,
         original: s,
@@ -181,7 +173,7 @@ export default function RoutinesPage() {
         name: e.name,
         brand: e.brand,
         timing: e.usage_timing!,
-        timeOfDay: getTimeOfDay(e.usage_timing!),
+        timeOfDay: normalizeTiming(e.usage_timing!),
         frequency: e.usage_frequency,
         duration: e.usage_duration,
         notes: e.usage_protocol,
@@ -200,8 +192,8 @@ export default function RoutinesPage() {
           id: `routine-${item.id}`,
           type: "routine" as const,
           name: item.title,
-          timing: item.time || routine.time_of_day || "morning",
-          timeOfDay: routine.time_of_day || "morning",
+          timing: item.time || routine.time_of_day || "am",
+          timeOfDay: normalizeTiming(routine.time_of_day || "am"),
           duration: item.duration,
           notes: item.description,
           days: item.days,
@@ -218,11 +210,29 @@ export default function RoutinesPage() {
     return [...supplementScheduleItems, ...equipmentScheduleItems, ...routineScheduleItems];
   }, [supplementScheduleItems, equipmentScheduleItems, routineScheduleItems]);
 
-  // Get items for a specific day and time slot
-  const getItemsForCell = (dayValue: string, timeSlot: string): ScheduleItem[] => {
-    return allScheduleItems.filter(
-      (item) => item.timeOfDay === timeSlot && shouldShowOnDay(item, dayValue)
-    );
+  // Split items into Daily and Special
+  const { dailyItems, specialItems } = useMemo(() => {
+    const daily: ScheduleItem[] = [];
+    const special: ScheduleItem[] = [];
+
+    allScheduleItems.forEach((item) => {
+      if (isDaily(item)) {
+        daily.push(item);
+      } else {
+        special.push(item);
+      }
+    });
+
+    return { dailyItems: daily, specialItems: special };
+  }, [allScheduleItems]);
+
+  // Get items for a specific time slot
+  const getDailyItemsForTimeSlot = (timeSlot: string): ScheduleItem[] => {
+    return dailyItems.filter((item) => item.timeOfDay === timeSlot);
+  };
+
+  const getSpecialItemsForTimeSlot = (timeSlot: string): ScheduleItem[] => {
+    return specialItems.filter((item) => item.timeOfDay === timeSlot);
   };
 
   const handleItemClick = (item: ScheduleItem) => {
@@ -246,21 +256,91 @@ export default function RoutinesPage() {
   const getItemIcon = (type: string) => {
     switch (type) {
       case "supplement":
-        return <Pill className="w-3 h-3" />;
+        return <Pill className="w-3 h-3 flex-shrink-0" />;
       case "equipment":
-        return <Zap className="w-3 h-3" />;
+        return <Zap className="w-3 h-3 flex-shrink-0" />;
       case "routine":
-        return <ListTodo className="w-3 h-3" />;
+        return <ListTodo className="w-3 h-3 flex-shrink-0" />;
       default:
         return null;
     }
+  };
+
+  // Format days for display (e.g., "Mo We Fr")
+  const formatDaysDisplay = (item: ScheduleItem): string => {
+    const days = getItemDays(item);
+    return days.map((d) => DAY_ABBREVS[d] || d).join(" ");
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: DragEvent<HTMLButtonElement>, item: ScheduleItem) => {
+    // Only allow dragging supplements and equipment (not routine items)
+    if (item.type === "routine") {
+      e.preventDefault();
+      return;
+    }
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", item.id);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDropTarget(null);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>, timeSlot: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== timeSlot) {
+      setDropTarget(timeSlot);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDropTarget(null);
+  };
+
+  const handleDrop = async (e: DragEvent<HTMLDivElement>, newTiming: string) => {
+    e.preventDefault();
+    setDropTarget(null);
+
+    if (!draggedItem) return;
+
+    // Don't update if dropped in same slot
+    if (draggedItem.timeOfDay === newTiming) {
+      setDraggedItem(null);
+      return;
+    }
+
+    try {
+      if (draggedItem.type === "supplement") {
+        const supplement = draggedItem.original as Supplement;
+        await updateSupplement.mutateAsync({
+          id: supplement.id,
+          data: { timing: newTiming },
+        });
+        toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
+      } else if (draggedItem.type === "equipment") {
+        const equipment = draggedItem.original as Equipment;
+        await updateEquipment.mutateAsync({
+          id: equipment.id,
+          data: { usage_timing: newTiming },
+        });
+        toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
+      }
+    } catch (error) {
+      toast.error("Failed to update timing");
+    }
+
+    setDraggedItem(null);
   };
 
   if (isLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-[600px] w-full" />
+        <Skeleton className="h-[400px] w-full" />
       </div>
     );
   }
@@ -279,83 +359,97 @@ export default function RoutinesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Schedule</h1>
-          <p className="text-muted-foreground text-sm">Your weekly health protocols</p>
+          <p className="text-muted-foreground text-sm">Your health protocols</p>
         </div>
       </div>
 
-      {/* Week Calendar Grid */}
+      {/* Two Column Layout: Daily | Special */}
       <div className="border rounded-lg overflow-hidden bg-card">
-        {/* Day Headers */}
-        <div className="grid grid-cols-[80px_repeat(7,1fr)] border-b">
-          <div className="p-2 border-r bg-muted/30" />
-          {DAYS.map((day, index) => {
-            const isToday = day.value === todayAbbrev;
-            const date = weekDates[index];
-
-            return (
-              <div
-                key={day.value}
-                className={`p-2 text-center border-r last:border-r-0 ${
-                  isToday ? "bg-primary/10" : ""
-                }`}
-              >
-                <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
-                  {day.label}
-                </div>
-                <div
-                  className={`text-lg font-bold ${
-                    isToday
-                      ? "bg-primary text-primary-foreground rounded-full w-8 h-8 flex items-center justify-center mx-auto"
-                      : ""
-                  }`}
-                >
-                  {date.getDate()}
-                </div>
-              </div>
-            );
-          })}
+        {/* Column Headers */}
+        <div className="grid grid-cols-[80px_1fr_1fr] border-b bg-muted/30">
+          <div className="p-3 border-r" />
+          <div className="p-3 border-r text-center font-semibold">Daily</div>
+          <div className="p-3 text-center font-semibold">Special</div>
         </div>
 
         {/* Time Slots */}
-        {TIME_SLOTS.map((slot) => (
-          <div key={slot.value} className="grid grid-cols-[80px_repeat(7,1fr)] border-b last:border-b-0 min-h-[120px]">
-            {/* Time Label */}
-            <div className="p-2 border-r bg-muted/30 text-xs text-muted-foreground">
-              <div className="font-medium">{slot.label}</div>
-              <div className="text-[10px]">{slot.timeRange}</div>
-            </div>
+        {TIME_SLOTS.map((slot) => {
+          const dailyForSlot = getDailyItemsForTimeSlot(slot.value);
+          const specialForSlot = getSpecialItemsForTimeSlot(slot.value);
+          const hasItems = dailyForSlot.length > 0 || specialForSlot.length > 0;
+          const isDropTarget = dropTarget === slot.value;
 
-            {/* Day Cells */}
-            {DAYS.map((day) => {
-              const items = getItemsForCell(day.value, slot.value);
-              const isToday = day.value === todayAbbrev;
+          // Show all slots when dragging, otherwise only show slots with items
+          if (!hasItems && !draggedItem) return null;
 
-              return (
-                <div
-                  key={`${day.value}-${slot.value}`}
-                  className={`p-1 border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
-                >
-                  <div className="space-y-1">
-                    {items.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => handleItemClick(item)}
-                        className={`w-full text-left p-1.5 rounded border text-xs transition-colors cursor-pointer ${getItemColor(
-                          item.type
-                        )}`}
-                      >
-                        <div className="flex items-center gap-1">
-                          {getItemIcon(item.type)}
-                          <span className="truncate font-medium">{item.name}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+          return (
+            <div
+              key={slot.value}
+              className={`grid grid-cols-[80px_1fr_1fr] border-b last:border-b-0 transition-colors ${
+                isDropTarget ? "bg-primary/10" : ""
+              }`}
+              onDragOver={(e) => handleDragOver(e, slot.value)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, slot.value)}
+            >
+              {/* Time Label */}
+              <div className="p-2 border-r bg-muted/30 text-xs text-muted-foreground font-medium">
+                {slot.label}
+              </div>
+
+              {/* Daily Column - 3 columns */}
+              <div className={`p-2 border-r min-h-[40px] ${isDropTarget ? "ring-2 ring-primary/50 ring-inset" : ""}`}>
+                <div className="grid grid-cols-3 gap-1">
+                  {dailyForSlot.map((item) => (
+                    <button
+                      key={item.id}
+                      draggable={item.type !== "routine"}
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => handleItemClick(item)}
+                      className={`text-left p-1 rounded border text-[11px] transition-colors ${
+                        item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                      } ${getItemColor(item.type)} ${
+                        draggedItem?.id === item.id ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        {getItemIcon(item.type)}
+                        <span className="truncate font-medium">{item.name}</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-        ))}
+              </div>
+
+              {/* Special Column - 2 columns */}
+              <div className={`p-2 min-h-[40px] ${isDropTarget ? "ring-2 ring-primary/50 ring-inset" : ""}`}>
+                <div className="grid grid-cols-2 gap-1">
+                  {specialForSlot.map((item) => (
+                    <button
+                      key={item.id}
+                      draggable={item.type !== "routine"}
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => handleItemClick(item)}
+                      className={`text-left p-1 rounded border text-[11px] transition-colors ${
+                        item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                      } ${getItemColor(item.type)} ${
+                        draggedItem?.id === item.id ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        {getItemIcon(item.type)}
+                        <span className="truncate font-medium flex-1">{item.name}</span>
+                        <span className="text-[9px] opacity-70 flex-shrink-0">{formatDaysDisplay(item)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Legend */}

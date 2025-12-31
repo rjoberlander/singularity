@@ -66,6 +66,9 @@ export interface Supplement {
   name: string;
   brand?: string;
   dose?: string;
+  intake_quantity?: number;    // How many units user takes per dose
+  intake_form?: string;        // Physical form: capsule, powder, etc.
+  serving_size?: number;       // How many units = 1 serving (e.g., 2 capsules = 1 serving)
   dose_per_serving?: number;
   dose_unit?: string;
   servings_per_container?: number;
@@ -74,6 +77,9 @@ export interface Supplement {
   purchase_url?: string;
   category?: string;
   timing?: string;
+  timing_reason?: string;
+  reason?: string;
+  mechanism?: string;
   frequency?: string;
   is_active: boolean;
   notes?: string;
@@ -254,6 +260,9 @@ export interface CreateSupplementRequest {
   name: string;
   brand?: string;
   dose?: string;
+  intake_quantity?: number;    // How many units user takes per dose
+  intake_form?: string;        // Physical form: capsule, powder, etc.
+  serving_size?: number;       // How many units = 1 serving
   dose_per_serving?: number;
   dose_unit?: string;
   servings_per_container?: number;

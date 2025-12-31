@@ -48,6 +48,7 @@ export function useExtractSupplements() {
       image_base64?: string;
       text_content?: string;
       source_type: "image" | "text";
+      product_url?: string;
     }) => {
       const response = await aiApi.extractSupplements(data);
       return response.data.data as ExtractedSupplementData;
