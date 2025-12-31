@@ -24,11 +24,13 @@ import {
   FileText,
   MessageCircle,
   Settings,
+  Moon,
 } from "lucide-react";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Biomarkers", href: "/biomarkers", icon: Activity },
+  { name: "Sleep", href: "/sleep", icon: Moon },
   { name: "Supplements", href: "/supplements", icon: Pill },
   { name: "Equipment", href: "/equipment", icon: Cpu },
   { name: "Routines", href: "/routines", icon: Clock },
