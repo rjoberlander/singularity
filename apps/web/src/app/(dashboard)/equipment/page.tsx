@@ -2,7 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { useEquipment, useCreateEquipment, useUpdateEquipment, useToggleEquipment, useDeleteEquipment, useCreateEquipmentBulk } from "@/hooks/useEquipment";
+import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates } from "@/hooks/useEquipment";
+import { EquipmentDuplicatesModal } from "@/components/equipment/EquipmentDuplicatesModal";
+import { EquipmentCard } from "@/components/equipment/EquipmentCard";
+import { EquipmentForm } from "@/components/equipment/EquipmentForm";
 import { useExtractEquipment, useHasActiveAIKey } from "@/hooks/useAI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,23 +18,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Equipment, CreateEquipmentRequest } from "@/types";
+import { Equipment } from "@/types";
 import {
   Plus,
   Search,
@@ -44,17 +33,13 @@ import {
   Scissors,
   Heart,
   MoreHorizontal,
-  MoreVertical,
-  Pencil,
-  Trash2,
-  Power,
-  ExternalLink,
   LucideIcon,
   Send,
   Loader2,
   Check,
   Brain,
   AlertTriangle,
+  Copy,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -100,21 +85,6 @@ const STATUS_FILTERS = [
   { value: "inactive", label: "Inactive" },
 ];
 
-const EMPTY_FORM: CreateEquipmentRequest = {
-  name: "",
-  brand: "",
-  model: "",
-  category: "",
-  purpose: "",
-  usage_frequency: "",
-  usage_timing: "",
-  usage_duration: "",
-  usage_protocol: "",
-  contraindications: "",
-  purchase_url: "",
-  notes: "",
-};
-
 interface ExtractedEquipment {
   name: string;
   brand?: string;
@@ -137,7 +107,6 @@ export default function EquipmentPage() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
-  const [formData, setFormData] = useState<CreateEquipmentRequest>(EMPTY_FORM);
 
   // AI extraction state
   const [aiInput, setAiInput] = useState("");
@@ -146,17 +115,24 @@ export default function EquipmentPage() {
   const [extractedEquipment, setExtractedEquipment] = useState<ExtractedEquipment[]>([]);
   const [selectedExtracted, setSelectedExtracted] = useState<Set<number>>(new Set());
 
+  // Duplicates modal state
+  const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
+
   const { data: equipment, isLoading, error, refetch } = useEquipment({
     category: selectedCategory === "All" ? undefined : selectedCategory.toLowerCase(),
     is_active: statusFilter === "all" ? undefined : statusFilter === "active",
   });
 
-  const createMutation = useCreateEquipment();
-  const updateMutation = useUpdateEquipment();
-  const toggleMutation = useToggleEquipment();
-  const deleteMutation = useDeleteEquipment();
   const createBulkMutation = useCreateEquipmentBulk();
   const extractMutation = useExtractEquipment();
+
+  // Fetch existing duplicates for the equipment list
+  const { data: existingDuplicates, refetch: refetchDuplicates } = useEquipmentDuplicates();
+  const duplicateIds = useMemo(() => new Set(existingDuplicates?.duplicateIds || []), [existingDuplicates]);
+  const totalDuplicates = useMemo(() => {
+    if (!existingDuplicates?.groups) return 0;
+    return existingDuplicates.groups.reduce((sum, group) => sum + group.items.length - 1, 0);
+  }, [existingDuplicates]);
 
   // Check for AI API key
   const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
@@ -202,62 +178,12 @@ export default function EquipmentPage() {
 
   const handleEdit = (item: Equipment) => {
     setEditingEquipment(item);
-    setFormData({
-      name: item.name,
-      brand: item.brand || "",
-      model: item.model || "",
-      category: item.category || "",
-      purpose: item.purpose || "",
-      usage_frequency: item.usage_frequency || "",
-      usage_timing: item.usage_timing || "",
-      usage_duration: item.usage_duration || "",
-      usage_protocol: item.usage_protocol || "",
-      contraindications: item.contraindications || "",
-      purchase_url: item.purchase_url || "",
-      notes: item.notes || "",
-    });
     setFormOpen(true);
   };
 
   const handleAdd = () => {
     setEditingEquipment(null);
-    setFormData(EMPTY_FORM);
     setFormOpen(true);
-  };
-
-  const handleSubmit = async () => {
-    try {
-      if (editingEquipment) {
-        await updateMutation.mutateAsync({ id: editingEquipment.id, data: formData });
-        toast.success("Equipment updated");
-      } else {
-        await createMutation.mutateAsync(formData);
-        toast.success("Equipment added");
-      }
-      setFormOpen(false);
-      refetch();
-    } catch (err) {
-      toast.error("Failed to save equipment");
-    }
-  };
-
-  const handleToggle = async (id: string) => {
-    try {
-      await toggleMutation.mutateAsync(id);
-      toast.success("Status updated");
-    } catch (err) {
-      toast.error("Failed to update status");
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this equipment?")) return;
-    try {
-      await deleteMutation.mutateAsync(id);
-      toast.success("Equipment deleted");
-    } catch (err) {
-      toast.error("Failed to delete equipment");
-    }
   };
 
   // AI Extraction handlers
@@ -401,6 +327,21 @@ export default function EquipmentPage() {
                   </div>
                 </div>
 
+                {/* Duplicates Warning */}
+                {totalDuplicates > 0 && (
+                  <div>
+                    <Button
+                      variant="outline"
+                      className="w-full bg-yellow-500/10 border-yellow-500/30 text-yellow-600 hover:bg-yellow-500/20"
+                      size="sm"
+                      onClick={() => setIsDuplicatesModalOpen(true)}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      {totalDuplicates} Duplicate{totalDuplicates !== 1 ? "s" : ""} detected
+                    </Button>
+                  </div>
+                )}
+
                 {/* Search */}
                 <div>
                   <div className="relative">
@@ -506,9 +447,8 @@ export default function EquipmentPage() {
                       <EquipmentCard
                         key={item.id}
                         equipment={item}
-                        onEdit={handleEdit}
-                        onToggle={handleToggle}
-                        onDelete={handleDelete}
+                        isDuplicate={duplicateIds.has(item.id)}
+                        onClick={handleEdit}
                       />
                     ))}
                   </div>
@@ -531,164 +471,12 @@ export default function EquipmentPage() {
         )}
       </div>
 
-      {/* Form Dialog */}
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingEquipment ? "Edit Equipment" : "Add Equipment"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., iRestore Elite"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="brand">Brand</Label>
-                <Input
-                  id="brand"
-                  value={formData.brand}
-                  onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                  placeholder="e.g., iRestore"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                <Input
-                  id="model"
-                  value={formData.model}
-                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  placeholder="e.g., Professional 500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="category">Category</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(v) => setFormData({ ...formData, category: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIES.filter(c => c !== "All").map((cat) => (
-                      <SelectItem key={cat} value={cat.toLowerCase()}>
-                        {cat}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="purpose">Purpose</Label>
-              <Input
-                id="purpose"
-                value={formData.purpose}
-                onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
-                placeholder="e.g., Hair loss treatment via photobiomodulation"
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="usage_frequency">Frequency</Label>
-                <Input
-                  id="usage_frequency"
-                  value={formData.usage_frequency}
-                  onChange={(e) => setFormData({ ...formData, usage_frequency: e.target.value })}
-                  placeholder="e.g., Daily, Weekly"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="usage_timing">Timing</Label>
-                <Input
-                  id="usage_timing"
-                  value={formData.usage_timing}
-                  onChange={(e) => setFormData({ ...formData, usage_timing: e.target.value })}
-                  placeholder="e.g., Morning, after shower"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="usage_duration">Duration</Label>
-                <Input
-                  id="usage_duration"
-                  value={formData.usage_duration}
-                  onChange={(e) => setFormData({ ...formData, usage_duration: e.target.value })}
-                  placeholder="e.g., 25 minutes"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="usage_protocol">Protocol Notes</Label>
-              <Textarea
-                id="usage_protocol"
-                value={formData.usage_protocol}
-                onChange={(e) => setFormData({ ...formData, usage_protocol: e.target.value })}
-                placeholder="Detailed usage instructions..."
-                rows={3}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="contraindications">Contraindications / Warnings</Label>
-              <Textarea
-                id="contraindications"
-                value={formData.contraindications}
-                onChange={(e) => setFormData({ ...formData, contraindications: e.target.value })}
-                placeholder="e.g., Skip minoxidil 24hrs after microneedling"
-                rows={2}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="purchase_url">Purchase URL</Label>
-              <Input
-                id="purchase_url"
-                value={formData.purchase_url}
-                onChange={(e) => setFormData({ ...formData, purchase_url: e.target.value })}
-                placeholder="https://..."
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Additional Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Any other notes..."
-                rows={2}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={!formData.name || createMutation.isPending || updateMutation.isPending}
-            >
-              {editingEquipment ? "Update" : "Add"} Equipment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Equipment Form Modal */}
+      <EquipmentForm
+        equipment={editingEquipment}
+        open={formOpen}
+        onOpenChange={setFormOpen}
+      />
 
       {/* Extraction Review Modal */}
       <Dialog open={extractionModalOpen} onOpenChange={setExtractionModalOpen}>
@@ -834,114 +622,17 @@ export default function EquipmentPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Duplicates Modal */}
+      <EquipmentDuplicatesModal
+        open={isDuplicatesModalOpen}
+        onOpenChange={setIsDuplicatesModalOpen}
+        duplicateGroups={existingDuplicates?.groups || []}
+        onSuccess={() => {
+          refetch();
+          refetchDuplicates();
+        }}
+      />
     </div>
-  );
-}
-
-// Equipment Card Component
-function EquipmentCard({
-  equipment,
-  onEdit,
-  onToggle,
-  onDelete,
-}: {
-  equipment: Equipment;
-  onEdit: (e: Equipment) => void;
-  onToggle: (id: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const CategoryIcon = equipment.category ? CATEGORY_ICONS[equipment.category.charAt(0).toUpperCase() + equipment.category.slice(1)] || Cpu : Cpu;
-
-  return (
-    <Card className={!equipment.is_active ? "opacity-60" : ""}>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-muted">
-              <CategoryIcon className="w-4 h-4" />
-            </div>
-            <div>
-              <CardTitle className="text-sm font-medium">{equipment.name}</CardTitle>
-              {equipment.brand && (
-                <p className="text-xs text-muted-foreground">{equipment.brand} {equipment.model}</p>
-              )}
-            </div>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onEdit(equipment)}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onToggle(equipment.id)}>
-                <Power className="mr-2 h-4 w-4" />
-                {equipment.is_active ? "Deactivate" : "Activate"}
-              </DropdownMenuItem>
-              {equipment.purchase_url && (
-                <DropdownMenuItem asChild>
-                  <a href={equipment.purchase_url} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    View Product
-                  </a>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => onDelete(equipment.id)}
-                className="text-destructive"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {equipment.purpose && (
-          <p className="text-xs text-muted-foreground">{equipment.purpose}</p>
-        )}
-
-        <div className="flex flex-wrap gap-1">
-          {equipment.category && (
-            <Badge variant="secondary" className="text-xs">
-              {equipment.category}
-            </Badge>
-          )}
-          {equipment.usage_frequency && (
-            <Badge variant="outline" className="text-xs">
-              {equipment.usage_frequency}
-            </Badge>
-          )}
-          {!equipment.is_active && (
-            <Badge variant="destructive" className="text-xs">
-              Inactive
-            </Badge>
-          )}
-        </div>
-
-        {equipment.usage_timing && (
-          <p className="text-xs">
-            <span className="text-muted-foreground">Timing:</span> {equipment.usage_timing}
-          </p>
-        )}
-
-        {equipment.usage_duration && (
-          <p className="text-xs">
-            <span className="text-muted-foreground">Duration:</span> {equipment.usage_duration}
-          </p>
-        )}
-
-        {equipment.contraindications && (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {equipment.contraindications}
-          </p>
-        )}
-      </CardContent>
-    </Card>
   );
 }

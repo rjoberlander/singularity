@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useBiomarkers } from "@/hooks/useBiomarkers";
+import { useBiomarkerStars, useStarBiomarker, useUnstarBiomarker } from "@/hooks/useBiomarkerStars";
 import { BiomarkerChartCard } from "@/components/biomarkers/BiomarkerChartCard";
 import { BiomarkerAddCombinedModal } from "@/components/biomarkers/BiomarkerAddCombinedModal";
 import { BiomarkerChatInput } from "@/components/biomarkers/BiomarkerChatInput";
 import { BiomarkerDuplicatesModal, findDuplicateBiomarkers } from "@/components/biomarkers/BiomarkerDuplicatesModal";
 import { BiomarkerDetailModal } from "@/components/biomarkers/BiomarkerDetailModal";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ChevronUp,
@@ -30,6 +32,12 @@ import {
   Shield,
   LucideIcon,
   Copy,
+  Search,
+  X,
+  ArrowUp,
+  ArrowDown,
+  ArrowRight,
+  Star,
 } from "lucide-react";
 import { BIOMARKER_REFERENCE, BiomarkerReference, getCategories } from "@/data/biomarkerReference";
 import { Biomarker } from "@/types";
@@ -75,7 +83,7 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   immune: Shield,
 };
 
-type FilterType = "all" | "withData" | "critical" | "suboptimal" | "optimal";
+type FilterType = "all" | "withData" | "critical" | "suboptimal" | "optimal" | "starred";
 type SortType = "name" | "category" | "status" | "date";
 
 function getValueStatus(
@@ -109,8 +117,26 @@ export default function BiomarkersPage() {
   const [addModalInitialTab, setAddModalInitialTab] = useState<"ai" | "manual">("ai");
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedBiomarker, setSelectedBiomarker] = useState<{ reference: BiomarkerReference; history: Biomarker[] } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: biomarkers, isLoading, error, refetch } = useBiomarkers({ limit: 1000 });
+  const { data: starredBiomarkers } = useBiomarkerStars();
+  const starMutation = useStarBiomarker();
+  const unstarMutation = useUnstarBiomarker();
+
+  // Create a Set of starred biomarker names for quick lookup
+  const starredNames = useMemo(() => {
+    return new Set(starredBiomarkers?.map(s => s.biomarker_name) || []);
+  }, [starredBiomarkers]);
+
+  // Handle star toggle
+  const handleToggleStar = useCallback((biomarkerName: string) => {
+    if (starredNames.has(biomarkerName)) {
+      unstarMutation.mutate(biomarkerName);
+    } else {
+      starMutation.mutate({ biomarker_name: biomarkerName });
+    }
+  }, [starredNames, starMutation, unstarMutation]);
 
   // Detect duplicates in the biomarkers data
   const duplicateGroups = useMemo(() => {
@@ -145,25 +171,65 @@ export default function BiomarkersPage() {
     return map;
   }, [biomarkers]);
 
-  // Calculate summary stats (3 categories: optimal, suboptimal, critical)
+  // Calculate summary stats (3 categories: optimal, suboptimal, critical) with trends
   const summaryStats = useMemo(() => {
     let optimal = 0;
     let suboptimal = 0;
     let critical = 0;
     let noData = 0;
 
+    // Track trends within each status
+    const trends = {
+      optimal: { better: 0, same: 0, worse: 0 },
+      suboptimal: { better: 0, same: 0, worse: 0 },
+      critical: { better: 0, same: 0, worse: 0 },
+    };
+
     BIOMARKER_REFERENCE.forEach((ref) => {
       const history = biomarkersByName.get(ref.name) || [];
       if (history.length === 0) {
         noData++;
       } else {
-        const latest = history.sort(
+        const sorted = [...history].sort(
           (a, b) => new Date(b.date_tested).getTime() - new Date(a.date_tested).getTime()
-        )[0];
+        );
+        const latest = sorted[0];
+        const previous = sorted[1];
         const status = getValueStatus(latest.value, ref);
+
         if (status === "optimal") optimal++;
         else if (status === "suboptimal") suboptimal++;
         else critical++;
+
+        // Calculate trend (comparing to previous reading)
+        if (previous) {
+          const prevStatus = getValueStatus(previous.value, ref);
+          const statusRank: Record<string, number> = { optimal: 2, suboptimal: 1, critical: 0 };
+          const currentRank = statusRank[status];
+          const prevRank = statusRank[prevStatus];
+
+          if (currentRank > prevRank) {
+            trends[status].better++;
+          } else if (currentRank < prevRank) {
+            trends[status].worse++;
+          } else {
+            // Same status, check if value is moving toward optimal
+            const optimalMid = (ref.optimalRange.low + ref.optimalRange.high) / 2;
+            const latestDist = Math.abs(latest.value - optimalMid);
+            const prevDist = Math.abs(previous.value - optimalMid);
+
+            if (latestDist < prevDist - 0.01) {
+              trends[status].better++;
+            } else if (latestDist > prevDist + 0.01) {
+              trends[status].worse++;
+            } else {
+              trends[status].same++;
+            }
+          }
+        } else {
+          // No previous reading, count as "same" (stable/new)
+          trends[status].same++;
+        }
       }
     });
 
@@ -180,6 +246,7 @@ export default function BiomarkersPage() {
       optimalPercent: withData > 0 ? Math.round((optimal / withData) * 100) : 0,
       suboptimalPercent: withData > 0 ? Math.round((suboptimal / withData) * 100) : 0,
       criticalPercent: withData > 0 ? Math.round((critical / withData) * 100) : 0,
+      trends,
     };
   }, [biomarkersByName]);
 
@@ -196,6 +263,7 @@ export default function BiomarkersPage() {
 
       // Filter type
       if (filterType === "withData" && !hasData) return false;
+      if (filterType === "starred" && !starredNames.has(ref.name)) return false;
       if (filterType === "critical" || filterType === "suboptimal" || filterType === "optimal") {
         if (!hasData) return false;
         const latest = history.sort(
@@ -207,11 +275,52 @@ export default function BiomarkersPage() {
         if (filterType === "optimal" && status !== "optimal") return false;
       }
 
+      // Search filter with fuzzy matching
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        const name = ref.name.toLowerCase();
+        const category = ref.category.toLowerCase();
+
+        // Direct match
+        if (name.includes(query) || category.includes(query)) {
+          return true;
+        }
+
+        // Alias match
+        const aliasMatch = ref.aliases.some(alias => alias.toLowerCase().includes(query));
+        if (aliasMatch) return true;
+
+        // Fuzzy match - check if query words appear in name
+        const queryWords = query.split(/\s+/);
+        if (queryWords.every(word => name.includes(word))) {
+          return true;
+        }
+
+        // Abbreviation match (e.g., "ldl" matches "LDL Cholesterol")
+        const abbreviation = name.split(/\s+/).map(w => w[0]).join("").toLowerCase();
+        if (abbreviation.includes(query) || query.includes(abbreviation)) {
+          return true;
+        }
+
+        return false;
+      }
+
       return true;
     });
 
-    // Sort
+    // Sort - always put items with no data at the bottom
     filtered.sort((a, b) => {
+      const historyA = biomarkersByName.get(a.name) || [];
+      const historyB = biomarkersByName.get(b.name) || [];
+      const hasDataA = historyA.length > 0;
+      const hasDataB = historyB.length > 0;
+
+      // Always put items without data at the bottom
+      if (hasDataA && !hasDataB) return -1;
+      if (!hasDataA && hasDataB) return 1;
+      if (!hasDataA && !hasDataB) return a.name.localeCompare(b.name);
+
+      // Both have data - apply the selected sort
       if (sortType === "name") {
         return a.name.localeCompare(b.name);
       }
@@ -221,46 +330,35 @@ export default function BiomarkersPage() {
         return a.name.localeCompare(b.name);
       }
       if (sortType === "status") {
-        const historyA = biomarkersByName.get(a.name) || [];
-        const historyB = biomarkersByName.get(b.name) || [];
-        const hasDataA = historyA.length > 0;
-        const hasDataB = historyB.length > 0;
-
-        // Biomarkers with data come first
-        if (hasDataA && !hasDataB) return -1;
-        if (!hasDataA && hasDataB) return 1;
-        if (!hasDataA && !hasDataB) return a.name.localeCompare(b.name);
-
         // Sort by status: critical first, then suboptimal, then optimal
-        const latestA = historyA.sort(
+        const latestA = [...historyA].sort(
           (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
         )[0];
-        const latestB = historyB.sort(
+        const latestB = [...historyB].sort(
           (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
         )[0];
         const statusA = getValueStatus(latestA.value, a);
         const statusB = getValueStatus(latestB.value, b);
 
         const statusOrder: Record<string, number> = { critical: 0, suboptimal: 1, optimal: 2 };
-        return statusOrder[statusA] - statusOrder[statusB];
+        const statusCompare = statusOrder[statusA] - statusOrder[statusB];
+        if (statusCompare !== 0) return statusCompare;
+        return a.name.localeCompare(b.name);
       }
       if (sortType === "date") {
-        const historyA = biomarkersByName.get(a.name) || [];
-        const historyB = biomarkersByName.get(b.name) || [];
-        const latestA = historyA[0];
-        const latestB = historyB[0];
-
-        if (!latestA && !latestB) return a.name.localeCompare(b.name);
-        if (!latestA) return 1;
-        if (!latestB) return -1;
-
-        return new Date(latestB.date_tested).getTime() - new Date(latestA.date_tested).getTime();
+        const sortedA = [...historyA].sort(
+          (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
+        );
+        const sortedB = [...historyB].sort(
+          (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
+        );
+        return new Date(sortedB[0].date_tested).getTime() - new Date(sortedA[0].date_tested).getTime();
       }
       return 0;
     });
 
     return filtered;
-  }, [filterType, sortType, selectedCategory, biomarkersByName]);
+  }, [filterType, sortType, selectedCategory, biomarkersByName, searchQuery, starredNames]);
 
   const categories = getCategories();
 
@@ -396,6 +494,33 @@ export default function BiomarkersPage() {
             <div className="flex gap-4">
               {/* Left Sidebar - Summary */}
               <div className="w-52 flex-shrink-0 space-y-4">
+                {/* Search Bar */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">SEARCH BIOMARKERS</h3>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search... (LDL, vitamin)"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 pr-7 h-8 text-sm"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  </div>
+                  {searchQuery && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {displayBiomarkers.length} of {BIOMARKER_REFERENCE.length} shown
+                    </p>
+                  )}
+                </div>
+
                 {/* Biomarker Summary */}
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">BIOMARKER SUMMARY</h3>
@@ -404,70 +529,136 @@ export default function BiomarkersPage() {
                       <p className="text-xs text-muted-foreground mb-2">
                         For this Test {summaryStats.optimalPercent}% of your biomarkers were optimized!
                       </p>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {/* Optimal */}
-                        <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "optimal" ? "bg-muted" : ""}`}
-                          onClick={() => setFilterType(filterType === "optimal" ? "all" : "optimal")}
-                        >
-                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.optimal} strokeWidth="2">
-                            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12" strokeLinecap="round"/>
-                            <path d="M8 12l3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${summaryStats.optimalPercent}%`,
-                                backgroundColor: STATUS_COLORS.optimal,
-                              }}
-                            />
+                        <div>
+                          <div
+                            className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "optimal" ? "bg-muted" : ""}`}
+                            onClick={() => setFilterType(filterType === "optimal" ? "all" : "optimal")}
+                          >
+                            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.optimal} strokeWidth="2">
+                              <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12" strokeLinecap="round"/>
+                              <path d="M8 12l3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${summaryStats.optimalPercent}%`,
+                                  backgroundColor: STATUS_COLORS.optimal,
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
+                              {summaryStats.optimalPercent}%
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {summaryStats.optimalPercent}%
-                          </span>
+                          {/* Trend sublist */}
+                          {(summaryStats.trends.optimal.better > 0 || summaryStats.trends.optimal.worse > 0) && (
+                            <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
+                              {summaryStats.trends.optimal.better > 0 && (
+                                <span className="flex items-center gap-0.5 text-green-500">
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.optimal.better}
+                                </span>
+                              )}
+                              {summaryStats.trends.optimal.worse > 0 && (
+                                <span className="flex items-center gap-0.5 text-red-400">
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.optimal.worse}
+                                </span>
+                              )}
+                              {summaryStats.trends.optimal.same > 0 && (
+                                <span className="flex items-center gap-0.5">
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.optimal.same}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         {/* Suboptimal (Yellow) */}
-                        <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "suboptimal" ? "bg-muted" : ""}`}
-                          onClick={() => setFilterType(filterType === "suboptimal" ? "all" : "suboptimal")}
-                        >
-                          <CirclePlus className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.suboptimal }} />
-                          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${summaryStats.suboptimalPercent}%`,
-                                backgroundColor: STATUS_COLORS.suboptimal,
-                              }}
-                            />
+                        <div>
+                          <div
+                            className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "suboptimal" ? "bg-muted" : ""}`}
+                            onClick={() => setFilterType(filterType === "suboptimal" ? "all" : "suboptimal")}
+                          >
+                            <CirclePlus className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.suboptimal }} />
+                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${summaryStats.suboptimalPercent}%`,
+                                  backgroundColor: STATUS_COLORS.suboptimal,
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
+                              {summaryStats.suboptimalPercent}%
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {summaryStats.suboptimalPercent}%
-                          </span>
+                          {/* Trend sublist */}
+                          {(summaryStats.trends.suboptimal.better > 0 || summaryStats.trends.suboptimal.worse > 0) && (
+                            <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
+                              {summaryStats.trends.suboptimal.better > 0 && (
+                                <span className="flex items-center gap-0.5 text-green-500">
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.better}
+                                </span>
+                              )}
+                              {summaryStats.trends.suboptimal.worse > 0 && (
+                                <span className="flex items-center gap-0.5 text-red-400">
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.worse}
+                                </span>
+                              )}
+                              {summaryStats.trends.suboptimal.same > 0 && (
+                                <span className="flex items-center gap-0.5">
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.same}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         {/* Critical (Brown/Red) */}
-                        <div
-                          className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "critical" ? "bg-muted" : ""}`}
-                          onClick={() => setFilterType(filterType === "critical" ? "all" : "critical")}
-                        >
-                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.critical} strokeWidth="2">
-                            <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${summaryStats.criticalPercent}%`,
-                                backgroundColor: STATUS_COLORS.critical,
-                              }}
-                            />
+                        <div>
+                          <div
+                            className={`flex items-center gap-2 cursor-pointer rounded p-0.5 -m-0.5 transition-colors hover:bg-muted/50 ${filterType === "critical" ? "bg-muted" : ""}`}
+                            onClick={() => setFilterType(filterType === "critical" ? "all" : "critical")}
+                          >
+                            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.critical} strokeWidth="2">
+                              <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${summaryStats.criticalPercent}%`,
+                                  backgroundColor: STATUS_COLORS.critical,
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
+                              {summaryStats.criticalPercent}%
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                            {summaryStats.criticalPercent}%
-                          </span>
+                          {/* Trend sublist */}
+                          {(summaryStats.trends.critical.better > 0 || summaryStats.trends.critical.worse > 0) && (
+                            <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
+                              {summaryStats.trends.critical.better > 0 && (
+                                <span className="flex items-center gap-0.5 text-green-500">
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.critical.better}
+                                </span>
+                              )}
+                              {summaryStats.trends.critical.worse > 0 && (
+                                <span className="flex items-center gap-0.5 text-red-400">
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.critical.worse}
+                                </span>
+                              )}
+                              {summaryStats.trends.critical.same > 0 && (
+                                <span className="flex items-center gap-0.5">
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.critical.same}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </>
@@ -514,7 +705,77 @@ export default function BiomarkersPage() {
 
               {/* Right Content - Biomarker Cards */}
               <div className="flex-1">
-                <h3 className="text-xs font-semibold text-muted-foreground mb-3">ALL BIOMARKERS</h3>
+                <div className="flex items-center gap-3 mb-3">
+                  <h3 className="text-xs font-semibold text-muted-foreground">BIOMARKERS</h3>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setSortType("status")}
+                      className={`flex items-center gap-0.5 px-2 py-0.5 rounded text-xs transition-colors ${
+                        sortType === "status"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {/* Critical ! */}
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span className="text-[10px] opacity-60">›</span>
+                      {/* Suboptimal + */}
+                      <CirclePlus className="w-3 h-3" />
+                      <span className="text-[10px] opacity-60">›</span>
+                      {/* Optimal ✓ */}
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12" strokeLinecap="round"/>
+                        <path d="M8 12l3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setSortType("category")}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${
+                        sortType === "category"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <Activity className="w-3 h-3" />
+                      Category
+                    </button>
+                    <button
+                      onClick={() => setSortType("name")}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${
+                        sortType === "name"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      A→Z
+                    </button>
+                    <button
+                      onClick={() => setSortType("date")}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${
+                        sortType === "date"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <Calendar className="w-3 h-3" />
+                      Recent
+                    </button>
+                    <span className="text-muted-foreground mx-1">|</span>
+                    <button
+                      onClick={() => setFilterType(filterType === "starred" ? "all" : "starred")}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${
+                        filterType === "starred"
+                          ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400"
+                          : "text-muted-foreground hover:text-yellow-500 hover:bg-muted"
+                      }`}
+                    >
+                      <Star className={`w-3 h-3 ${filterType === "starred" ? "fill-current" : ""}`} />
+                      {starredNames.size > 0 && <span>{starredNames.size}</span>}
+                    </button>
+                  </div>
+                </div>
 
                 {isLoading ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -538,6 +799,8 @@ export default function BiomarkersPage() {
                           key={ref.name}
                           reference={ref}
                           history={history}
+                          isStarred={starredNames.has(ref.name)}
+                          onToggleStar={() => handleToggleStar(ref.name)}
                           onClick={() => {
                             setSelectedBiomarker({ reference: ref, history });
                           }}
@@ -589,6 +852,7 @@ export default function BiomarkersPage() {
           onClose={() => setSelectedBiomarker(null)}
           reference={selectedBiomarker.reference}
           history={selectedBiomarker.history}
+          onDataChange={() => refetch()}
         />
       )}
     </div>

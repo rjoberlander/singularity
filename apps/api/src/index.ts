@@ -12,6 +12,8 @@ import './config/proxy';
 // Import routes
 import authRoutes from './routes/auth';
 import biomarkerRoutes from './routes/biomarkers';
+import biomarkerStarsRoutes from './routes/biomarkerStars';
+import biomarkerNotesRoutes from './routes/biomarkerNotes';
 import supplementRoutes from './routes/supplements';
 import equipmentRoutes from './routes/equipment';
 import routineRoutes from './routes/routines';
@@ -22,6 +24,8 @@ import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
 import eightSleepRoutes from './modules/eight-sleep/routes';
 import adminRoutes from './routes/admin';
+import changelogRoutes from './routes/changelog';
+import protocolDocsRoutes from './routes/protocolDocs';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -119,6 +123,10 @@ app.get('/api/v1', (req: Request, res: Response) => {
 app.use('/api/v1/auth', authRoutes);
 
 // Protected routes (require authentication)
+// NOTE: More specific routes (stars, notes) must come BEFORE the general biomarkers route
+// to avoid the /:id route catching /stars/* and /notes/* paths
+app.use('/api/v1/biomarkers/stars', authenticateUser, biomarkerStarsRoutes);
+app.use('/api/v1/biomarkers/notes', authenticateUser, biomarkerNotesRoutes);
 app.use('/api/v1/biomarkers', authenticateUser, biomarkerRoutes);
 app.use('/api/v1/supplements', authenticateUser, supplementRoutes);
 app.use('/api/v1/equipment', authenticateUser, equipmentRoutes);
@@ -130,6 +138,8 @@ app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
 app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sleep integration
 app.use('/api/v1/admin', adminRoutes); // Admin routes (auth handled in routes)
+app.use('/api/v1/changelog', authenticateUser, changelogRoutes); // Protocol change log
+app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Protocol documents
 
 // ==============================================
 // Error Handling

@@ -105,6 +105,47 @@ export function useAnalyzeBiomarkerTrend() {
   });
 }
 
+interface ProtocolAnalysisInput {
+  biomarkerName?: string;
+  question?: string;
+}
+
+interface ProtocolAnalysisResult {
+  analysis: string;
+  correlations: {
+    supplements: Array<{
+      name: string;
+      effect: string;
+      strength: string;
+      mechanism: string;
+    }>;
+    changes: Array<{
+      item_name: string;
+      change_type: string;
+      changed_at: string;
+    }>;
+    relatedBiomarkers: Array<{
+      name: string;
+      value: number;
+      unit: string;
+      status: string;
+    }>;
+  };
+  hepatotoxicityWarnings?: Array<{
+    supplement: string;
+    risk: string;
+  }>;
+}
+
+export function useProtocolAnalysis() {
+  return useMutation({
+    mutationFn: async (data: ProtocolAnalysisInput) => {
+      const response = await aiApi.protocolAnalysis(data);
+      return response.data.data as ProtocolAnalysisResult;
+    },
+  });
+}
+
 export function useAIChat() {
   const queryClient = useQueryClient();
 
@@ -113,6 +154,8 @@ export function useAIChat() {
       message: string;
       context?: string;
       include_user_data?: boolean;
+      biomarker_name?: string;
+      title?: string;
     }) => {
       const response = await aiApi.chat(data);
       return response.data.data as { response: string; context: string };

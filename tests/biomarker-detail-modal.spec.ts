@@ -49,12 +49,17 @@ test.describe("Biomarker Detail Modal", () => {
       await page.screenshot({ path: "tests/screenshots/biomarker-detail-modal.png" });
 
       if (dialogVisible) {
-        // Verify modal has key elements (no tabs now - single page view)
-        await expect(page.locator('text=Trending')).toBeVisible();
-        await expect(page.locator('text=Optimal')).toBeVisible();
-        await expect(page.locator('text=AI Analysis')).toBeVisible();
-        await expect(page.locator('button:has-text("Analyze")')).toBeVisible();
-        console.log("Modal opened successfully with all sections visible!");
+        // Verify modal has key elements (2-column layout with Alex AI chat)
+        await expect(page.locator('text=Trending').first()).toBeVisible();
+        await expect(page.locator('text=Optimal').first()).toBeVisible();
+        await expect(page.locator('text=Notes').first()).toBeVisible();
+        // New Alex AI interface
+        await expect(page.locator('text=Alex').first()).toBeVisible();
+        await expect(page.locator('text=AI Health Assistant').first()).toBeVisible();
+        await expect(page.locator('button:has-text("Explain this marker")')).toBeVisible();
+        await expect(page.locator('button:has-text("Analyze my trend")')).toBeVisible();
+        await expect(page.locator('button:has-text("Update my data")')).toBeVisible();
+        console.log("Modal opened successfully with Alex AI interface!");
       } else {
         // Check for any other modal indicators
         const anyModal = await page.locator('[data-state="open"]').count();

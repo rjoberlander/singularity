@@ -47,6 +47,7 @@ import {
   Upload,
   Edit2,
   FileSearch,
+  FileText,
   Brain,
   CheckCircle2,
   AlertTriangle,
@@ -322,7 +323,14 @@ export function BiomarkerAddCombinedModal({
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
   const [fallbackDate, setFallbackDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+  const [currentParsingFile, setCurrentParsingFile] = useState<string | null>(null);
+  const [currentFileProgress, setCurrentFileProgress] = useState(0);
+  const [parsedFiles, setParsedFiles] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentFileProgressRef = useRef<NodeJS.Timeout | null>(null);
 
   // Manual tab state
   const [comboboxOpen, setComboboxOpen] = useState(false);
@@ -411,6 +419,47 @@ export function BiomarkerAddCombinedModal({
     };
   }, [extractedData, totalReadings]);
 
+  // Filtered biomarkers based on search query with fuzzy matching
+  const filteredBiomarkers = useMemo(() => {
+    if (!extractedData) return [];
+    if (!searchQuery.trim()) return extractedData.biomarkers;
+
+    const query = searchQuery.toLowerCase().trim();
+
+    return extractedData.biomarkers.filter((biomarker) => {
+      const name = biomarker.name.toLowerCase();
+      const extractedName = (biomarker.extracted_name || "").toLowerCase();
+      const category = (biomarker.category || "").toLowerCase();
+
+      // Direct match
+      if (name.includes(query) || extractedName.includes(query) || category.includes(query)) {
+        return true;
+      }
+
+      // Fuzzy match - check if query words appear in any order
+      const queryWords = query.split(/\s+/);
+      const nameWords = name + " " + extractedName + " " + category;
+      if (queryWords.every(word => nameWords.includes(word))) {
+        return true;
+      }
+
+      // Check against reference aliases
+      const ref = findBiomarkerReference(biomarker.name);
+      if (ref) {
+        const aliasMatch = ref.aliases.some(alias => alias.toLowerCase().includes(query));
+        if (aliasMatch) return true;
+      }
+
+      // Abbreviated match (e.g., "ldl" matches "LDL Cholesterol")
+      const abbreviation = name.split(/\s+/).map(w => w[0]).join("").toLowerCase();
+      if (abbreviation.includes(query) || query.includes(abbreviation)) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [extractedData, searchQuery]);
+
   // Auto-deselect duplicates when detected
   useEffect(() => {
     if (duplicateReadings.size > 0 && extractedData) {
@@ -462,6 +511,36 @@ export function BiomarkerAddCombinedModal({
     }
   }, [step]);
 
+  // Current file progress animation - resets to 0 when new file starts, animates to ~90%
+  useEffect(() => {
+    if (currentParsingFile) {
+      // Reset progress for new file
+      setCurrentFileProgress(0);
+
+      // Start animating progress
+      currentFileProgressRef.current = setInterval(() => {
+        setCurrentFileProgress((prev) => {
+          if (prev < 30) return prev + 5;
+          if (prev < 60) return prev + 2;
+          if (prev < 85) return prev + 0.5;
+          return prev; // Stop at ~85%, will jump to 100% when done
+        });
+      }, 150);
+    } else {
+      // File finished - complete the progress
+      setCurrentFileProgress(100);
+      if (currentFileProgressRef.current) {
+        clearInterval(currentFileProgressRef.current);
+      }
+    }
+
+    return () => {
+      if (currentFileProgressRef.current) {
+        clearInterval(currentFileProgressRef.current);
+      }
+    };
+  }, [currentParsingFile]);
+
   const resetState = useCallback(() => {
     setActiveTab(initialTab);
     setStep("input");
@@ -476,11 +555,20 @@ export function BiomarkerAddCombinedModal({
     setProgress(0);
     setProgressStage("preparing");
     setFallbackDate(new Date().toISOString().split("T")[0]);
+    setTotalFiles(0);
+    setProcessedFiles([]);
+    setCurrentParsingFile(null);
+    setCurrentFileProgress(0);
+    setParsedFiles([]);
+    setSearchQuery("");
     setSelectedBiomarker("");
     setManualValue("");
     setManualDateTested(new Date().toISOString().split("T")[0]);
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
+    }
+    if (currentFileProgressRef.current) {
+      clearInterval(currentFileProgressRef.current);
     }
   }, [initialTab]);
 
@@ -549,37 +637,105 @@ export function BiomarkerAddCombinedModal({
 
     setStep("extracting");
     setExtractionStarted(true);
+    setProcessedFiles([]);
+    setParsedFiles([]);
+    setCurrentParsingFile(null);
 
     try {
-      let result;
+      // Phase 1: Read all files to base64
+      const fileData: { name: string; base64: string }[] = [];
 
-      const base64Images: string[] = [];
       if (imageBase64) {
-        base64Images.push(imageBase64);
+        fileData.push({ name: "uploaded-image", base64: imageBase64 });
+        setProcessedFiles(["uploaded-image"]);
       } else if (files && files.length > 0) {
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
           const base64 = await processFileForAI(file);
           if (base64) {
-            base64Images.push(base64);
+            fileData.push({ name: file.name, base64 });
           }
+          setProcessedFiles(prev => [...prev, file.name]);
         }
       }
 
-      if (base64Images.length > 0 || hasText) {
-        result = await extractBiomarkers.mutateAsync({
-          images_base64: base64Images.length > 0 ? base64Images : undefined,
-          image_base64: base64Images.length === 1 ? base64Images[0] : undefined,
-          text_content: (text || textContent) || undefined,
-          source_type: base64Images.length > 0 ? "image" : "text",
-        });
+      setTotalFiles(fileData.length + (hasText ? 1 : 0));
+
+      // Phase 2: Process each file through AI individually
+      const allBiomarkers: any[] = [];
+      let labInfo: any = {};
+
+      for (let i = 0; i < fileData.length; i++) {
+        const { name, base64 } = fileData[i];
+        setCurrentParsingFile(name);
+
+        try {
+          const result = await extractBiomarkers.mutateAsync({
+            image_base64: base64,
+            source_type: "image",
+          });
+
+          if (result?.biomarkers) {
+            allBiomarkers.push(...result.biomarkers);
+          }
+          if (result?.lab_info) {
+            labInfo = { ...labInfo, ...result.lab_info };
+          }
+        } catch (fileError) {
+          console.error(`Failed to parse ${name}:`, fileError);
+        }
+
+        setParsedFiles(prev => [...prev, name]);
       }
 
-      if (result) {
+      // Phase 3: Process text content if present
+      if (hasText) {
+        setCurrentParsingFile("text-content");
+        try {
+          const textResult = await extractBiomarkers.mutateAsync({
+            text_content: (text || textContent) || undefined,
+            source_type: "text",
+          });
+
+          if (textResult?.biomarkers) {
+            allBiomarkers.push(...textResult.biomarkers);
+          }
+          if (textResult?.lab_info) {
+            labInfo = { ...labInfo, ...textResult.lab_info };
+          }
+        } catch (textError) {
+          console.error("Failed to parse text:", textError);
+        }
+        setParsedFiles(prev => [...prev, "text-content"]);
+      }
+
+      setCurrentParsingFile(null);
+
+      // Merge and deduplicate biomarkers
+      const mergedBiomarkers = allBiomarkers.reduce((acc, biomarker) => {
+        const existing = acc.find((b: any) =>
+          b.name.toLowerCase() === biomarker.name.toLowerCase()
+        );
+        if (existing) {
+          // Merge readings from same biomarker
+          existing.readings = [...(existing.readings || []), ...(biomarker.readings || [])];
+        } else {
+          acc.push({ ...biomarker });
+        }
+        return acc;
+      }, [] as any[]);
+
+      const result = {
+        biomarkers: mergedBiomarkers,
+        lab_info: labInfo,
+      };
+
+      if (result.biomarkers.length > 0) {
         setExtractedData(result);
 
         const allKeys = new Set<ReadingKey>();
-        result.biomarkers.forEach((b, bIndex) => {
-          b.readings.forEach((_, rIndex) => {
+        result.biomarkers.forEach((b: any, bIndex: number) => {
+          (b.readings || []).forEach((_: any, rIndex: number) => {
             allKeys.add(`${bIndex}-${rIndex}`);
           });
         });
@@ -587,11 +743,15 @@ export function BiomarkerAddCombinedModal({
         setStep("review");
 
         const totalReadingsCount = result.biomarkers.reduce(
-          (sum, b) => sum + b.readings.length,
+          (sum: number, b: any) => sum + (b.readings?.length || 0),
           0
         );
 
         toast.success(`Extracted ${result.biomarkers.length} biomarkers with ${totalReadingsCount} readings`);
+      } else {
+        toast.error("No biomarkers found in the uploaded files");
+        setStep("input");
+        setExtractionStarted(false);
       }
     } catch (error: any) {
       console.error("Extraction failed:", error);
@@ -1076,28 +1236,166 @@ export function BiomarkerAddCombinedModal({
               </div>
             </div>
 
-            <div className="w-full max-w-md mb-4">
-              <Progress value={progress} className="h-2" />
+            {/* Triple Progress bars */}
+            <div className="w-full max-w-md space-y-3 mb-4">
+              {/* 1. Files Read - fast base64 reading phase */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    Files Read
+                  </span>
+                  <span className={`font-semibold ${processedFiles.length === totalFiles && totalFiles > 0 ? "text-green-500" : "text-primary"}`}>
+                    {processedFiles.length} / {totalFiles || 1}
+                  </span>
+                </div>
+                <Progress
+                  value={totalFiles > 0 ? (processedFiles.length / totalFiles) * 100 : 100}
+                  className={`h-2.5 ${processedFiles.length === totalFiles && totalFiles > 0 ? "[&>div]:bg-green-500" : ""}`}
+                />
+              </div>
+
+              {/* 2. Current File - 0-100% progress for active file */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <FileSearch className="w-3.5 h-3.5" />
+                    Current File
+                  </span>
+                  <span className={`font-semibold truncate max-w-[180px] ${!currentParsingFile && parsedFiles.length === totalFiles && totalFiles > 0 ? "text-green-500" : "text-primary"}`}>
+                    {currentParsingFile || (parsedFiles.length === totalFiles && totalFiles > 0 ? "Done" : "Waiting...")}
+                  </span>
+                </div>
+                <Progress
+                  value={currentParsingFile ? currentFileProgress : (parsedFiles.length === totalFiles && totalFiles > 0 ? 100 : 0)}
+                  className={`h-2.5 ${!currentParsingFile && parsedFiles.length === totalFiles && totalFiles > 0 ? "[&>div]:bg-green-500" : ""}`}
+                />
+              </div>
+
+              {/* 3. Files Processed - Per file AI parsing count */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5" />
+                    Files Processed
+                  </span>
+                  <span className={`font-semibold ${parsedFiles.length === totalFiles && totalFiles > 0 ? "text-green-500" : "text-primary"}`}>
+                    {parsedFiles.length} / {totalFiles || 1}
+                  </span>
+                </div>
+                <div className="relative">
+                  <Progress
+                    value={totalFiles > 0 ? (parsedFiles.length / totalFiles) * 100 : 0}
+                    className={`h-2.5 ${parsedFiles.length === totalFiles && totalFiles > 0 ? "[&>div]:bg-green-500" : ""}`}
+                  />
+                  {/* File dots overlay */}
+                  {totalFiles > 0 && totalFiles <= 10 && (
+                    <div className="absolute inset-0 flex items-center justify-around px-1">
+                      {Array.from({ length: totalFiles }).map((_, idx) => (
+                        <div
+                          key={idx}
+                          className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                            idx < parsedFiles.length
+                              ? "bg-white shadow-sm"
+                              : idx === parsedFiles.length && currentParsingFile
+                              ? "bg-white/50 animate-pulse"
+                              : "bg-muted-foreground/30"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              {progressStage === "preparing" && "Reading file..."}
-              {progressStage === "analyzing" && "AI is analyzing your lab results..."}
-              {progressStage === "extracting" && "Extracting biomarker values..."}
+            {/* Status text */}
+            <p className="text-sm text-muted-foreground mb-2">
+              {currentParsingFile ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  AI analyzing: <span className="font-medium">{currentParsingFile}</span>
+                </span>
+              ) : parsedFiles.length === totalFiles && totalFiles > 0 ? (
+                <span className="text-green-500 flex items-center justify-center gap-2">
+                  <Check className="w-4 h-4" />
+                  All files processed!
+                </span>
+              ) : (
+                "Preparing files..."
+              )}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {Math.round(progress)}% complete
-            </p>
+
+            {/* File list showing parsed status */}
+            {totalFiles >= 1 && parsedFiles.length > 0 && (
+              <div className="w-full max-w-md">
+                <div className="flex flex-wrap gap-1.5 justify-center max-h-20 overflow-y-auto">
+                  {processedFiles.map((fileName, idx) => {
+                    const isParsed = parsedFiles.includes(fileName);
+                    const isParsing = currentParsingFile === fileName;
+                    return (
+                      <div
+                        key={idx}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                          isParsed
+                            ? "bg-green-500/10 text-green-600"
+                            : isParsing
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted/50 text-muted-foreground"
+                        }`}
+                      >
+                        {isParsed ? (
+                          <Check className="w-3 h-3" />
+                        ) : isParsing ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <FileText className="w-3 h-3" />
+                        )}
+                        <span className="truncate max-w-[100px]">{fileName}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Review Step */}
         {step === "review" && extractedData && (
           <>
+            {/* Search bar */}
+            <div className="mb-3">
+              <div className="relative">
+                <FileSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search biomarkers... (e.g., LDL, cholesterol, vitamin)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 h-9"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Showing {filteredBiomarkers.length} of {extractedData.biomarkers.length} biomarkers
+                </p>
+              )}
+            </div>
+
             {/* Biomarker cards grid */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
-                {extractedData.biomarkers.map((biomarker, bIndex) => {
+                {filteredBiomarkers.map((biomarker) => {
+                  // Get the original index from extractedData for selection keys
+                  const bIndex = extractedData.biomarkers.indexOf(biomarker);
                   const isEditing = editingBiomarkerIndex === bIndex;
                   const category = biomarker.category || "other";
                   const bgColor = getCategoryColor(category);

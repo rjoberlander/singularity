@@ -28,12 +28,12 @@ import {
   ArrowRight,
   AlertTriangle,
   Clock,
+  Star,
 } from "lucide-react";
 import { Biomarker } from "@/types";
 import { BiomarkerReference } from "@/data/biomarkerReference";
 import {
   calculateTrend,
-  getTrendColor,
   formatPercentChange,
   TrendResult,
 } from "@/utils/trendCalculation";
@@ -82,6 +82,8 @@ interface BiomarkerChartCardProps {
   reference: BiomarkerReference;
   history: Biomarker[];
   onClick?: () => void;
+  isStarred?: boolean;
+  onToggleStar?: (e: React.MouseEvent) => void;
 }
 
 function formatDate(dateString: string): string {
@@ -111,6 +113,8 @@ export function BiomarkerChartCard({
   reference,
   history,
   onClick,
+  isStarred = false,
+  onToggleStar,
 }: BiomarkerChartCardProps) {
   const isEmpty = history.length === 0;
 
@@ -479,7 +483,6 @@ export function BiomarkerChartCard({
       return null;
     }
 
-    const color = getTrendColor(health);
     const hasOutdatedWarning = warnings.some(w => w.type === "outdated");
 
     const TrendIcon = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : ArrowRight;
@@ -495,7 +498,7 @@ export function BiomarkerChartCard({
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="flex items-center gap-0.5">
-              <TrendIcon className="w-3.5 h-3.5" style={{ color }} />
+              <TrendIcon className="w-3.5 h-3.5" style={{ color: badgeColor }} />
               {hasOutdatedWarning && (
                 <AlertTriangle className="w-3 h-3 text-amber-500" />
               )}
@@ -537,6 +540,24 @@ export function BiomarkerChartCard({
             </h3>
             {!isEmpty && getTrendIndicator()}
           </div>
+          <div className="flex items-center gap-1.5">
+            {onToggleStar && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleStar(e);
+                }}
+                className="flex-shrink-0 p-0.5 hover:bg-muted rounded transition-colors"
+              >
+                <Star
+                  className={`w-3.5 h-3.5 ${
+                    isStarred
+                      ? "fill-yellow-400 text-yellow-400"
+                      : "text-muted-foreground hover:text-yellow-400"
+                  }`}
+                />
+              </button>
+            )}
           {latestValue ? (
             latestValue.is_calculated ? (
               <TooltipProvider>
@@ -576,6 +597,7 @@ export function BiomarkerChartCard({
               No Data
             </span>
           )}
+          </div>
         </div>
 
         {/* Chart */}

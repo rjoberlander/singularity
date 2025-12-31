@@ -165,8 +165,32 @@ export interface AIConversation {
   id: string;
   user_id: string;
   context?: string;
+  biomarker_name?: string; // Link to specific biomarker
+  title?: string; // For display in conversation list
   messages: AIMessage[];
   extracted_data?: ExtractedBiomarkerData;
+  created_at: string;
+  updated_at: string;
+}
+
+// Biomarker Star Types
+export interface BiomarkerStar {
+  id: string;
+  user_id: string;
+  biomarker_name: string;
+  starred_at: string;
+  starred_by: 'user' | 'ai';
+  ai_reason?: string;
+}
+
+// Biomarker Note Types
+export interface BiomarkerNote {
+  id: string;
+  user_id: string;
+  biomarker_name: string;
+  content: string;
+  created_by: 'user' | 'ai';
+  ai_context?: string;
   created_at: string;
   updated_at: string;
 }
@@ -182,9 +206,11 @@ export interface ExtractedBiomarkerData {
   lab_info?: {
     lab_name?: string;
     test_date?: string;
+    default_date?: string;
     patient_name?: string;
   };
-  confidence: number;
+  confidence?: number;
+  extraction_notes?: string;
 }
 
 // API Response Types

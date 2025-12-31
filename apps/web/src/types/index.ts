@@ -284,8 +284,32 @@ export interface AIConversation {
   id: string;
   user_id: string;
   context?: string;
+  biomarker_name?: string;
+  title?: string;
   messages: ChatMessage[];
   extracted_data?: any;
+  created_at: string;
+  updated_at: string;
+}
+
+// Biomarker Star types
+export interface BiomarkerStar {
+  id: string;
+  user_id: string;
+  biomarker_name: string;
+  starred_at: string;
+  starred_by: 'user' | 'ai';
+  ai_reason?: string;
+}
+
+// Biomarker Note types
+export interface BiomarkerNote {
+  id: string;
+  user_id: string;
+  biomarker_name: string;
+  content: string;
+  created_by: 'user' | 'ai';
+  ai_context?: string;
   created_at: string;
   updated_at: string;
 }

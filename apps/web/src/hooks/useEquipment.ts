@@ -93,6 +93,27 @@ export function useDeleteEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["equipment-duplicates"] });
+    },
+  });
+}
+
+export function useEquipmentDuplicates() {
+  return useQuery({
+    queryKey: ["equipment-duplicates"],
+    queryFn: async () => {
+      const response = await equipmentApi.getDuplicates();
+      return response.data.data as {
+        duplicateIds: string[];
+        groups: Array<{
+          items: Array<{
+            id: string;
+            name: string;
+            brand?: string;
+            confidence: number;
+          }>;
+        }>;
+      };
     },
   });
 }

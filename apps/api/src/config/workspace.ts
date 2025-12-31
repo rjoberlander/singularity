@@ -33,6 +33,6 @@ export const RATE_LIMIT = {
 // Claude AI settings
 export const AI_CONFIG = {
   model: 'claude-sonnet-4-20250514',
-  maxTokens: 4096,
+  maxTokens: 8192, // Increased to handle multi-image biomarker extraction
   temperature: 0.1 // Low temperature for accurate extraction
 };

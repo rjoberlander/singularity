@@ -309,6 +309,8 @@ export function BiomarkerExtractionModal({
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
   const [fallbackDate, setFallbackDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const extractBiomarkers = useExtractBiomarkers();
@@ -451,6 +453,8 @@ export function BiomarkerExtractionModal({
     setProgress(0);
     setProgressStage("preparing");
     setFallbackDate(new Date().toISOString().split("T")[0]);
+    setTotalFiles(0);
+    setProcessedFiles([]);
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -478,13 +482,18 @@ export function BiomarkerExtractionModal({
 
     setStep("extracting");
     setExtractionStarted(true);
+    setTotalFiles(files?.length || 0);
+    setProcessedFiles([]);
 
     try {
       let result;
 
       const base64Images: string[] = [];
       if (files && files.length > 0) {
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          // Update progress for each file being read
+          setProcessedFiles(prev => [...prev, file.name]);
           const base64 = await processFileForAI(file);
           if (base64) {
             base64Images.push(base64);
@@ -704,18 +713,84 @@ export function BiomarkerExtractionModal({
               </div>
             </div>
 
-            <div className="w-full max-w-md mb-4">
-              <Progress value={progress} className="h-2" />
+            {/* Progress bars container */}
+            <div className="w-full max-w-md space-y-4 mb-4">
+              {/* File progress bar - always show */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <FileSearch className="w-3.5 h-3.5" />
+                    Files Read
+                  </span>
+                  <span className="font-semibold text-primary">
+                    {processedFiles.length} / {totalFiles || attachedFiles.length || 1}
+                  </span>
+                </div>
+                <div className="relative">
+                  <Progress
+                    value={totalFiles > 0 ? (processedFiles.length / totalFiles) * 100 : (progressStage === "preparing" ? 50 : 100)}
+                    className="h-3 bg-muted/50"
+                  />
+                  {/* File dots overlay - only show when we have files */}
+                  {(totalFiles > 0 || attachedFiles.length > 0) && (
+                    <div className="absolute inset-0 flex items-center justify-around px-1">
+                      {Array.from({ length: totalFiles || attachedFiles.length || 1 }).map((_, idx) => (
+                        <div
+                          key={idx}
+                          className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                            idx < processedFiles.length
+                              ? "bg-white shadow-sm"
+                              : "bg-muted-foreground/30"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Overall progress bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5" />
+                    AI Processing
+                  </span>
+                  <span className="font-medium">{Math.round(progress)}%</span>
+                </div>
+                <Progress value={progress} className="h-3" />
+              </div>
             </div>
 
             <p className="text-sm text-muted-foreground">
-              {progressStage === "preparing" && "Reading file..."}
+              {progressStage === "preparing" && (totalFiles > 1 ? `Reading ${totalFiles} files...` : "Reading file...")}
               {progressStage === "analyzing" && "AI is analyzing your lab results..."}
               {progressStage === "extracting" && "Extracting biomarker values..."}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {Math.round(progress)}% complete
-            </p>
+
+            {/* File list - show processed files */}
+            {totalFiles >= 1 && processedFiles.length > 0 && (
+              <div className="mt-4 w-full max-w-md">
+                <div className="text-xs text-muted-foreground mb-2">Files:</div>
+                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                  {processedFiles.map((fileName, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 text-green-600 text-xs"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span className="truncate max-w-[120px]">{fileName}</span>
+                    </div>
+                  ))}
+                  {processedFiles.length < totalFiles && (
+                    <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary text-xs animate-pulse">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Processing...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

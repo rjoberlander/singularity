@@ -2,8 +2,18 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { PermissionService } from '../services/permissionService';
 import { CreateSupplementRequest } from '../types';
+import { logChange } from './changelog';
 
 const router = Router();
+
+// Helper to format supplement info for changelog
+function formatSupplementInfo(s: any): string {
+  const parts = [s.name];
+  if (s.dose) parts.push(s.dose);
+  if (s.timing) parts.push(`@ ${s.timing}`);
+  if (s.frequency) parts.push(`(${s.frequency})`);
+  return parts.join(' ');
+}
 
 /**
  * GET /api/v1/supplements
@@ -150,6 +160,16 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
       });
     }
 
+    // Log the change
+    await logChange(userId, {
+      change_type: 'started',
+      item_type: 'supplement',
+      item_id: data.id,
+      item_name: data.name,
+      new_value: formatSupplementInfo(data),
+      reason: supplementData.reason || undefined
+    });
+
     res.status(201).json({
       success: true,
       data,
@@ -237,9 +257,10 @@ router.put('/:id', async (req: Request, res: Response): Promise<any> => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Fetch full existing record for changelog comparison
     const { data: existing, error: findError } = await supabase
       .from('supplements')
-      .select('user_id, price, servings_per_container')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -287,6 +308,27 @@ router.put('/:id', async (req: Request, res: Response): Promise<any> => {
       });
     }
 
+    // Log significant changes (dose, timing, frequency)
+    const changeFields = ['dose', 'timing', 'frequency', 'is_active'];
+    const changes: string[] = [];
+    for (const field of changeFields) {
+      if (updates[field] !== undefined && updates[field] !== existing[field]) {
+        changes.push(`${field}: ${existing[field] || 'none'} → ${updates[field] || 'none'}`);
+      }
+    }
+
+    if (changes.length > 0) {
+      await logChange(userId, {
+        change_type: 'modified',
+        item_type: 'supplement',
+        item_id: data.id,
+        item_name: data.name,
+        previous_value: formatSupplementInfo(existing),
+        new_value: formatSupplementInfo(data),
+        reason: changes.join(', ')
+      });
+    }
+
     res.json({
       success: true,
       data,
@@ -310,9 +352,10 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
     const userId = req.user!.id;
     const { id } = req.params;
 
+    // Fetch full record for changelog
     const { data: existing, error: findError } = await supabase
       .from('supplements')
-      .select('user_id')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -345,6 +388,16 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
       });
     }
 
+    // Log the deletion
+    await logChange(userId, {
+      change_type: 'stopped',
+      item_type: 'supplement',
+      item_id: id,
+      item_name: existing.name,
+      previous_value: formatSupplementInfo(existing),
+      reason: 'Deleted'
+    });
+
     res.json({
       success: true,
       message: 'Supplement deleted',
@@ -369,9 +422,10 @@ router.patch('/:id/toggle', async (req: Request, res: Response): Promise<any> =>
     const userId = req.user!.id;
     const { id } = req.params;
 
+    // Get full record for changelog
     const { data: existing, error: findError } = await supabase
       .from('supplements')
-      .select('user_id, is_active')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -409,6 +463,16 @@ router.patch('/:id/toggle', async (req: Request, res: Response): Promise<any> =>
         timestamp: new Date().toISOString()
       });
     }
+
+    // Log started/stopped
+    await logChange(userId, {
+      change_type: data.is_active ? 'started' : 'stopped',
+      item_type: 'supplement',
+      item_id: data.id,
+      item_name: data.name,
+      previous_value: existing.is_active ? 'Active' : 'Inactive',
+      new_value: data.is_active ? 'Active' : 'Inactive'
+    });
 
     res.json({
       success: true,

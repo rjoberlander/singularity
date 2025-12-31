@@ -32,15 +32,13 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
       .from('routines')
       .select(`
         *,
-        items:routine_items(
-          *,
-          supplement:supplements(id, name, dose)
-        )
+        items:routine_items(*)
       `)
       .eq('user_id', targetUserId)
       .order('sort_order', { ascending: true });
 
     if (error) {
+      console.error('GET /routines query error:', error);
       return res.status(500).json({
         success: false,
         error: error.message,
@@ -48,13 +46,14 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
       });
     }
 
+    console.log('GET /routines success, count:', data?.length || 0);
     res.json({
       success: true,
       data: data || [],
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('GET /routines error:', error);
+    console.error('GET /routines exception:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -75,10 +74,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<any> => {
       .from('routines')
       .select(`
         *,
-        items:routine_items(
-          *,
-          supplement:supplements(id, name, dose)
-        )
+        items:routine_items(*)
       `)
       .eq('id', id)
       .single();

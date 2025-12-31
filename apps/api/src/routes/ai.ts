@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 import { supabase } from '../config/supabase';
 import { AI_CONFIG } from '../config/workspace';
 import { ExtractBiomarkersRequest, HealthChatRequest, ExtractedBiomarkerData } from '../types';
@@ -9,6 +10,257 @@ import { BIOMARKER_REFERENCE, findBiomarkerMatch, getBiomarkerNames } from '../d
 
 const router = Router();
 const MAX_IMAGE_SIZE_MB = 10; // Max size for image/vision API calls
+const MAX_IMAGE_DIMENSION = 1920; // Anthropic limit for multi-image requests is 2000px, use 1920 for safety
+const BATCH_SIZE = 3; // Process images in batches of 3 to avoid token limits
+const MAX_RETRIES = 2; // Retry failed batches up to 2 times
+
+/**
+ * Batch processing result for tracking progress
+ */
+interface BatchResult {
+  batchIndex: number;
+  success: boolean;
+  biomarkers: any[];
+  labInfo: any;
+  error?: string;
+  retryCount: number;
+}
+
+/**
+ * Process a single batch of images and return extracted biomarkers
+ */
+async function processBatch(
+  anthropic: Anthropic,
+  batchImages: Array<{ mediaType: string; data: string }>,
+  textContent: string | null,
+  systemPrompt: string,
+  batchIndex: number,
+  totalBatches: number
+): Promise<{ biomarkers: any[]; labInfo: any }> {
+  const userContent: any[] = [];
+
+  // Add images to content
+  for (const img of batchImages) {
+    userContent.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: img.mediaType,
+        data: img.data
+      }
+    });
+  }
+
+  // Add text content if provided (only for first batch to avoid duplication)
+  if (textContent && batchIndex === 0) {
+    userContent.push({
+      type: 'text',
+      text: `--- Text Content ---\n${textContent}\n--- End Text ---`
+    });
+  }
+
+  // Add instruction
+  const imageCount = batchImages.length;
+  let instruction = `Extract all biomarker data from ${imageCount > 1 ? `these ${imageCount} lab report images` : 'this lab report image'}`;
+  if (totalBatches > 1) {
+    instruction += ` (batch ${batchIndex + 1} of ${totalBatches})`;
+  }
+  instruction += '. Return the data as JSON.';
+
+  userContent.push({
+    type: 'text',
+    text: instruction
+  });
+
+  const response = await anthropic.messages.create({
+    model: AI_CONFIG.model,
+    max_tokens: AI_CONFIG.maxTokens,
+    temperature: AI_CONFIG.temperature,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }]
+  });
+
+  // Extract text from response
+  const responseText = response.content
+    .filter(block => block.type === 'text')
+    .map(block => (block as any).text)
+    .join('');
+
+  // Parse JSON from response
+  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('No JSON found in AI response');
+  }
+
+  let jsonStr = jsonMatch[0];
+  // Fix common JSON issues - trailing commas
+  jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
+  // Fix unclosed brackets
+  const openBraces = (jsonStr.match(/{/g) || []).length;
+  const closeBraces = (jsonStr.match(/}/g) || []).length;
+  const openBrackets = (jsonStr.match(/\[/g) || []).length;
+  const closeBrackets = (jsonStr.match(/\]/g) || []).length;
+  for (let i = 0; i < openBrackets - closeBrackets; i++) jsonStr += ']';
+  for (let i = 0; i < openBraces - closeBraces; i++) jsonStr += '}';
+
+  const parsed = JSON.parse(jsonStr);
+  return {
+    biomarkers: parsed.biomarkers || [],
+    labInfo: parsed.lab_info || {}
+  };
+}
+
+/**
+ * Merge biomarkers from multiple batches, deduplicating by name+date
+ */
+function mergeBiomarkerResults(batchResults: BatchResult[]): { biomarkers: any[]; labInfo: any; extractionNotes: string } {
+  const biomarkerMap = new Map<string, any>();
+  let labInfo: any = {};
+  const notes: string[] = [];
+
+  for (const result of batchResults) {
+    if (!result.success) {
+      notes.push(`Batch ${result.batchIndex + 1} failed: ${result.error}`);
+      continue;
+    }
+
+    // Merge lab info (first non-null wins)
+    if (result.labInfo) {
+      labInfo = { ...result.labInfo, ...labInfo };
+    }
+
+    // Merge biomarkers
+    for (const biomarker of result.biomarkers) {
+      const key = biomarker.name.toLowerCase();
+
+      if (biomarkerMap.has(key)) {
+        // Merge readings from duplicate biomarkers
+        const existing = biomarkerMap.get(key);
+        const existingReadings = existing.readings || [];
+        const newReadings = biomarker.readings || [];
+
+        // Deduplicate readings by date+value
+        const readingSet = new Set(existingReadings.map((r: any) => `${r.date}|${r.value}`));
+        for (const reading of newReadings) {
+          const readingKey = `${reading.date}|${reading.value}`;
+          if (!readingSet.has(readingKey)) {
+            existingReadings.push(reading);
+            readingSet.add(readingKey);
+          }
+        }
+        existing.readings = existingReadings;
+
+        // Keep higher confidence
+        if (biomarker.confidence > existing.confidence) {
+          existing.confidence = biomarker.confidence;
+        }
+      } else {
+        biomarkerMap.set(key, { ...biomarker });
+      }
+    }
+  }
+
+  const successfulBatches = batchResults.filter(r => r.success).length;
+  const totalBatches = batchResults.length;
+  if (successfulBatches < totalBatches) {
+    notes.push(`Processed ${successfulBatches}/${totalBatches} batches successfully`);
+  }
+
+  return {
+    biomarkers: Array.from(biomarkerMap.values()),
+    labInfo,
+    extractionNotes: notes.length > 0 ? notes.join('; ') : `Extracted from ${totalBatches} batch(es)`
+  };
+}
+
+/**
+ * Process images with retry logic
+ */
+async function processWithRetry(
+  anthropic: Anthropic,
+  batchImages: Array<{ mediaType: string; data: string }>,
+  textContent: string | null,
+  systemPrompt: string,
+  batchIndex: number,
+  totalBatches: number
+): Promise<BatchResult> {
+  let lastError: Error | null = null;
+
+  for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+    try {
+      const result = await processBatch(
+        anthropic, batchImages, textContent, systemPrompt, batchIndex, totalBatches
+      );
+      return {
+        batchIndex,
+        success: true,
+        biomarkers: result.biomarkers,
+        labInfo: result.labInfo,
+        retryCount: retry
+      };
+    } catch (error: any) {
+      lastError = error;
+      console.error(`Batch ${batchIndex + 1} attempt ${retry + 1} failed:`, error.message);
+
+      // Don't retry on certain errors
+      if (error.message?.includes('No JSON found') || error.status === 400) {
+        break;
+      }
+
+      // Wait before retry (exponential backoff)
+      if (retry < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
+      }
+    }
+  }
+
+  return {
+    batchIndex,
+    success: false,
+    biomarkers: [],
+    labInfo: {},
+    error: lastError?.message || 'Unknown error',
+    retryCount: MAX_RETRIES
+  };
+}
+
+/**
+ * Resize image if any dimension exceeds the max allowed
+ * Returns base64 string without data URL prefix
+ */
+async function resizeImageIfNeeded(base64Data: string, mediaType: string): Promise<string> {
+  try {
+    // Remove data URL prefix if present
+    let cleanBase64 = base64Data;
+    if (base64Data.includes(',')) {
+      cleanBase64 = base64Data.split(',')[1];
+    }
+
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    const metadata = await sharp(buffer).metadata();
+
+    // Check if resize is needed
+    if (metadata.width && metadata.height &&
+        (metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION)) {
+      console.log(`Resizing image from ${metadata.width}x${metadata.height} to fit within ${MAX_IMAGE_DIMENSION}px`);
+
+      const resizedBuffer = await sharp(buffer)
+        .resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
+          fit: 'inside',
+          withoutEnlargement: true
+        })
+        .toBuffer();
+
+      return resizedBuffer.toString('base64');
+    }
+
+    return cleanBase64;
+  } catch (error) {
+    console.error('Error resizing image:', error);
+    // Return original if resize fails
+    return base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+  }
+}
 
 // Get known biomarker names for the prompt
 const KNOWN_BIOMARKERS = getBiomarkerNames().join(', ');
@@ -101,8 +353,6 @@ Return ONLY valid JSON in this exact format:
   "extraction_notes": "string - any important notes about the extraction"
 }`;
 
-    let userContent: any[] = [];
-
     // Helper to get media type and clean base64 data
     const processBase64Image = (imageData: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: string } => {
       let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
@@ -123,6 +373,10 @@ Return ONLY valid JSON in this exact format:
 
       return { mediaType, data };
     };
+
+    // Collect all processed images for batching
+    const processedImages: Array<{ mediaType: string; data: string }> = [];
+    let additionalText = '';
 
     // Process images if provided
     if (allImages.length > 0) {
@@ -149,21 +403,12 @@ Return ONLY valid JSON in this exact format:
           if (pdfResult.isScanned && pdfResult.images && pdfResult.images.length > 0) {
             console.log(`Processing ${pdfResult.images.length} scanned pages with Vision API`);
             for (const pageImage of pdfResult.images) {
-              userContent.push({
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/png',
-                  data: pageImage
-                }
-              });
+              const resizedData = await resizeImageIfNeeded(pageImage, 'image/png');
+              processedImages.push({ mediaType: 'image/png', data: resizedData });
             }
           } else if (pdfResult.text) {
-            // Text-based PDF - add as text content
-            userContent.push({
-              type: 'text',
-              text: `--- PDF Document ---\n${pdfResult.text}\n--- End PDF ---`
-            });
+            // Text-based PDF - add to text content
+            additionalText += `\n--- PDF Document ---\n${pdfResult.text}\n--- End PDF ---\n`;
           }
         } else if (sizeMB > MAX_IMAGE_SIZE_MB) {
           return res.status(400).json({
@@ -173,45 +418,16 @@ Return ONLY valid JSON in this exact format:
             timestamp: new Date().toISOString()
           });
         } else {
-          // Regular image - add to content
+          // Regular image - add to processed images (resize if needed)
           const { mediaType, data } = processBase64Image(imageData);
-          userContent.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: data
-            }
-          });
+          const resizedData = await resizeImageIfNeeded(data, mediaType);
+          processedImages.push({ mediaType, data: resizedData });
         }
       }
     }
 
-    // Add text content if provided
-    if (text_content) {
-      userContent.push({
-        type: 'text',
-        text: `--- Text Content ---\n${text_content}\n--- End Text ---`
-      });
-    }
-
-    // Add final instruction
-    const imageCount = userContent.filter((c: any) => c.type === 'image').length;
-    const hasText = userContent.some((c: any) => c.type === 'text');
-    let instruction = 'Extract all biomarker data from ';
-    if (imageCount > 0 && hasText) {
-      instruction += `these ${imageCount} image${imageCount > 1 ? 's' : ''} and text content`;
-    } else if (imageCount > 0) {
-      instruction += imageCount > 1 ? `these ${imageCount} lab report images` : 'this lab report image';
-    } else {
-      instruction += 'this lab report text';
-    }
-    instruction += '. Return the data as JSON.';
-
-    userContent.push({
-      type: 'text',
-      text: instruction
-    });
+    // Combine text content
+    const combinedText = [text_content, additionalText].filter(Boolean).join('\n') || null;
 
     // Get user's Anthropic API key
     const anthropic = await getAnthropicClient(userId);
@@ -224,60 +440,134 @@ Return ONLY valid JSON in this exact format:
       });
     }
 
-    const response = await anthropic.messages.create({
-      model: AI_CONFIG.model,
-      max_tokens: AI_CONFIG.maxTokens,
-      temperature: AI_CONFIG.temperature,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userContent
-        }
-      ]
-    });
-
-    // Extract text from response
-    const responseText = response.content
-      .filter(block => block.type === 'text')
-      .map(block => (block as any).text)
-      .join('');
-
-    // Parse JSON from response
     let extractedData: ExtractedBiomarkerData;
-    try {
-      // Try to extract JSON from the response
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        let jsonStr = jsonMatch[0];
-        // Fix common JSON issues
-        // Remove trailing commas before ] or }
-        jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
-        // Fix any unclosed brackets/braces at the end (truncated response)
-        const openBraces = (jsonStr.match(/{/g) || []).length;
-        const closeBraces = (jsonStr.match(/}/g) || []).length;
-        const openBrackets = (jsonStr.match(/\[/g) || []).length;
-        const closeBrackets = (jsonStr.match(/\]/g) || []).length;
-        // Add missing closing brackets
-        for (let i = 0; i < openBrackets - closeBrackets; i++) {
-          jsonStr += ']';
-        }
-        for (let i = 0; i < openBraces - closeBraces; i++) {
-          jsonStr += '}';
-        }
-        extractedData = JSON.parse(jsonStr);
-      } else {
-        throw new Error('No JSON found in response');
+
+    // Use batch processing for multiple images
+    if (processedImages.length > BATCH_SIZE) {
+      console.log(`Using batch processing: ${processedImages.length} images in batches of ${BATCH_SIZE}`);
+
+      // Split images into batches
+      const batches: Array<Array<{ mediaType: string; data: string }>> = [];
+      for (let i = 0; i < processedImages.length; i += BATCH_SIZE) {
+        batches.push(processedImages.slice(i, i + BATCH_SIZE));
       }
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.error('Raw response (first 2000 chars):', responseText.substring(0, 2000));
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to parse AI response',
-        raw_response: responseText.substring(0, 5000),
-        timestamp: new Date().toISOString()
+
+      console.log(`Processing ${batches.length} batches...`);
+
+      // Process all batches (sequentially to avoid rate limits)
+      const batchResults: BatchResult[] = [];
+      for (let i = 0; i < batches.length; i++) {
+        console.log(`Processing batch ${i + 1}/${batches.length} (${batches[i].length} images)`);
+        const result = await processWithRetry(
+          anthropic,
+          batches[i],
+          combinedText,
+          systemPrompt,
+          i,
+          batches.length
+        );
+        batchResults.push(result);
+        console.log(`Batch ${i + 1} ${result.success ? 'succeeded' : 'failed'}: ${result.biomarkers.length} biomarkers extracted`);
+      }
+
+      // Merge results from all batches
+      const mergedResults = mergeBiomarkerResults(batchResults);
+
+      // Check if any batches succeeded
+      const successfulBatches = batchResults.filter(r => r.success);
+      if (successfulBatches.length === 0) {
+        return res.status(500).json({
+          success: false,
+          error: 'All batches failed during extraction',
+          details: batchResults.map(r => ({ batch: r.batchIndex + 1, error: r.error })),
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      extractedData = {
+        biomarkers: mergedResults.biomarkers,
+        lab_info: mergedResults.labInfo,
+        extraction_notes: mergedResults.extractionNotes
+      };
+
+      console.log(`Batch processing complete: ${extractedData.biomarkers.length} total biomarkers from ${successfulBatches.length}/${batches.length} batches`);
+
+    } else {
+      // Single batch processing for small number of images
+      console.log(`Processing ${processedImages.length} images in single request`);
+
+      const userContent: any[] = [];
+
+      // Add all images
+      for (const img of processedImages) {
+        userContent.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.data }
+        });
+      }
+
+      // Add text content if provided
+      if (combinedText) {
+        userContent.push({
+          type: 'text',
+          text: `--- Text Content ---\n${combinedText}\n--- End Text ---`
+        });
+      }
+
+      // Add instruction
+      const imageCount = processedImages.length;
+      let instruction = 'Extract all biomarker data from ';
+      if (imageCount > 0 && combinedText) {
+        instruction += `these ${imageCount} image${imageCount > 1 ? 's' : ''} and text content`;
+      } else if (imageCount > 0) {
+        instruction += imageCount > 1 ? `these ${imageCount} lab report images` : 'this lab report image';
+      } else {
+        instruction += 'this lab report text';
+      }
+      instruction += '. Return the data as JSON.';
+      userContent.push({ type: 'text', text: instruction });
+
+      const response = await anthropic.messages.create({
+        model: AI_CONFIG.model,
+        max_tokens: AI_CONFIG.maxTokens,
+        temperature: AI_CONFIG.temperature,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent }]
       });
+
+      // Extract text from response
+      const responseText = response.content
+        .filter(block => block.type === 'text')
+        .map(block => (block as any).text)
+        .join('');
+
+      // Parse JSON from response
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          let jsonStr = jsonMatch[0];
+          // Fix common JSON issues
+          jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
+          const openBraces = (jsonStr.match(/{/g) || []).length;
+          const closeBraces = (jsonStr.match(/}/g) || []).length;
+          const openBrackets = (jsonStr.match(/\[/g) || []).length;
+          const closeBrackets = (jsonStr.match(/\]/g) || []).length;
+          for (let i = 0; i < openBrackets - closeBrackets; i++) jsonStr += ']';
+          for (let i = 0; i < openBraces - closeBraces; i++) jsonStr += '}';
+          extractedData = JSON.parse(jsonStr);
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Raw response (first 2000 chars):', responseText.substring(0, 2000));
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to parse AI response',
+          raw_response: responseText.substring(0, 5000),
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
     // Post-process: Match against reference data and fill in missing ranges
@@ -355,12 +645,15 @@ Return ONLY valid JSON in this exact format:
     }
 
     // Store conversation for reference
+    const conversationSummary = extractedData.extraction_notes ||
+      `Extracted ${extractedData.biomarkers?.length || 0} biomarkers from ${processedImages.length} image(s)`;
+
     await supabase.from('ai_conversations').insert({
       user_id: userId,
       context: 'biomarker_extraction',
       messages: [
-        { role: 'user', content: source_type === 'image' ? '[Image uploaded]' : text_content?.substring(0, 500) },
-        { role: 'assistant', content: responseText }
+        { role: 'user', content: source_type === 'image' ? `[${processedImages.length} image(s) uploaded]` : text_content?.substring(0, 500) },
+        { role: 'assistant', content: conversationSummary }
       ],
       extracted_data: extractedData,
       created_at: new Date().toISOString(),
@@ -500,7 +793,7 @@ Return ONLY valid JSON in this exact format:
           });
         }
       } else {
-        // Regular image processing with vision API
+        // Regular image processing with vision API (resize if needed)
         let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
         let base64Data = image_base64;
 
@@ -517,13 +810,16 @@ Return ONLY valid JSON in this exact format:
           base64Data = image_base64.split(',')[1];
         }
 
+        // Resize image if needed
+        const resizedData = await resizeImageIfNeeded(base64Data, mediaType);
+
         userContent = [
           {
             type: 'image',
             source: {
               type: 'base64',
               media_type: mediaType,
-              data: base64Data
+              data: resizedData
             }
           },
           {
@@ -872,7 +1168,7 @@ Please provide a personalized analysis of my ${biomarkerName} status and trend.`
 router.post('/chat', async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    const { message, context, include_user_data }: HealthChatRequest = req.body;
+    const { message, context, include_user_data, biomarker_name, title } = req.body;
 
     if (!message) {
       return res.status(400).json({
@@ -885,13 +1181,22 @@ router.post('/chat', async (req: Request, res: Response): Promise<any> => {
     // Optionally fetch user's health data for context
     let userContext = '';
     if (include_user_data) {
-      // Fetch recent biomarkers
-      const { data: biomarkers } = await supabase
+      // If biomarker_name is specified, get all readings for that specific biomarker
+      let biomarkersQuery = supabase
         .from('biomarkers')
         .select('name, value, unit, date_tested')
         .eq('user_id', userId)
-        .order('date_tested', { ascending: false })
-        .limit(20);
+        .order('date_tested', { ascending: true }); // Chronological for trend analysis
+
+      if (biomarker_name) {
+        // Get all readings for this specific biomarker (for trend analysis)
+        biomarkersQuery = biomarkersQuery.eq('name', biomarker_name);
+      } else {
+        // General query - get recent biomarkers across all types
+        biomarkersQuery = biomarkersQuery.limit(20);
+      }
+
+      const { data: biomarkers } = await biomarkersQuery;
 
       // Fetch active supplements
       const { data: supplements } = await supabase
@@ -910,7 +1215,10 @@ router.post('/chat', async (req: Request, res: Response): Promise<any> => {
       if (biomarkers?.length || supplements?.length || goals?.length) {
         userContext = `\n\n## User's Health Data (for context):\n`;
         if (biomarkers?.length) {
-          userContext += `\n### Recent Biomarkers:\n${JSON.stringify(biomarkers, null, 2)}`;
+          const biomarkerLabel = biomarker_name
+            ? `### ${biomarker_name} History (${biomarkers.length} readings):`
+            : '### Recent Biomarkers:';
+          userContext += `\n${biomarkerLabel}\n${JSON.stringify(biomarkers, null, 2)}`;
         }
         if (supplements?.length) {
           userContext += `\n### Active Supplements:\n${JSON.stringify(supplements, null, 2)}`;
@@ -969,6 +1277,8 @@ router.post('/chat', async (req: Request, res: Response): Promise<any> => {
     await supabase.from('ai_conversations').insert({
       user_id: userId,
       context: context || 'general',
+      biomarker_name: biomarker_name || null,
+      title: title || (biomarker_name ? `Chat about ${biomarker_name}` : null),
       messages: [
         { role: 'user', content: message, timestamp: new Date().toISOString() },
         { role: 'assistant', content: responseText, timestamp: new Date().toISOString() }
@@ -996,23 +1306,173 @@ router.post('/chat', async (req: Request, res: Response): Promise<any> => {
 });
 
 /**
+ * POST /api/v1/ai/chat/stream
+ * Health assistant chat with streaming response (SSE)
+ */
+router.post('/chat/stream', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { message, context, include_user_data, biomarker_name, title } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        error: 'message is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Set up SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Optionally fetch user's health data for context
+    let userContext = '';
+    if (include_user_data) {
+      // If biomarker_name is specified, get all readings for that specific biomarker
+      let biomarkersQuery = supabase
+        .from('biomarkers')
+        .select('name, value, unit, date_tested')
+        .eq('user_id', userId)
+        .order('date_tested', { ascending: true }); // Chronological for trend analysis
+
+      if (biomarker_name) {
+        // Get all readings for this specific biomarker (for trend analysis)
+        biomarkersQuery = biomarkersQuery.eq('name', biomarker_name);
+      } else {
+        // General query - get recent biomarkers across all types
+        biomarkersQuery = biomarkersQuery.limit(20);
+      }
+
+      const { data: biomarkers } = await biomarkersQuery;
+
+      const { data: supplements } = await supabase
+        .from('supplements')
+        .select('name, dose, timing, frequency')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (biomarkers?.length || supplements?.length) {
+        userContext = `\n\n## User's Health Data:\n`;
+        if (biomarkers?.length) {
+          const biomarkerLabel = biomarker_name
+            ? `### ${biomarker_name} History (${biomarkers.length} readings):`
+            : '### Recent Biomarkers:';
+          userContext += `\n${biomarkerLabel}\n${JSON.stringify(biomarkers, null, 2)}`;
+        }
+        if (supplements?.length) {
+          userContext += `\n### Active Supplements:\n${JSON.stringify(supplements, null, 2)}`;
+        }
+      }
+    }
+
+    const systemPrompt = `You are Alex, a friendly AI health assistant for Singularity. Be concise and helpful.
+
+## Your Style:
+- Brief, direct answers (2-4 sentences for simple questions)
+- Friendly but not overly chatty
+- Use bullet points for lists
+- Don't over-explain unless asked
+
+## For "Update my data" requests:
+Simply ask: "What would you like to update?" and wait for their response.
+Options you can help with: add new reading, edit existing value, or delete an entry.
+
+## Guidelines:
+- Evidence-based information when possible
+- Always recommend consulting healthcare providers for medical decisions
+- Be helpful but concise${userContext}`;
+
+    // Get user's Anthropic API key
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      res.write(`data: ${JSON.stringify({ error: 'No Anthropic API key configured' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    let fullResponse = '';
+
+    // Stream the response
+    const stream = await anthropic.messages.stream({
+      model: AI_CONFIG.model,
+      max_tokens: 1024, // Shorter for chat
+      temperature: 0.7,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: message }]
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        const text = event.delta.text;
+        fullResponse += text;
+        res.write(`data: ${JSON.stringify({ text, done: false })}\n\n`);
+      }
+    }
+
+    // Send completion signal
+    res.write(`data: ${JSON.stringify({ text: '', done: true })}\n\n`);
+    res.end();
+
+    // Save conversation asynchronously (don't block response)
+    (async () => {
+      try {
+        await supabase.from('ai_conversations').insert({
+          user_id: userId,
+          context: context || 'general',
+          biomarker_name: biomarker_name || null,
+          title: title || (biomarker_name ? `Chat about ${biomarker_name}` : null),
+          messages: [
+            { role: 'user', content: message, timestamp: new Date().toISOString() },
+            { role: 'assistant', content: fullResponse, timestamp: new Date().toISOString() }
+          ],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('Failed to save conversation:', err);
+      }
+    })();
+
+  } catch (error: any) {
+    console.error('POST /ai/chat/stream error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Chat stream failed',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+/**
  * GET /api/v1/ai/conversations
  * Get user's AI conversation history
  */
 router.get('/conversations', async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    const { context, limit = 20 } = req.query;
+    const { context, biomarker_name, limit = 20 } = req.query;
 
     let query = supabase
       .from('ai_conversations')
-      .select('id, context, messages, created_at')
+      .select('id, context, biomarker_name, title, messages, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(Number(limit));
 
     if (context) {
       query = query.eq('context', context);
+    }
+
+    if (biomarker_name) {
+      query = query.eq('biomarker_name', biomarker_name);
     }
 
     const { data, error } = await query;
@@ -1035,6 +1495,373 @@ router.get('/conversations', async (req: Request, res: Response): Promise<any> =
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/ai/protocol-analysis
+ * Enhanced Protocol AI analysis with root cause correlation
+ * Fetches all relevant context and provides comprehensive analysis
+ */
+router.post('/protocol-analysis', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { biomarkerName, question } = req.body;
+
+    if (!biomarkerName && !question) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either biomarkerName or question is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Import supplement interactions dynamically
+    const { getSupplementsAffectingBiomarker, getRelatedBiomarkers, getHepatotoxicSupplements } = await import('../data/supplementInteractions');
+
+    // Get biomarker reference data
+    const { match: biomarkerRef } = biomarkerName ? findBiomarkerMatch(biomarkerName) : { match: null };
+
+    // Fetch all relevant data in parallel
+    const [
+      biomarkerHistory,
+      relatedBiomarkersData,
+      activeSupplements,
+      recentChanges,
+      activeEquipment,
+      userGoals
+    ] = await Promise.all([
+      // Get biomarker history
+      biomarkerName ? supabase
+        .from('biomarkers')
+        .select('name, value, unit, date_tested')
+        .eq('user_id', userId)
+        .ilike('name', `%${biomarkerName}%`)
+        .order('date_tested', { ascending: true })
+        .limit(20) : { data: null },
+
+      // Get related biomarkers if we have a biomarker name
+      biomarkerName ? (async () => {
+        const relatedNames = getRelatedBiomarkers(biomarkerName);
+        if (relatedNames.length === 0) return { data: [] };
+
+        const { data } = await supabase
+          .from('biomarkers')
+          .select('name, value, unit, date_tested')
+          .eq('user_id', userId)
+          .order('date_tested', { ascending: false });
+
+        // Filter to related biomarkers and get latest for each
+        const latestByName = new Map();
+        for (const b of data || []) {
+          const isRelated = relatedNames.some(r =>
+            b.name.toLowerCase().includes(r.toLowerCase()) ||
+            r.toLowerCase().includes(b.name.toLowerCase())
+          );
+          if (isRelated && !latestByName.has(b.name)) {
+            latestByName.set(b.name, b);
+          }
+        }
+        return { data: Array.from(latestByName.values()) };
+      })() : { data: [] },
+
+      // Get active supplements
+      supabase
+        .from('supplements')
+        .select('name, dose, timing, frequency, category, created_at')
+        .eq('user_id', userId)
+        .eq('is_active', true),
+
+      // Get recent protocol changes (90 days)
+      supabase
+        .from('change_log')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('date', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString())
+        .order('date', { ascending: false })
+        .limit(30),
+
+      // Get active equipment
+      supabase
+        .from('equipment')
+        .select('name, category, usage_frequency, usage_timing')
+        .eq('user_id', userId)
+        .eq('is_active', true),
+
+      // Get active goals
+      supabase
+        .from('goals')
+        .select('title, target_biomarker, current_value, target_value, direction')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+    ]);
+
+    // Get supplements that could affect this biomarker
+    const potentialInteractions = biomarkerName
+      ? getSupplementsAffectingBiomarker(biomarkerName)
+      : [];
+
+    // Check which interactions match user's active supplements
+    const relevantInteractions = potentialInteractions.filter(interaction =>
+      activeSupplements.data?.some(supp =>
+        supp.name.toLowerCase().includes(interaction.supplement.toLowerCase()) ||
+        interaction.supplement.toLowerCase().includes(supp.name.toLowerCase())
+      )
+    );
+
+    // Get hepatotoxic supplements if analyzing liver markers
+    const liverMarkers = ['alt', 'ast', 'ggt', 'bilirubin', 'alkaline phosphatase'];
+    const isLiverMarker = biomarkerName && liverMarkers.some(m =>
+      biomarkerName.toLowerCase().includes(m)
+    );
+    const hepatotoxicSupplements = isLiverMarker ? getHepatotoxicSupplements() : [];
+
+    // Build comprehensive context for the AI
+    const contextParts: string[] = [];
+
+    // Biomarker data
+    if (biomarkerHistory.data && biomarkerHistory.data.length > 0) {
+      const history = biomarkerHistory.data;
+      const latest = history[history.length - 1];
+      const oldest = history[0];
+      const percentChange = oldest.value !== 0
+        ? ((latest.value - oldest.value) / oldest.value * 100).toFixed(1)
+        : 'N/A';
+
+      contextParts.push(`## ${biomarkerName} Data
+**Current Value:** ${latest.value} ${latest.unit} (${latest.date_tested})
+**Trend:** ${history.length} readings over time, ${percentChange}% change
+**History:** ${history.map(h => `${h.date_tested}: ${h.value}`).join(' → ')}
+${biomarkerRef?.optimalRange ? `**Optimal Range:** ${biomarkerRef.optimalRange.low}-${biomarkerRef.optimalRange.high} ${latest.unit}` : ''}
+${biomarkerRef?.trendPreference ? `**Health Direction:** ${biomarkerRef.trendPreference === 'lower_is_better' ? 'Lower is better' : biomarkerRef.trendPreference === 'higher_is_better' ? 'Higher is better' : 'Range is optimal'}` : ''}
+${biomarkerRef?.detailedDescription ? `**About:** ${biomarkerRef.detailedDescription}` : ''}`);
+    }
+
+    // Related biomarkers
+    if (relatedBiomarkersData.data && relatedBiomarkersData.data.length > 0) {
+      contextParts.push(`## Related Biomarkers (Latest Values)
+${relatedBiomarkersData.data.map((b: any) => `- **${b.name}:** ${b.value} ${b.unit} (${b.date_tested})`).join('\n')}`);
+    }
+
+    // Active supplements with potential interactions
+    if (activeSupplements.data && activeSupplements.data.length > 0) {
+      contextParts.push(`## Active Supplements (${activeSupplements.data.length} total)
+${activeSupplements.data.map((s: any) => `- ${s.name} ${s.dose || ''} ${s.timing ? `@ ${s.timing}` : ''} ${s.frequency ? `(${s.frequency})` : ''}`).join('\n')}`);
+    }
+
+    // Relevant supplement-biomarker interactions
+    if (relevantInteractions.length > 0) {
+      contextParts.push(`## Supplement-Biomarker Interactions (User is taking these)
+${relevantInteractions.map(i => `- **${i.supplement}** → ${i.effect}s ${biomarkerName} (${i.strength} effect)
+  Mechanism: ${i.mechanism}
+  Evidence: ${i.evidence}${i.notes ? `\n  Note: ${i.notes}` : ''}`).join('\n\n')}`);
+    }
+
+    // Hepatotoxic supplements warning
+    if (isLiverMarker && hepatotoxicSupplements.length > 0) {
+      const userHepato = hepatotoxicSupplements.filter(h =>
+        activeSupplements.data?.some(s =>
+          s.name.toLowerCase().includes(h.supplement.toLowerCase()) ||
+          h.aliases.some(a => s.name.toLowerCase().includes(a.toLowerCase()))
+        )
+      );
+      if (userHepato.length > 0) {
+        contextParts.push(`## ⚠️ Hepatotoxicity Considerations
+User is taking supplements with known liver effects:
+${userHepato.map(h => `- **${h.supplement}** (${h.risk} risk)`).join('\n')}`);
+      }
+    }
+
+    // Recent protocol changes
+    if (recentChanges.data && recentChanges.data.length > 0) {
+      contextParts.push(`## Recent Protocol Changes (Last 90 Days)
+${recentChanges.data.map((c: any) => `- ${c.date.split('T')[0]}: **${c.change_type.toUpperCase()}** ${c.item_type} "${c.item_name}"${c.previous_value ? ` (was: ${c.previous_value})` : ''}${c.new_value ? ` → ${c.new_value}` : ''}${c.reason ? ` — ${c.reason}` : ''}`).join('\n')}`);
+    }
+
+    // Active equipment
+    if (activeEquipment.data && activeEquipment.data.length > 0) {
+      contextParts.push(`## Active Equipment/Devices
+${activeEquipment.data.map((e: any) => `- ${e.name} (${e.category}) - ${e.usage_frequency || 'frequency not set'}`).join('\n')}`);
+    }
+
+    // Health goals
+    if (userGoals.data && userGoals.data.length > 0) {
+      contextParts.push(`## Active Health Goals
+${userGoals.data.map((g: any) => `- ${g.title}${g.target_biomarker ? ` (${g.direction} ${g.target_biomarker}: ${g.current_value} → ${g.target_value})` : ''}`).join('\n')}`);
+    }
+
+    const fullContext = contextParts.join('\n\n');
+
+    // Protocol AI System Prompt
+    const systemPrompt = `You are Protocol AI, a Functional Health Advisor with access to the user's complete health ecosystem. Your purpose is to provide ROOT CAUSE analysis—connecting biomarkers, supplements, lifestyle factors, and interventions.
+
+## Analysis Philosophy
+
+1. **Root Cause Over Symptom Chasing**: When a biomarker moves, ask "What changed in the system?" Consider:
+   - Recent protocol changes (supplements started/stopped, dose adjustments, timing shifts)
+   - Supplement interactions and cumulative load (especially hepatic)
+   - Timeline correlations (when did the trend start vs. what changed then?)
+
+2. **Holistic Pattern Recognition**: Never analyze in isolation. Cross-reference:
+   - Related markers (e.g., ALT rising → check AST, GGT, bilirubin)
+   - Upstream causes (e.g., liver enzymes → supplement load, protein intake, keto)
+   - Downstream effects
+
+3. **Evidence-Weighted Interpretation**:
+   - Strong evidence: Cite it confidently
+   - Mechanistic plausibility: "This could explain..."
+   - Speculation: Flag clearly as hypothesis
+
+## Response Format
+
+Provide analysis in this structure:
+
+**Pattern Recognition**
+What the data shows and related marker context.
+
+**Most Likely Contributors (Ranked)**
+1. [Most likely] — Why it fits
+2. [Second likely] — Supporting evidence
+3. [Consider] — Less likely but worth noting
+
+**Protective Factors**
+What's working in the user's favor.
+
+**Recommendations**
+- *Investigate:* What additional data would help
+- *Adjust:* Protocol modifications to consider
+- *Monitor:* When to retest, what to watch
+
+**Connect to Goals**
+How this relates to user's stated health objectives.
+
+## Tone
+- Direct and substantive
+- Explain mechanisms (the "why")
+- Acknowledge uncertainty
+- Encourage professional consultation for medical decisions`;
+
+    const userMessage = question || `Analyze my ${biomarkerName} data and provide root cause insights. What in my protocol might be affecting this marker?`;
+
+    console.log('Protocol Analysis: Starting API call for biomarker:', biomarkerName);
+    console.log('Protocol Analysis: Context length:', fullContext.length);
+
+    // Get user's Anthropic API key
+    const anthropic = await getAnthropicClient(userId);
+    console.log('Protocol Analysis: Got Anthropic client:', !!anthropic);
+    if (!anthropic) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        error_type: 'NO_API_KEY',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log('Protocol Analysis: Calling Anthropic API...');
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: 2000,
+      temperature: 0.7,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `${fullContext}\n\n---\n\n**User Question:** ${userMessage}`
+        }
+      ]
+    });
+    console.log('Protocol Analysis: Got response from Anthropic');
+    console.log('Protocol Analysis: Response content blocks:', response.content.length);
+
+    const responseText = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as any).text)
+      .join('');
+
+    console.log('Protocol Analysis: Response text length:', responseText.length);
+
+    // Store conversation
+    await supabase.from('ai_conversations').insert({
+      user_id: userId,
+      context: 'protocol_analysis',
+      messages: [
+        { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
+        { role: 'assistant', content: responseText, timestamp: new Date().toISOString() }
+      ],
+      extracted_data: {
+        biomarkerName,
+        relevantInteractions: relevantInteractions.length,
+        recentChanges: recentChanges.data?.length || 0,
+        activeSupplements: activeSupplements.data?.length || 0
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    // Build hepatotoxicity warnings for liver markers
+    const hepatotoxicityWarnings: Array<{ supplement: string; risk: string }> = [];
+    if (isLiverMarker && hepatotoxicSupplements.length > 0) {
+      for (const h of hepatotoxicSupplements) {
+        const userTakes = activeSupplements.data?.some(s =>
+          s.name.toLowerCase().includes(h.supplement.toLowerCase()) ||
+          h.aliases.some(a => s.name.toLowerCase().includes(a.toLowerCase()))
+        );
+        if (userTakes) {
+          hepatotoxicityWarnings.push({
+            supplement: h.supplement,
+            risk: h.risk
+          });
+        }
+      }
+    }
+
+    const responseData = {
+      success: true,
+      data: {
+        analysis: responseText,
+        correlations: {
+          supplements: relevantInteractions.map(i => ({
+            name: i.supplement,
+            effect: i.effect,
+            strength: i.strength,
+            mechanism: i.mechanism
+          })),
+          changes: (recentChanges.data || []).slice(0, 10).map((c: any) => ({
+            item_name: c.item_name,
+            change_type: c.change_type,
+            changed_at: c.date
+          })),
+          relatedBiomarkers: (relatedBiomarkersData.data || []).map((b: any) => ({
+            name: b.name,
+            value: b.value,
+            unit: b.unit,
+            status: 'measured' // Could add status calculation here
+          }))
+        },
+        hepatotoxicityWarnings: hepatotoxicityWarnings.length > 0 ? hepatotoxicityWarnings : undefined,
+        context: {
+          biomarker: biomarkerHistory.data?.[biomarkerHistory.data.length - 1] || null,
+          activeSupplements: activeSupplements.data?.length || 0,
+          relevantInteractions: relevantInteractions.length,
+          recentChanges: recentChanges.data?.length || 0
+        }
+      },
+      timestamp: new Date().toISOString()
+    };
+    console.log('Protocol Analysis: Sending response with keys:', Object.keys(responseData.data));
+    res.json(responseData);
+    console.log('Protocol Analysis: Response sent successfully');
+  } catch (error: any) {
+    console.error('POST /ai/protocol-analysis error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Protocol analysis failed',
+      error_type: error.constructor?.name,
       timestamp: new Date().toISOString()
     });
   }
