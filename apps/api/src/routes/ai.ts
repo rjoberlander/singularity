@@ -1245,9 +1245,12 @@ router.post('/extract-supplements/stream', async (req: Request, res: Response): 
         supplement.field_confidence = {};
       }
 
-      // Check each field
+      // Check each field and stream results one by one
       const lowConfidenceFields: string[] = [];
       const fieldStatuses: Array<{ key: string; status: string; confidence?: number }> = [];
+
+      // Helper to add delay between field events for visual effect
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
       for (const field of REQUIRED_FIELDS) {
         const value = supplement[field];
@@ -1257,9 +1260,15 @@ router.post('/extract-supplements/stream', async (req: Request, res: Response): 
         if (!value || fieldConf < 0.8) {
           lowConfidenceFields.push(field);
           fieldStatuses.push({ key: field, status: 'missing', confidence: fieldConf });
+          // Send per-field event for missing fields too
+          sendProgress('field_not_found', { field, confidence: fieldConf, source: 'ai_analysis' });
         } else {
           fieldStatuses.push({ key: field, status: 'found', confidence: fieldConf });
+          // Stream each found field individually with its value
+          sendProgress('field_found', { field, value, confidence: fieldConf, source: 'ai_analysis' });
         }
+        // Delay between fields for visual streaming effect (200ms = ~1.6s for all 8 fields)
+        await delay(200);
       }
 
       sendProgress('first_pass_done', {

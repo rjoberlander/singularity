@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useUpdateSupplement } from "@/hooks/useSupplements";
-import { Supplement } from "@/types";
+import { Supplement, SupplementTiming } from "@/types";
 import { aiApi } from "@/lib/api";
 import {
   Plus,
@@ -371,7 +371,7 @@ export default function SupplementsPage() {
       const updates = Object.entries(urlEntries).filter(([_, url]) => url.trim() !== "");
 
       for (const [id, url] of updates) {
-        await updateSupplement.mutateAsync({ id, purchase_url: url });
+        await updateSupplement.mutateAsync({ id, data: { purchase_url: url } });
       }
 
       if (updates.length > 0) {
@@ -428,8 +428,10 @@ export default function SupplementsPage() {
         if (data.frequency || data.timings.length > 0) {
           await updateSupplement.mutateAsync({
             id,
-            frequency: data.frequency || undefined,
-            timings: data.timings.length > 0 ? data.timings : undefined,
+            data: {
+              frequency: data.frequency || undefined,
+              timings: data.timings.length > 0 ? data.timings as SupplementTiming[] : undefined,
+            },
           });
           updateCount++;
         }
@@ -505,37 +507,32 @@ export default function SupplementsPage() {
             }));
           }
 
-          // Handle first_pass_done - animate fields appearing one by one
-          if (event.step === 'first_pass_done' && event.fields && event.supplement) {
+          // Handle first_pass_done as fallback (fields already streamed via field_found)
+          // This ensures we have all data even if some field_found events were missed
+          if (event.step === 'first_pass_done' && event.supplement) {
             const supplementData = event.supplement as Record<string, any>;
-            const foundFields = (event.fields as Array<{ key: string; status: string }>)
-              .filter(f => f.status === 'found');
+            const fieldsToUpdate: Record<string, any> = {};
 
-            // Animate each field appearing with a small delay
-            foundFields.forEach((field, index) => {
-              setTimeout(() => {
-                const fieldKey = field.key;
-                let fieldValue: any = supplementData[fieldKey];
-
-                if (fieldValue === undefined || fieldValue === null) return;
-
-                // Normalize and convert values appropriately
+            for (const fieldKey of ['brand', 'price', 'servings_per_container', 'serving_size', 'intake_form', 'dose_per_serving', 'dose_unit', 'category']) {
+              let fieldValue = supplementData[fieldKey];
+              if (fieldValue !== undefined && fieldValue !== null) {
                 if (fieldKey === 'intake_form' || fieldKey === 'category') {
                   fieldValue = normalizeValue(fieldValue as string);
                 }
+                fieldsToUpdate[fieldKey] = fieldValue;
+              }
+            }
 
-                setBatchAIResults((prev) => ({
-                  ...prev,
-                  [supplementId]: {
-                    ...prev[supplementId],
-                    data: {
-                      ...prev[supplementId]?.data,
-                      [fieldKey]: fieldValue,
-                    }
-                  }
-                }));
-              }, index * 150); // 150ms delay between each field
-            });
+            setBatchAIResults((prev) => ({
+              ...prev,
+              [supplementId]: {
+                ...prev[supplementId],
+                data: {
+                  ...prev[supplementId]?.data,
+                  ...fieldsToUpdate,
+                }
+              }
+            }));
           }
         },
         (data) => {
@@ -628,7 +625,7 @@ export default function SupplementsPage() {
           if (result.data.dose_unit) updateData.dose_unit = result.data.dose_unit;
           if (result.data.category) updateData.category = result.data.category;
 
-          await updateSupplement.mutateAsync({ id, ...updateData });
+          await updateSupplement.mutateAsync({ id, data: updateData });
           savedCount++;
         }
       }

@@ -45,21 +45,21 @@ test.describe('Batch AI Population Modal', () => {
     // Wait for fetching to start - look for "Fetching" status
     console.log('Waiting for AI to fetch data and watching per-field updates...');
 
-    // Poll more frequently to catch per-field updates
+    // Poll very frequently to catch per-field updates (200ms intervals)
     let foundCount = 0;
     let errorCount = 0;
     let screenshotIndex = 0;
 
-    for (let i = 0; i < 60; i++) { // 60 iterations * 500ms = 30 seconds max for first few
-      await page.waitForTimeout(500);
+    for (let i = 0; i < 150; i++) { // 150 iterations * 200ms = 30 seconds max
+      await page.waitForTimeout(200);
 
       // Count "Found" statuses
       const foundElements = await page.locator('text="Found"').count();
       const errorElements = await page.locator('text="Error"').count();
       const fetchingElements = await page.locator('text="Fetching"').count();
 
-      // Take screenshot every few iterations to catch per-field animation
-      if (i < 20 || i % 5 === 0) {
+      // Take screenshot every iteration for first 40 to catch per-field animation
+      if (i < 40 || i % 10 === 0) {
         await page.screenshot({ path: `tests/screenshots/batch-ai-frame-${screenshotIndex++}.png` });
       }
 
