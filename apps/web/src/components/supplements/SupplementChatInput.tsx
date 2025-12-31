@@ -5,9 +5,8 @@ import Link from "next/link";
 import { useHasActiveAIKey } from "@/hooks/useAI";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Paperclip, Send, X, FileText, Image as ImageIcon, Upload, Link2, AlertTriangle } from "lucide-react";
+import { Paperclip, Send, X, FileText, Image as ImageIcon, Upload, AlertTriangle } from "lucide-react";
 
 // ~50K chars is safe for Claude's context (leaves room for system prompt + response)
 const MAX_TEXT_LENGTH = 50000;
@@ -20,10 +19,8 @@ interface SupplementChatInputProps {
 
 export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatInputProps) {
   const [text, setText] = useState("");
-  const [url, setUrl] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [inputMode, setInputMode] = useState<"text" | "url">("text");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -31,18 +28,16 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
   const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
 
   const handleSubmit = useCallback(() => {
-    if (!text.trim() && !attachedFile && !url.trim()) return;
+    if (!text.trim() && !attachedFile) return;
 
     onSubmit({
       text: text.trim() || undefined,
       file: attachedFile || undefined,
-      url: url.trim() || undefined,
     });
 
     setText("");
-    setUrl("");
     setAttachedFile(null);
-  }, [text, attachedFile, url, onSubmit]);
+  }, [text, attachedFile, onSubmit]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -55,7 +50,6 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
     const file = e.target.files?.[0];
     if (file) {
       setAttachedFile(file);
-      setInputMode("text");
     }
   };
 
@@ -70,14 +64,6 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
           return;
         }
       }
-    }
-
-    // Check if pasting a URL
-    const pastedText = e.clipboardData.getData("text");
-    if (pastedText && (pastedText.startsWith("http://") || pastedText.startsWith("https://"))) {
-      e.preventDefault();
-      setUrl(pastedText);
-      setInputMode("url");
     }
   };
 
@@ -110,7 +96,6 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
       const file = files[0];
       if (file.type.startsWith("image/") || file.type === "application/pdf") {
         setAttachedFile(file);
-        setInputMode("text");
       }
     }
   };
@@ -177,64 +162,30 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
             </div>
           )}
 
-          {/* Mode toggle */}
-          <div className="flex gap-1 mb-2">
-            <Button
-              size="sm"
-              variant={inputMode === "text" ? "default" : "ghost"}
-              className="h-6 text-xs px-2"
-              onClick={() => setInputMode("text")}
-            >
-              Text/Image
-            </Button>
-            <Button
-              size="sm"
-              variant={inputMode === "url" ? "default" : "ghost"}
-              className="h-6 text-xs px-2"
-              onClick={() => setInputMode("url")}
-            >
-              <Link2 className="w-3 h-3 mr-1" />
-              URL
-            </Button>
-          </div>
-
-          {inputMode === "text" ? (
-            <div className="space-y-1">
-              <Textarea
-                data-testid="supplement-chat-input"
-                value={text}
-                onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder="Paste supplement info or receipt..."
-                className="min-h-[80px] max-h-[120px] resize-none text-sm px-2"
-                rows={3}
-                disabled={isProcessing}
-              />
-              {text.length > 0 && (
-                <div className={`text-[10px] text-right px-1 ${
-                  text.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
-                  text.length > WARNING_THRESHOLD ? "text-amber-500" :
-                  "text-muted-foreground"
-                }`}>
-                  {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
-                  {text.length > WARNING_THRESHOLD && text.length <= MAX_TEXT_LENGTH && " (approaching limit)"}
-                  {text.length > MAX_TEXT_LENGTH && " (over limit)"}
-                </div>
-              )}
-            </div>
-          ) : (
-            <Input
-              data-testid="supplement-url-input"
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
+          <div className="space-y-1">
+            <Textarea
+              data-testid="supplement-chat-input"
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
               onKeyDown={handleKeyDown}
-              placeholder="https://amazon.com/dp/..."
-              className="mb-2 text-sm"
+              onPaste={handlePaste}
+              placeholder="Drag & drop file or copy/paste text or URL for AI extraction."
+              className="min-h-[80px] max-h-[120px] resize-none text-sm px-2"
+              rows={3}
               disabled={isProcessing}
             />
-          )}
+            {text.length > 0 && (
+              <div className={`text-[10px] text-right px-1 ${
+                text.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
+                text.length > WARNING_THRESHOLD ? "text-amber-500" :
+                "text-muted-foreground"
+              }`}>
+                {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
+                {text.length > WARNING_THRESHOLD && text.length <= MAX_TEXT_LENGTH && " (approaching limit)"}
+                {text.length > MAX_TEXT_LENGTH && " (over limit)"}
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-col gap-2">
             <Button
@@ -253,7 +204,7 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
               size="sm"
               className="w-full h-8 text-xs"
               onClick={handleSubmit}
-              disabled={isProcessing || (!text.trim() && !attachedFile && !url.trim()) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
+              disabled={isProcessing || (!text.trim() && !attachedFile) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
             >
               <Send className="w-3 h-3 mr-1.5" />
               Extract Supplements

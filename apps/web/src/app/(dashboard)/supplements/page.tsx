@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useSupplements, useSupplementCosts } from "@/hooks/useSupplements";
 import { SupplementCard } from "@/components/supplements/SupplementCard";
 import { SupplementForm } from "@/components/supplements/SupplementForm";
+import { SupplementAddCombinedModal } from "@/components/supplements/SupplementAddCombinedModal";
 import { SupplementChatInput } from "@/components/supplements/SupplementChatInput";
 import { SupplementExtractionModal } from "@/components/supplements/SupplementExtractionModal";
-import { SupplementUrlModal } from "@/components/supplements/SupplementUrlModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,7 +28,6 @@ import {
   Zap,
   MoreHorizontal,
   LucideIcon,
-  Link2,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -86,11 +85,11 @@ export default function SupplementsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const [editingSupplement, setEditingSupplement] = useState<Supplement | null>(null);
   const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
   const [extractionInput, setExtractionInput] = useState<{ text?: string; file?: File; url?: string } | undefined>();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
 
   const { data: supplements, isLoading, error, refetch } = useSupplements({
     category: selectedCategory === "All" ? undefined : selectedCategory.toLowerCase().replace(" ", "_"),
@@ -236,32 +235,16 @@ export default function SupplementsPage() {
                   <SupplementChatInput onSubmit={handleChatSubmit} isProcessing={isProcessing} />
                 </div>
 
-                {/* Add from URL Button */}
+                {/* Add Supplement Button */}
                 <div className="pt-2">
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={() => setIsUrlModalOpen(true)}
-                  >
-                    <Link2 className="w-4 h-4 mr-2" />
-                    Add from URL
-                  </Button>
-                </div>
-
-                {/* Add Manually Button */}
-                <div className="pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => {
-                      setEditingSupplement(null);
-                      setFormOpen(true);
-                    }}
+                    onClick={() => setAddModalOpen(true)}
                   >
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Manually
+                    Add Supplement
                   </Button>
                 </div>
               </div>
@@ -311,17 +294,14 @@ export default function SupplementsPage() {
                         isProcessing={isProcessing}
                       />
 
-                      {/* Add Manually Button */}
+                      {/* Add Supplement Button */}
                       <Button
                         variant="outline"
                         className="w-full"
-                        onClick={() => {
-                          setEditingSupplement(null);
-                          setFormOpen(true);
-                        }}
+                        onClick={() => setAddModalOpen(true)}
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Manually
+                        Add Supplement
                       </Button>
                     </div>
                   </div>
@@ -340,11 +320,23 @@ export default function SupplementsPage() {
         )}
       </div>
 
-      {/* Form Dialog */}
+      {/* Edit Form Dialog (for editing existing supplements) */}
       <SupplementForm
         supplement={editingSupplement}
         open={formOpen}
         onOpenChange={setFormOpen}
+      />
+
+      {/* Add Combined Modal (AI/Manual tabs) */}
+      <SupplementAddCombinedModal
+        open={addModalOpen}
+        onOpenChange={setAddModalOpen}
+        onSuccess={() => refetch()}
+        onOpenExtractionModal={(input) => {
+          setExtractionInput(input);
+          setIsProcessing(true);
+          setIsExtractionModalOpen(true);
+        }}
       />
 
       {/* Extraction Modal */}
@@ -353,13 +345,6 @@ export default function SupplementsPage() {
         onOpenChange={handleModalClose}
         onSuccess={() => refetch()}
         initialInput={extractionInput}
-      />
-
-      {/* URL Modal */}
-      <SupplementUrlModal
-        open={isUrlModalOpen}
-        onOpenChange={setIsUrlModalOpen}
-        onSuccess={() => refetch()}
       />
     </div>
   );

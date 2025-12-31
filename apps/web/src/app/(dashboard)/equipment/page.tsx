@@ -376,7 +376,7 @@ export default function EquipmentPage() {
                         data-testid="equipment-ai-input"
                         value={aiInput}
                         onChange={(e) => setAiInput(e.target.value.slice(0, MAX_TEXT_LENGTH))}
-                        placeholder="Paste equipment info (device names, specs, usage protocols)..."
+                        placeholder="Drag & drop file or copy/paste text or URL for AI extraction."
                         className="min-h-[80px] text-xs resize-none"
                         rows={4}
                         disabled={isExtracting}

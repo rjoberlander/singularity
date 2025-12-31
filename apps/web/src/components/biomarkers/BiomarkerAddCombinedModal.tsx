@@ -927,7 +927,7 @@ export function BiomarkerAddCombinedModal({
   // Determine dialog size based on step
   const dialogClassName = step === "review"
     ? "w-[95vw] max-w-[80vw] sm:max-w-[85vw] lg:max-w-[80vw] max-h-[85vh] overflow-hidden flex flex-col"
-    : "sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col";
+    : "sm:max-w-2xl max-h-[85vh] overflow-hidden flex flex-col";
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
