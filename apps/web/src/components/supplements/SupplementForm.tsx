@@ -7,13 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -21,35 +14,35 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useCreateSupplement, useUpdateSupplement, useDeleteSupplement } from "@/hooks/useSupplements";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Copy, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
-  "vitamin",
-  "mineral",
-  "amino_acid",
-  "herb",
-  "probiotic",
-  "omega",
-  "antioxidant",
-  "hormone",
-  "enzyme",
-  "other",
+  { value: "vitamin", label: "Vitamin" },
+  { value: "mineral", label: "Mineral" },
+  { value: "amino_acid", label: "Amino" },
+  { value: "herb", label: "Herb" },
+  { value: "probiotic", label: "Probiotic" },
+  { value: "omega", label: "Omega" },
+  { value: "antioxidant", label: "Antioxidant" },
+  { value: "hormone", label: "Hormone" },
+  { value: "enzyme", label: "Enzyme" },
+  { value: "other", label: "Other" },
 ];
 
 const TIMING_OPTIONS = [
   { value: "wake_up", label: "Wake Up" },
-  { value: "am", label: "AM (Morning)" },
+  { value: "am", label: "AM" },
   { value: "lunch", label: "Lunch" },
-  { value: "pm", label: "PM (Afternoon)" },
+  { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
-  { value: "before_bed", label: "Before Bed" },
+  { value: "before_bed", label: "Bed" },
 ];
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
-  { value: "twice_daily", label: "Twice Daily" },
-  { value: "three_times_daily", label: "3x Daily" },
+  { value: "twice_daily", label: "2x/day" },
+  { value: "three_times_daily", label: "3x/day" },
   { value: "weekly", label: "Weekly" },
   { value: "as_needed", label: "As Needed" },
 ];
@@ -64,14 +57,48 @@ const INTAKE_FORM_OPTIONS = [
 ];
 
 const DOSE_UNIT_OPTIONS = [
-  { value: "mg", label: "mg (milligrams)" },
-  { value: "g", label: "g (grams)" },
-  { value: "mcg", label: "mcg (micrograms)" },
-  { value: "IU", label: "IU (International Units)" },
-  { value: "ml", label: "ml (milliliters)" },
-  { value: "CFU", label: "CFU (Colony Forming Units)" },
-  { value: "%", label: "% (percent)" },
+  { value: "mg", label: "mg" },
+  { value: "g", label: "g" },
+  { value: "mcg", label: "mcg" },
+  { value: "IU", label: "IU" },
+  { value: "ml", label: "ml" },
+  { value: "CFU", label: "CFU" },
 ];
+
+// Chip selector component
+function ChipSelector({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex flex-wrap gap-1">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value === value ? "" : opt.value)}
+            className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+              value === opt.value
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface SupplementFormProps {
   supplement?: Supplement | null;
@@ -81,6 +108,7 @@ interface SupplementFormProps {
 
 export function SupplementForm({ supplement, open, onOpenChange }: SupplementFormProps) {
   const isEditing = !!supplement;
+  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState<CreateSupplementRequest>({
     name: "",
@@ -136,6 +164,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         notes: "",
       });
     }
+    setCopied(false);
   }, [supplement, open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -171,253 +200,232 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     }
   };
 
+  const handleCopyUrl = async () => {
+    if (formData.purchase_url) {
+      await navigator.clipboard.writeText(formData.purchase_url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const isPending = createSupplement.isPending || updateSupplement.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? "Edit Supplement" : "Add Supplement"}
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Name & Brand row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="name" className="text-xs text-muted-foreground">Name *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Vitamin D3"
+                placeholder="Vitamin D3"
                 required
+                className="h-8"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="brand">Brand</Label>
+            <div className="space-y-1">
+              <Label htmlFor="brand" className="text-xs text-muted-foreground">Brand</Label>
               <Input
                 id="brand"
                 value={formData.brand}
                 onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                placeholder="e.g., Thorne"
+                placeholder="Thorne"
+                className="h-8"
               />
             </div>
           </div>
 
-          {/* Intake Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="intake_quantity">Intake</Label>
-              <Select
-                value={(formData.intake_quantity || 1).toString()}
-                onValueChange={(value) => setFormData({ ...formData, intake_quantity: parseInt(value, 10) })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Qty" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                    <SelectItem key={num} value={num.toString()}>
-                      {num}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="intake_form">Form</Label>
-              <Select
-                value={formData.intake_form || ""}
-                onValueChange={(value) => setFormData({ ...formData, intake_form: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select form" />
-                </SelectTrigger>
-                <SelectContent>
-                  {INTAKE_FORM_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dose_per_serving">Per Serving</Label>
+          {/* Form selector */}
+          <ChipSelector
+            label="Form"
+            options={INTAKE_FORM_OPTIONS}
+            value={formData.intake_form || ""}
+            onChange={(value) => setFormData({ ...formData, intake_form: value })}
+          />
+
+          {/* Dosage row - compact */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Qty</Label>
               <Input
-                id="dose_per_serving"
+                type="number"
+                min={1}
+                value={formData.intake_quantity || 1}
+                onChange={(e) => setFormData({ ...formData, intake_quantity: parseInt(e.target.value, 10) || 1 })}
+                className="h-8 w-full"
+              />
+            </div>
+            <div className="space-y-1 col-span-2">
+              <Label className="text-xs text-muted-foreground">Dose/Serving</Label>
+              <Input
                 type="number"
                 step="any"
                 value={formData.dose_per_serving ?? ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    dose_per_serving: e.target.value ? parseFloat(e.target.value) : undefined,
-                  })
-                }
-                placeholder="e.g., 1000"
+                onChange={(e) => setFormData({ ...formData, dose_per_serving: e.target.value ? parseFloat(e.target.value) : undefined })}
+                placeholder="1000"
+                className="h-8"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="dose_unit">Unit</Label>
-              <Select
-                value={formData.dose_unit}
-                onValueChange={(value) => setFormData({ ...formData, dose_unit: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Unit" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DOSE_UNIT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Unit</Label>
+              <div className="flex flex-wrap gap-0.5">
+                {DOSE_UNIT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, dose_unit: opt.value === formData.dose_unit ? "" : opt.value })}
+                    className={`px-1.5 py-0.5 text-[10px] rounded border transition-colors ${
+                      formData.dose_unit === opt.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
-              <Select
-                value={formData.category}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat.charAt(0).toUpperCase() + cat.slice(1).replace("_", " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="timing">Timing</Label>
-              <Select
-                value={formData.timing}
-                onValueChange={(value) => setFormData({ ...formData, timing: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select timing" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMING_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          {/* Timing selector */}
+          <ChipSelector
+            label="Timing"
+            options={TIMING_OPTIONS}
+            value={formData.timing || ""}
+            onChange={(value) => setFormData({ ...formData, timing: value })}
+          />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="frequency">Frequency</Label>
-              <Select
-                value={formData.frequency}
-                onValueChange={(value) => setFormData({ ...formData, frequency: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  {FREQUENCY_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="servings_per_container">Servings Per Container</Label>
+          {/* Frequency selector */}
+          <ChipSelector
+            label="Frequency"
+            options={FREQUENCY_OPTIONS}
+            value={formData.frequency || ""}
+            onChange={(value) => setFormData({ ...formData, frequency: value })}
+          />
+
+          {/* Category selector */}
+          <ChipSelector
+            label="Category"
+            options={CATEGORIES}
+            value={formData.category || ""}
+            onChange={(value) => setFormData({ ...formData, category: value })}
+          />
+
+          {/* Price & Servings row */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Price ($)</Label>
               <Input
-                id="servings_per_container"
-                type="number"
-                value={formData.servings_per_container ?? ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    servings_per_container: e.target.value ? parseInt(e.target.value) : undefined,
-                  })
-                }
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="price">Price ($)</Label>
-              <Input
-                id="price"
                 type="number"
                 step="0.01"
                 value={formData.price ?? ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    price: e.target.value ? parseFloat(e.target.value) : undefined,
-                  })
-                }
+                onChange={(e) => setFormData({ ...formData, price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                className="h-8"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="purchase_url">Purchase URL</Label>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Servings</Label>
               <Input
-                id="purchase_url"
+                type="number"
+                value={formData.servings_per_container ?? ""}
+                onChange={(e) => setFormData({ ...formData, servings_per_container: e.target.value ? parseInt(e.target.value) : undefined })}
+                className="h-8"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">$/Serving</Label>
+              <div className="h-8 flex items-center text-sm text-muted-foreground">
+                {formData.price && formData.servings_per_container
+                  ? `$${(formData.price / formData.servings_per_container).toFixed(2)}`
+                  : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* URL row with copy/open buttons */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Purchase URL</Label>
+            <div className="flex gap-1">
+              <Input
                 type="url"
                 value={formData.purchase_url}
                 onChange={(e) => setFormData({ ...formData, purchase_url: e.target.value })}
-                placeholder="https://..."
+                placeholder="https://amazon.com/..."
+                className="h-8 flex-1"
               />
+              {formData.purchase_url && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2"
+                    onClick={handleCopyUrl}
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2"
+                    onClick={() => window.open(formData.purchase_url, "_blank")}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
+          {/* Notes - collapsible or smaller */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Notes</Label>
             <Textarea
-              id="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              placeholder="Any additional notes..."
+              rows={2}
+              placeholder="Additional notes..."
+              className="text-sm resize-none"
             />
           </div>
 
-          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+          <DialogFooter className="flex flex-row justify-between gap-2 pt-2">
             <div>
               {isEditing && (
                 <Button
                   type="button"
                   variant="destructive"
+                  size="sm"
                   onClick={handleDelete}
                   disabled={deleteSupplement.isPending}
-                  className="w-full sm:w-auto"
                 >
                   {deleteSupplement.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                   ) : (
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
                   )}
                   Delete
                 </Button>
               )}
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
-                {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {isEditing ? "Update" : "Add"} Supplement
+              <Button type="submit" size="sm" disabled={isPending}>
+                {isPending && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+                {isEditing ? "Update" : "Add"}
               </Button>
             </div>
           </DialogFooter>
