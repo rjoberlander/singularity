@@ -312,7 +312,18 @@ export function SupplementAddCombinedModal({
     e.preventDefault();
 
     try {
-      await createSupplement.mutateAsync(formData as any);
+      // Clean the form data - convert empty strings to undefined
+      // to avoid database CHECK constraint violations
+      const cleanedData: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(formData)) {
+        if (value === "" || value === null) {
+          // Skip empty strings and nulls - don't send them
+          continue;
+        }
+        cleanedData[key] = value;
+      }
+
+      await createSupplement.mutateAsync(cleanedData as any);
       toast.success("Supplement added successfully");
       onOpenChange(false);
       onSuccess?.();

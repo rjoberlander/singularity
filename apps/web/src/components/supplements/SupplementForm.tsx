@@ -15,7 +15,7 @@ import {
 import { useCreateSupplement, useUpdateSupplement, useDeleteSupplement } from "@/hooks/useSupplements";
 import { useExtractSupplements } from "@/hooks/useAI";
 import { aiApi } from "@/lib/api";
-import { Loader2, Trash2, Copy, ExternalLink, Check, Sparkles } from "lucide-react";
+import { Loader2, Trash2, Copy, ExternalLink, Check, Sparkles, Sunrise, Sun, Utensils, Sunset, Moon, LucideIcon, Pill, FlaskConical, Droplet, Wind, Candy, Square } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -26,13 +26,13 @@ const CATEGORIES = [
   { value: "other", label: "Other" },
 ];
 
-const TIMING_OPTIONS = [
-  { value: "wake_up", label: "Wake" },
-  { value: "am", label: "AM" },
-  { value: "lunch", label: "Lunch" },
-  { value: "pm", label: "PM" },
-  { value: "dinner", label: "Dinner" },
-  { value: "before_bed", label: "Bed" },
+const TIMING_OPTIONS: { value: string; label: string; icon: LucideIcon; selectedColor: string }[] = [
+  { value: "wake_up", label: "Wake", icon: Sunrise, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400" },
+  { value: "am", label: "AM", icon: Sun, selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400" },
+  { value: "lunch", label: "Lunch", icon: Utensils, selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500" },
+  { value: "pm", label: "PM", icon: Sunset, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500" },
+  { value: "dinner", label: "Dinner", icon: Utensils, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
+  { value: "before_bed", label: "Bed", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
 ];
 
 const FREQUENCY_OPTIONS = [
@@ -51,13 +51,13 @@ const DAY_OPTIONS = [
   { value: "sat", label: "S" },
 ];
 
-const INTAKE_FORM_OPTIONS = [
-  { value: "capsule", label: "Capsule" },
-  { value: "powder", label: "Powder" },
-  { value: "liquid", label: "Liquid" },
-  { value: "spray", label: "Spray" },
-  { value: "gummy", label: "Gummy" },
-  { value: "patch", label: "Patch" },
+const INTAKE_FORM_OPTIONS: { value: string; label: string; icon: LucideIcon; color: string }[] = [
+  { value: "capsule", label: "Capsule", icon: Pill, color: "text-blue-400" },
+  { value: "powder", label: "Powder", icon: FlaskConical, color: "text-amber-400" },
+  { value: "liquid", label: "Liquid", icon: Droplet, color: "text-cyan-400" },
+  { value: "spray", label: "Spray", icon: Wind, color: "text-teal-400" },
+  { value: "gummy", label: "Gummy", icon: Candy, color: "text-pink-400" },
+  { value: "patch", label: "Patch", icon: Square, color: "text-purple-400" },
 ];
 
 const DOSE_UNIT_OPTIONS = [
@@ -652,6 +652,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             <div className="flex gap-0.5">
               {TIMING_OPTIONS.map((opt) => {
                 const isSelected = formData.timings?.includes(opt.value as any) || false;
+                const TimingIcon = opt.icon;
                 return (
                   <button
                     key={opt.value}
@@ -663,12 +664,13 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
                         : [...currentTimings, opt.value as any];
                       setFormData({ ...formData, timings: newTimings });
                     }}
-                    className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
+                    className={`flex items-center gap-1 px-1.5 py-0.5 text-xs rounded border transition-colors ${
                       isSelected
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                        ? opt.selectedColor
+                        : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
                     }`}
                   >
+                    <TimingIcon className="w-3 h-3" />
                     {opt.label}
                   </button>
                 );
@@ -775,20 +777,25 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
               <div className="flex flex-col gap-0.5">
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">Form<AIIndicator field="intake_form" aiFields={aiFields} /></Label>
                 <div className="flex gap-0.5">
-                  {INTAKE_FORM_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => updateProductField('intake_form', opt.value === formData.intake_form ? "" : opt.value)}
-                      className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
-                        formData.intake_form === opt.value
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {INTAKE_FORM_OPTIONS.map((opt) => {
+                    const FormIcon = opt.icon;
+                    const isSelected = formData.intake_form === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => updateProductField('intake_form', opt.value === formData.intake_form ? "" : opt.value)}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 text-xs rounded border transition-colors ${
+                          isSelected
+                            ? `bg-primary/20 border-primary/50 ${opt.color}`
+                            : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        <FormIcon className="w-3 h-3" />
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">

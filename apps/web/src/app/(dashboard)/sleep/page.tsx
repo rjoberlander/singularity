@@ -119,7 +119,7 @@ export default function SleepPage() {
   };
 
   const handleSync = async () => {
-    await syncMutation.mutateAsync();
+    await syncMutation.mutateAsync({});
   };
 
   // Not connected state

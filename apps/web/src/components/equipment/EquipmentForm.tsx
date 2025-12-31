@@ -130,11 +130,21 @@ export function EquipmentForm({ equipment, open, onOpenChange }: EquipmentFormPr
     e.preventDefault();
 
     try {
+      // Clean the form data - convert empty strings to undefined
+      // to avoid database CHECK constraint violations
+      const cleanedData: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(formData)) {
+        if (value === "" || value === null) {
+          continue; // Skip empty strings and nulls
+        }
+        cleanedData[key] = value;
+      }
+
       if (isEditing && equipment) {
-        await updateEquipment.mutateAsync({ id: equipment.id, data: formData as any });
+        await updateEquipment.mutateAsync({ id: equipment.id, data: cleanedData as any });
         toast.success("Equipment updated successfully");
       } else {
-        await createEquipment.mutateAsync(formData as any);
+        await createEquipment.mutateAsync(cleanedData as any);
         toast.success("Equipment added successfully");
       }
       onOpenChange(false);
