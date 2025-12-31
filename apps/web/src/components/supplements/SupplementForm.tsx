@@ -349,48 +349,52 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         console.log('Stream event:', event);
         switch (event.step) {
           case 'scraping':
-            setExtractionStep({ type: 'searching', message: event.message });
+            setExtractionStep({ type: 'searching', message: event.message || 'Searching...' });
             break;
           case 'scraping_done':
-            setExtractionStep({ type: 'scraping', message: `✓ ${event.message}` });
+            setExtractionStep({ type: 'scraping', message: `✓ ${event.message || 'Complete'}` });
             break;
           case 'analyzing':
             setExtractionStep({
               type: 'analyzing',
-              message: event.message,
+              message: event.message || 'Analyzing...',
               fieldsFound: []
             });
             break;
           case 'first_pass_done':
-            const found = event.fields?.filter((f: any) => f.status === 'found').map((f: any) => f.key) || [];
-            event.fields?.forEach((f: any) => {
+            const found = event.fields?.filter((f) => f.status === 'found').map((f) => f.key) || [];
+            event.fields?.forEach((f) => {
               fieldConfidence[f.key] = f.confidence || (f.status === 'found' ? 0.7 : 0);
             });
             setExtractionStep({
               type: 'analyzing',
-              message: event.message,
+              message: event.message || 'Processing...',
               fieldsFound: found
             });
             break;
           case 'web_search':
             setExtractionStep({
               type: 'web_search',
-              message: event.message
+              message: event.message || 'Searching web...'
             });
             break;
           case 'field_found':
-            fieldConfidence[event.field] = event.confidence;
-            if (!foundFields.includes(event.field)) {
-              foundFields.push(event.field);
+            if (event.field) {
+              fieldConfidence[event.field] = event.confidence ?? 0.7;
+              if (!foundFields.includes(event.field)) {
+                foundFields.push(event.field);
+              }
+              setExtractionStep({
+                type: 'analyzing',
+                message: `✓ Found ${PRODUCT_FIELDS.find(p => p.key === event.field)?.label}: ${event.value || ''}`,
+                fieldsFound: [...foundFields]
+              });
             }
-            setExtractionStep({
-              type: 'analyzing',
-              message: `✓ Found ${PRODUCT_FIELDS.find(p => p.key === event.field)?.label}: ${event.value}`,
-              fieldsFound: [...foundFields]
-            });
             break;
           case 'field_not_found':
-            fieldConfidence[event.field] = -1;
+            if (event.field) {
+              fieldConfidence[event.field] = -1;
+            }
             break;
         }
       },
