@@ -1,0 +1,1097 @@
+# Page snapshot
+
+```yaml
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - link:
+          - /url: /dashboard
+          - generic:
+            - img
+          - generic: Singularity
+      - navigation:
+        - link:
+          - /url: /dashboard
+          - img
+          - text: Dashboard
+        - link:
+          - /url: /biomarkers
+          - img
+          - text: Biomarkers
+        - link:
+          - /url: /sleep
+          - img
+          - text: Sleep
+        - link:
+          - /url: /supplements
+          - img
+          - text: Supplements
+        - link:
+          - /url: /equipment
+          - img
+          - text: Equipment
+        - link:
+          - /url: /routines
+          - img
+          - text: Routines
+        - link:
+          - /url: /goals
+          - img
+          - text: Goals
+        - link:
+          - /url: /changelog
+          - img
+          - text: Change Log
+        - link:
+          - /url: /docs
+          - img
+          - text: Protocol Docs
+        - link:
+          - /url: /chat
+          - img
+          - text: AI Chat
+      - generic:
+        - link:
+          - /url: /settings
+          - img
+          - text: Settings
+    - generic:
+      - banner:
+        - generic:
+          - button:
+            - img
+            - generic: Toggle theme
+          - generic:
+            - button:
+              - generic:
+                - img
+              - generic: rjoberlander
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=1]: Supplements
+              - img
+            - generic:
+              - generic:
+                - button:
+                  - text: All
+                  - generic: "25"
+                - button:
+                  - img
+                  - text: Vitamin/Mineral
+                  - generic: "4"
+                - button:
+                  - img
+                  - text: Amino/Protein
+                  - generic: "8"
+                - button:
+                  - img
+                  - text: Herb/Botanical
+                  - generic: "2"
+                - button:
+                  - img
+                  - text: Probiotic
+                  - generic: "1"
+                - button:
+                  - img
+                  - text: Other
+                  - generic: "10"
+              - generic:
+                - img
+                - button:
+                  - text: All
+                  - generic: "25"
+                - button:
+                  - text: Active
+                  - generic: "25"
+                - button:
+                  - text: Inactive
+                  - generic: "0"
+            - generic:
+              - generic:
+                - img
+                - generic: "Warning:"
+              - generic:
+                - img
+                - generic: "1 Supplements missing product info: AI can search & fill"
+                - button:
+                  - img
+                  - text: Populate by AI
+                  - generic: "1"
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=3]: SEARCH SUPPLEMENTS
+                  - generic:
+                    - img
+                    - textbox:
+                      - /placeholder: Search...
+                - generic:
+                  - generic:
+                    - generic:
+                      - textbox:
+                        - /placeholder: Drag & drop file or copy/paste text or URL for AI extraction.
+                    - generic:
+                      - button:
+                        - img
+                        - text: Attach Image/PDF
+                      - button [disabled]:
+                        - img
+                        - text: Extract Supplements
+                - generic:
+                  - button:
+                    - img
+                    - text: Add Supplement
+                - generic:
+                  - heading [level=3]: SUPPLEMENT COSTS
+                  - generic:
+                    - img
+                    - generic: 25 active / 25 total
+                  - generic:
+                    - generic:
+                      - generic: Monthly
+                      - generic: $475.12
+                    - generic:
+                      - generic: Yearly
+                      - generic: $5780.66
+                    - generic:
+                      - generic: Daily
+                      - generic: $15.84
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: Cost may be inaccurate
+                    - paragraph: 1 missing price/dose
+              - generic:
+                - generic:
+                  - heading [level=3]: ALL SUPPLEMENTS
+                  - generic:
+                    - img
+                    - button: Time of Day
+                    - button: Name (A-Z)
+                    - button: Monthly Cost
+                    - button: Bottle Duration
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: DS-01 Daily Synbiotic
+                            - generic:
+                              - generic: Seed
+                              - link:
+                                - /url: https://seed.com/daily-synbiotic-2
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Wake
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $49.99/mo
+                        - generic:
+                          - img
+                          - text: 4 weeks
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: B12 Methylcobalamin
+                            - generic:
+                              - generic: Life Extension
+                              - link:
+                                - /url: https://www.amazon.com/dp/B00028N1QU
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $1.80/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Collagen
+                            - generic:
+                              - generic: Doctor's Best
+                              - link:
+                                - /url: https://www.amazon.com/dp/B0D9ZTNZLR
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 tablet
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $2.83/mo
+                        - generic:
+                          - img
+                          - text: 6 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Creatine Monohydrate
+                            - generic:
+                              - generic: Thorne
+                              - link:
+                                - /url: https://www.amazon.com/Thorne-Creatine-High-Quality-Monohydrate-Gluten-Free/dp/B07978VPPH
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 powder
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $14.33/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: DHEA
+                            - generic:
+                              - generic: Pure Encapsulations
+                              - link:
+                                - /url: https://www.amazon.com/dp/B0016QTR10
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $9.80/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Essential Aminos
+                            - generic:
+                              - generic: Pure Encapsulations
+                              - link:
+                                - /url: https://www.amazon.com/dp/B074R3KVY8
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $16.10/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: EVOO (raw)
+                            - generic:
+                              - generic: Laconiko ZOI
+                              - link:
+                                - /url: https://laconiko.com/products/zoi-ultra-high-phenolic-evoo-rich-in-oleocanthal
+                                - img
+                                - text: Buy
+                        - generic:
+                          - img
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1?
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - text: "Missing:"
+                          - generic: Product Info
+                          - generic: Inaccurate Cost
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Finasteride
+                            - generic:
+                              - generic: Aurobindo
+                        - generic:
+                          - img
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 tablet
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $120.00/mo
+                        - generic:
+                          - img
+                          - text: 1 days
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - text: "Missing:"
+                          - generic: Product URL
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Glucosamine + Chondroitin + MSM
+                            - generic:
+                              - generic: Puritan's Pride
+                              - link:
+                                - /url: https://www.amazon.com/dp/B004R63690
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $3.75/mo
+                        - generic:
+                          - img
+                          - text: 4 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: H2TAB Hydrogen Tablet
+                            - generic:
+                              - generic: H2Tab
+                              - link:
+                                - /url: https://www.amazon.com/Molecular-H2TAB-Magnesium-Antioxidants-Cognitive/dp/B0F11Q5NVH
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 tablet
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $29.95/mo
+                        - generic:
+                          - img
+                          - text: 4 weeks
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: L-Lysine
+                            - generic:
+                              - generic: Pure Encapsulations
+                              - link:
+                                - /url: https://www.amazon.com/dp/B000H85JYC
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $5.37/mo
+                        - generic:
+                          - img
+                          - text: 6 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Phosphatidylserine
+                            - generic:
+                              - generic: Thorne
+                              - link:
+                                - /url: https://www.amazon.com/Thorne-Research-Iso-Phos-Phosphatidylserine-Supplement/dp/B000FGZG4O
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $32.50/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Two-Per-Day Multi
+                            - generic:
+                              - generic: Life Extension
+                              - link:
+                                - /url: https://www.amazon.com/dp/B01IROPPR8
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $7.65/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: UC-II (undenatured collagen)
+                            - generic:
+                              - generic: NOW Foods
+                              - link:
+                                - /url: https://www.amazon.com/dp/B014MHI0P8
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $12.24/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Vitamin D3 + K2
+                            - generic:
+                              - generic: Pure Encapsulations
+                              - link:
+                                - /url: https://www.amazon.com/dp/B0BZ8TMDQ5
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $10.50/mo
+                        - generic:
+                          - img
+                          - text: 4 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Whey Protein
+                            - generic:
+                              - generic: Puori
+                              - link:
+                                - /url: https://www.amazon.com/dp/B09B2RP12L
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 powder
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: AM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $77.00/mo
+                        - generic:
+                          - img
+                          - text: 4 weeks
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Ashwagandha KSM-66
+                            - generic:
+                              - generic: Jarrow Formulas
+                              - link:
+                                - /url: https://www.amazon.com/Jarrow-Formulas-Ashwagandha-Supports-Resistance/dp/B0013OQEO8
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: PM
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $13.49/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Fish Oil (EPA-heavy)
+                            - generic:
+                              - generic: Sports Research
+                              - link:
+                                - /url: https://www.amazon.com/Sports-Research-Triple-Strength-1250mg/dp/B0BJ7NN9L5
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Dinner
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $17.98/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Krill Oil
+                            - generic:
+                              - generic: Sports Research
+                              - link:
+                                - /url: https://www.amazon.com/dp/B00IP1E3O0
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 softgel
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Dinner
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $14.99/mo
+                        - generic:
+                          - img
+                          - text: 2 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Apigenin
+                            - generic:
+                              - generic: Swanson
+                              - link:
+                                - /url: https://www.amazon.com/Swanson-Apigenin-Prostate-Supplements-Capsules/dp/B001TEIJIQ
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $5.53/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: GABA
+                            - generic:
+                              - generic: NOW Foods
+                              - link:
+                                - /url: https://www.amazon.com/NOW-Supplements-GABA-500-Capsules/dp/B0013OQHN6
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $3.40/mo
+                        - generic:
+                          - img
+                          - text: 7 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Glycine
+                            - generic:
+                              - generic: NOW Foods
+                              - link:
+                                - /url: https://www.amazon.com/NOW-Supplements-Glycine-Powder-1-Pound/dp/B0013OVZJW
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $12.35/mo
+                        - generic:
+                          - img
+                          - text: 5 weeks
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: L-Theanine
+                            - generic:
+                              - generic: Thorne
+                              - link:
+                                - /url: https://www.amazon.com/Thorne-Research-L-Theanine-Supplement-Relaxation/dp/B0797BLW59
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $6.66/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Magnesium Threonate
+                            - generic:
+                              - generic: Life Extension
+                              - link:
+                                - /url: https://www.amazon.com/Life-Extension-Neuro-Mag-L-Threonate-Vegetarian/dp/B006P536E6
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $2.70/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Myo-Inositol
+                            - generic:
+                              - generic: NOW Foods
+                              - link:
+                                - /url: https://www.amazon.com/NOW-Foods-733739005298-Inositol-1-Pound/dp/B007XA489O
+                                - img
+                                - text: Buy
+                        - generic:
+                          - switch [checked]
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 1 capsule
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Bed
+                        - generic:
+                          - img
+                          - generic: Daily
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $4.20/mo
+                        - generic:
+                          - img
+                          - text: 3 months
+  - region "Notifications alt+T"
+  - generic [ref=e5] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e6]:
+      - img [ref=e7]
+    - generic [ref=e10]:
+      - button "Open issues overlay" [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: "1"
+          - generic [ref=e14]: "2"
+        - generic [ref=e15]:
+          - text: Issue
+          - generic [ref=e16]: s
+      - button "Collapse issues badge" [ref=e17]:
+        - img [ref=e18]
+  - alert
+  - dialog "Populate All Supplements by AI" [active] [ref=e21]:
+    - generic [ref=e22]:
+      - heading "Populate All Supplements by AI" [level=2] [ref=e23]:
+        - img [ref=e24]
+        - text: Populate All Supplements by AI
+      - paragraph [ref=e26]: AI will search for product information and fill in missing fields. Review the results before saving.
+    - generic [ref=e27]:
+      - generic [ref=e29]:
+        - checkbox [checked] [ref=e30] [cursor=pointer]:
+          - generic:
+            - img
+        - generic [ref=e31]: Select All
+      - generic [ref=e32]:
+        - generic [ref=e34]: Supplement
+        - generic [ref=e35]: Status
+        - generic [ref=e36]: Brand
+        - generic [ref=e37]: Price
+        - generic [ref=e38]: Servings
+        - generic [ref=e39]: Form
+        - generic [ref=e40]: Dose
+        - generic [ref=e41]: Unit
+        - generic [ref=e42]: Category
+      - generic [ref=e44]:
+        - checkbox [checked] [ref=e46] [cursor=pointer]:
+          - generic:
+            - img
+        - generic [ref=e47]:
+          - generic [ref=e48]: EVOO (raw)
+          - link "Open product page" [ref=e49] [cursor=pointer]:
+            - /url: https://laconiko.com/products/zoi-ultra-high-phenolic-evoo-rich-in-oleocanthal
+            - img [ref=e50]
+        - 'generic "AxiosError: Request failed with status code 400" [ref=e55]':
+          - img [ref=e56]
+          - text: Failed
+        - generic [ref=e60]: Laconiko
+        - spinbutton [ref=e62]: "59.95"
+        - spinbutton [ref=e64]: "75"
+        - generic [ref=e66]:
+          - img [ref=e67]
+          - text: Liquid
+        - spinbutton [ref=e70]: "1397"
+        - generic [ref=e71]: mg/kg polyphenols
+        - generic [ref=e73]:
+          - img [ref=e74]
+          - text: Other
+    - generic [ref=e78]:
+      - generic [ref=e79]: 1 failed
+      - button "Close" [ref=e80] [cursor=pointer]
+    - button "Close" [ref=e81] [cursor=pointer]:
+      - img [ref=e82]
+      - generic [ref=e85]: Close
+```

@@ -53,30 +53,33 @@ test.describe('Batch AI Population Modal', () => {
     for (let i = 0; i < 150; i++) { // 150 iterations * 200ms = 30 seconds max
       await page.waitForTimeout(200);
 
-      // Count "Found" statuses
+      // Count statuses (both "Saved" and "Found" indicate completion)
+      const savedElements = await page.locator('text="Saved"').count();
       const foundElements = await page.locator('text="Found"').count();
+      const totalFound = savedElements + foundElements;
       const errorElements = await page.locator('text="Error"').count();
       const fetchingElements = await page.locator('text="Fetching"').count();
+      const savingElements = await page.locator('text="Saving"').count();
 
       // Take screenshot every iteration for first 40 to catch per-field animation
       if (i < 40 || i % 10 === 0) {
         await page.screenshot({ path: `tests/screenshots/batch-ai-frame-${screenshotIndex++}.png` });
       }
 
-      if (foundElements > foundCount || errorElements > errorCount) {
-        foundCount = foundElements;
+      if (totalFound > foundCount || errorElements > errorCount) {
+        foundCount = totalFound;
         errorCount = errorElements;
-        console.log(`Progress: ${foundCount} found, ${errorCount} errors, ${fetchingElements} fetching`);
+        console.log(`Progress: ${savedElements} saved, ${foundElements} found, ${errorCount} errors, ${fetchingElements + savingElements} processing`);
       }
 
       // Check if fetching is complete
-      if (fetchingElements === 0 && (foundCount > 0 || errorCount > 0)) {
+      if (fetchingElements === 0 && savingElements === 0 && (foundCount > 0 || errorCount > 0)) {
         console.log('Fetching complete!');
         break;
       }
 
-      // Break early if we have at least 2 results
-      if (foundCount + errorCount >= 2) {
+      // Break early if we have at least 10 results (increased from 2)
+      if (totalFound + errorCount >= 10) {
         // Wait a bit more to capture some per-field updates for next row
         await page.waitForTimeout(2000);
         await page.screenshot({ path: `tests/screenshots/batch-ai-fields-appearing.png` });
@@ -92,9 +95,8 @@ test.describe('Batch AI Population Modal', () => {
     // Verify we got at least some results
     expect(foundCount + errorCount).toBeGreaterThan(0);
 
-    // Check if "Save All Selected" button is now enabled
-    const saveButton = page.locator('button:has-text("Save All Selected")');
-    const saveEnabled = await saveButton.isEnabled();
-    console.log('Save button enabled:', saveEnabled);
+    // Check for "Saved" status badges (auto-save should have happened)
+    const savedCount = await page.locator('text="Saved"').count();
+    console.log('Auto-saved count:', savedCount);
   });
 });

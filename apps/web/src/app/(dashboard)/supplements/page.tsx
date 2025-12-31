@@ -37,6 +37,7 @@ import {
   Power,
   AlertTriangle,
   Link2,
+  ExternalLink,
   Loader2,
   ArrowUpDown,
   Sunrise,
@@ -46,6 +47,15 @@ import {
   Moon,
   Check,
   X,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Zap,
+  FlaskConical,
+  Droplet,
+  Wind,
+  Candy,
+  Square,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -137,6 +147,34 @@ const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; selectedC
   before_bed: { icon: Moon, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Bed" },
 };
 
+// Intake form icons and colors
+const INTAKE_FORM_CONFIG: Record<string, { icon: LucideIcon; color: string; bgColor: string; label: string }> = {
+  capsule: { icon: Pill, color: "text-blue-400", bgColor: "bg-blue-500/20", label: "Capsule" },
+  capsules: { icon: Pill, color: "text-blue-400", bgColor: "bg-blue-500/20", label: "Capsules" },
+  powder: { icon: FlaskConical, color: "text-amber-400", bgColor: "bg-amber-500/20", label: "Powder" },
+  liquid: { icon: Droplet, color: "text-cyan-400", bgColor: "bg-cyan-500/20", label: "Liquid" },
+  spray: { icon: Wind, color: "text-teal-400", bgColor: "bg-teal-500/20", label: "Spray" },
+  gummy: { icon: Candy, color: "text-pink-400", bgColor: "bg-pink-500/20", label: "Gummy" },
+  gummies: { icon: Candy, color: "text-pink-400", bgColor: "bg-pink-500/20", label: "Gummies" },
+  patch: { icon: Square, color: "text-purple-400", bgColor: "bg-purple-500/20", label: "Patch" },
+  softgel: { icon: Pill, color: "text-blue-300", bgColor: "bg-blue-400/20", label: "Softgel" },
+  softgels: { icon: Pill, color: "text-blue-300", bgColor: "bg-blue-400/20", label: "Softgels" },
+  tablet: { icon: Pill, color: "text-slate-400", bgColor: "bg-slate-500/20", label: "Tablet" },
+  tablets: { icon: Pill, color: "text-slate-400", bgColor: "bg-slate-500/20", label: "Tablets" },
+};
+
+// Dose unit colors
+const DOSE_UNIT_CONFIG: Record<string, { color: string; bgColor: string }> = {
+  mg: { color: "text-green-400", bgColor: "bg-green-500/20" },
+  g: { color: "text-emerald-400", bgColor: "bg-emerald-500/20" },
+  mcg: { color: "text-lime-400", bgColor: "bg-lime-500/20" },
+  IU: { color: "text-yellow-400", bgColor: "bg-yellow-500/20" },
+  ml: { color: "text-cyan-400", bgColor: "bg-cyan-500/20" },
+  CFU: { color: "text-pink-400", bgColor: "bg-pink-500/20" },
+  cap: { color: "text-blue-400", bgColor: "bg-blue-500/20" },
+  Tbsp: { color: "text-orange-400", bgColor: "bg-orange-500/20" },
+};
+
 export default function SupplementsPage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -160,7 +198,7 @@ export default function SupplementsPage() {
   // Batch AI population state
   const [isBatchAIModalOpen, setIsBatchAIModalOpen] = useState(false);
   const [batchAIResults, setBatchAIResults] = useState<Record<string, {
-    status: 'pending' | 'fetching' | 'success' | 'error';
+    status: 'pending' | 'fetching' | 'saving' | 'saved' | 'success' | 'error';
     data?: {
       brand?: string;
       price?: number;
@@ -471,6 +509,8 @@ export default function SupplementsPage() {
     return new Promise((resolve) => {
       let result: any = null;
       let hasError = false;
+      // Track streamed data internally (not relying on React state batching)
+      const streamedData: Record<string, any> = {};
 
       aiApi.extractSupplementsStream(
         {
@@ -494,7 +534,10 @@ export default function SupplementsPage() {
               fieldValue = parseInt(fieldValue as string, 10) || fieldValue;
             }
 
-            // Update this specific field in real-time
+            // Track locally for auto-save
+            streamedData[fieldKey] = fieldValue;
+
+            // Update this specific field in real-time for UI
             setBatchAIResults((prev) => ({
               ...prev,
               [supplementId]: {
@@ -520,6 +563,8 @@ export default function SupplementsPage() {
                   fieldValue = normalizeValue(fieldValue as string);
                 }
                 fieldsToUpdate[fieldKey] = fieldValue;
+                // Track locally for auto-save
+                streamedData[fieldKey] = fieldValue;
               }
             }
 
@@ -547,19 +592,25 @@ export default function SupplementsPage() {
 
         if (result?.supplements?.[0]) {
           const s = result.supplements[0];
-          // Return final complete data
+          // Return final complete data merged with streamed data
+          // (use ?? to preserve 0 values, filter only null/undefined)
+          const finalData = {
+            brand: s.brand ?? undefined,
+            price: s.price ?? undefined,
+            servings_per_container: s.servings_per_container ?? undefined,
+            serving_size: s.serving_size ?? undefined,
+            intake_form: normalizeValue(s.intake_form) ?? undefined,
+            dose_per_serving: s.dose_per_serving ?? undefined,
+            dose_unit: s.dose_unit ?? undefined,
+            category: normalizeValue(s.category) ?? undefined,
+          };
+          // Merge: streamed data first, then final data overwrites
           resolve({
-            data: {
-              brand: s.brand || undefined,
-              price: s.price || undefined,
-              servings_per_container: s.servings_per_container || undefined,
-              serving_size: s.serving_size || undefined,
-              intake_form: normalizeValue(s.intake_form) || undefined,
-              dose_per_serving: s.dose_per_serving || undefined,
-              dose_unit: s.dose_unit || undefined,
-              category: normalizeValue(s.category) || undefined,
-            }
+            data: { ...streamedData, ...finalData }
           });
+        } else if (Object.keys(streamedData).length > 0) {
+          // No final result, but we have streamed data - use it
+          resolve({ data: streamedData });
         } else {
           resolve({ error: 'No data found' });
         }
@@ -586,58 +637,138 @@ export default function SupplementsPage() {
 
       const result = await fetchAIForSupplement(supplement.id, supplement);
 
-      // Update with final result (fields already updated in real-time)
-      setBatchAIResults((prev) => ({
-        ...prev,
-        [supplement.id]: {
-          ...prev[supplement.id],
-          status: result.error ? 'error' : 'success',
-          data: result.data || prev[supplement.id]?.data, // Keep real-time data if final is empty
-          error: result.error,
-        }
-      }));
-    }
+      if (result.error) {
+        // Update with error status
+        setBatchAIResults((prev) => ({
+          ...prev,
+          [supplement.id]: {
+            ...prev[supplement.id],
+            status: 'error',
+            error: result.error,
+          }
+        }));
+      } else {
+        // Update with found data, then auto-save
+        // result.data now includes streamed data merged with final data
+        const currentData = result.data || {};
 
-    setIsBatchFetching(false);
-  };
+        setBatchAIResults((prev) => ({
+          ...prev,
+          [supplement.id]: {
+            ...prev[supplement.id],
+            status: 'saving',
+            data: { ...prev[supplement.id]?.data, ...currentData },
+          }
+        }));
 
-  // Save all selected batch AI results
-  const handleSaveBatchAI = async () => {
-    setIsSavingBatch(true);
-    try {
-      let savedCount = 0;
-      const entries = Object.entries(batchAIResults);
-
-      for (const [id, result] of entries) {
-        if (result.selected !== false && result.status === 'success' && result.data) {
+        // Auto-save immediately
+        try {
+          console.log(`[BatchAI] Auto-save for ${supplement.name}:`, currentData);
           const updateData: Record<string, any> = {
             product_data_source: 'ai',
             product_updated_at: new Date().toISOString(),
           };
 
-          // Only include fields that have values
-          if (result.data.brand) updateData.brand = result.data.brand;
-          if (result.data.price) updateData.price = result.data.price;
-          if (result.data.servings_per_container) updateData.servings_per_container = result.data.servings_per_container;
-          if (result.data.serving_size) updateData.serving_size = result.data.serving_size;
-          if (result.data.intake_form) updateData.intake_form = result.data.intake_form;
-          if (result.data.dose_per_serving) updateData.dose_per_serving = result.data.dose_per_serving;
-          if (result.data.dose_unit) updateData.dose_unit = result.data.dose_unit;
-          if (result.data.category) updateData.category = result.data.category;
+          // Only include fields that have actual values
+          if (currentData.brand) updateData.brand = currentData.brand;
+          if (currentData.price != null) updateData.price = currentData.price;
+          if (currentData.servings_per_container != null) updateData.servings_per_container = currentData.servings_per_container;
+          if (currentData.serving_size != null) updateData.serving_size = currentData.serving_size;
+          if (currentData.intake_form) updateData.intake_form = currentData.intake_form;
+          if (currentData.dose_per_serving != null) updateData.dose_per_serving = currentData.dose_per_serving;
+          if (currentData.dose_unit) updateData.dose_unit = currentData.dose_unit;
+          if (currentData.category) updateData.category = currentData.category;
 
-          await updateSupplement.mutateAsync({ id, data: updateData });
-          savedCount++;
+          console.log(`[BatchAI] Update data for ${supplement.name}:`, updateData, `Keys: ${Object.keys(updateData).length}`);
+
+          // Save if we have at least one field to update
+          if (Object.keys(updateData).length > 2) {
+            await updateSupplement.mutateAsync({ id: supplement.id, data: updateData });
+            console.log(`[BatchAI] Saved ${supplement.name} successfully`);
+            setBatchAIResults((prev) => ({
+              ...prev,
+              [supplement.id]: { ...prev[supplement.id], status: 'saved' }
+            }));
+          } else {
+            // No data to save, mark as success
+            console.log(`[BatchAI] No data to save for ${supplement.name}`);
+            setBatchAIResults((prev) => ({
+              ...prev,
+              [supplement.id]: { ...prev[supplement.id], status: 'success' }
+            }));
+          }
+        } catch (saveError) {
+          console.error(`[BatchAI] Auto-save FAILED for ${supplement.name}:`, saveError);
+          setBatchAIResults((prev) => ({
+            ...prev,
+            [supplement.id]: { ...prev[supplement.id], status: 'error', error: String(saveError) }
+          }));
         }
       }
-
-      toast.success(`Updated ${savedCount} supplements with AI data`);
-      setIsBatchAIModalOpen(false);
-      refetch();
-    } catch (error) {
-      toast.error("Failed to save some supplements");
-    } finally {
-      setIsSavingBatch(false);
     }
+
+    setIsBatchFetching(false);
+    refetch(); // Refresh the main list
+  };
+
+  // Save all selected batch AI results
+  const handleSaveBatchAI = async () => {
+    setIsSavingBatch(true);
+    let savedCount = 0;
+    let failedCount = 0;
+    const failedNames: string[] = [];
+
+    // Save supplements that have data (from AI or manual entry)
+    for (const supplement of supplementsWithMissingData) {
+      const result = batchAIResults[supplement.id];
+
+      // Skip if deselected
+      if (result?.selected === false) continue;
+
+      // Skip if no data at all
+      if (!result?.data) continue;
+
+      try {
+        const updateData: Record<string, any> = {
+          product_data_source: 'ai',
+          product_updated_at: new Date().toISOString(),
+        };
+
+        // Only include fields that have actual values (not null/undefined)
+        if (result.data.brand) updateData.brand = result.data.brand;
+        if (result.data.price != null) updateData.price = result.data.price;
+        if (result.data.servings_per_container != null) updateData.servings_per_container = result.data.servings_per_container;
+        if (result.data.serving_size != null) updateData.serving_size = result.data.serving_size;
+        if (result.data.intake_form) updateData.intake_form = result.data.intake_form;
+        if (result.data.dose_per_serving != null) updateData.dose_per_serving = result.data.dose_per_serving;
+        if (result.data.dose_unit) updateData.dose_unit = result.data.dose_unit;
+        if (result.data.category) updateData.category = result.data.category;
+
+        // Only save if we have at least one field to update (besides metadata)
+        if (Object.keys(updateData).length > 2) {
+          await updateSupplement.mutateAsync({ id: supplement.id, data: updateData });
+          savedCount++;
+        }
+      } catch (error: any) {
+        console.error(`Failed to save supplement ${supplement.name}:`, error);
+        failedNames.push(supplement.name);
+        failedCount++;
+      }
+    }
+
+    if (savedCount > 0 && failedCount === 0) {
+      toast.success(`Updated ${savedCount} supplements with AI data`);
+    } else if (savedCount > 0 && failedCount > 0) {
+      toast.warning(`Updated ${savedCount} supplements. Failed: ${failedNames.join(', ')}`);
+    } else if (failedCount > 0) {
+      toast.error(`Failed to save: ${failedNames.join(', ')}`);
+    } else {
+      toast.info("No supplements had data to save");
+    }
+
+    setIsBatchAIModalOpen(false);
+    refetch();
+    setIsSavingBatch(false);
   };
 
   // Toggle selection for a supplement in batch AI
@@ -1301,17 +1432,27 @@ export default function SupplementsPage() {
               {!isBatchFetching && Object.values(batchAIResults).every((r) => r.status === 'pending') && (
                 <Button
                   size="sm"
-                  className="bg-purple-500 hover:bg-purple-600 text-white"
+                  className="bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-600 hover:to-violet-600 text-white shadow-lg shadow-purple-500/25"
                   onClick={handleStartBatchAI}
                 >
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <Zap className="w-4 h-4 mr-2" />
                   Fetch All with AI
                 </Button>
               )}
               {isBatchFetching && (
-                <div className="flex items-center gap-2 text-sm text-purple-400">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Fetching... {Object.values(batchAIResults).filter((r) => r.status === 'success' || r.status === 'error').length}/{Object.keys(batchAIResults).length}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  <span className="text-sm font-medium text-purple-400">
+                    Processing {Object.values(batchAIResults).filter((r) => r.status === 'success' || r.status === 'error').length}/{Object.keys(batchAIResults).length}
+                  </span>
+                </div>
+              )}
+              {!isBatchFetching && Object.values(batchAIResults).some((r) => r.status === 'success') && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm font-medium text-emerald-400">
+                    {Object.values(batchAIResults).filter((r) => r.status === 'success').length} found
+                  </span>
                 </div>
               )}
             </div>
@@ -1347,92 +1488,342 @@ export default function SupplementsPage() {
                         onCheckedChange={() => toggleBatchSelection(supplement.id)}
                       />
                     </div>
-                    <div className="truncate font-medium">{supplement.name}</div>
+                    <div className="truncate font-medium flex items-center gap-1">
+                      <span className="truncate">{supplement.name}</span>
+                      {supplement.purchase_url ? (
+                        <a
+                          href={supplement.purchase_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-blue-400 hover:text-blue-300 shrink-0"
+                          title="Open product page"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground/40 shrink-0" title="No product URL">
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                    </div>
                     <div>
                       {result?.status === 'pending' && (
-                        <span className="text-xs text-muted-foreground">Pending</span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-500/20 text-zinc-400 border border-zinc-500/30">
+                          <Clock className="w-3 h-3" />
+                          Waiting
+                        </span>
                       )}
                       {result?.status === 'fetching' && (
-                        <span className="flex items-center gap-1 text-xs text-purple-400">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 animate-pulse">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           Fetching
                         </span>
                       )}
-                      {result?.status === 'success' && (
-                        <span className="flex items-center gap-1 text-xs text-green-500">
+                      {result?.status === 'saving' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Saving
+                        </span>
+                      )}
+                      {result?.status === 'saved' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                           <Check className="w-3 h-3" />
+                          Saved
+                        </span>
+                      )}
+                      {result?.status === 'success' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                          <CheckCircle2 className="w-3 h-3" />
                           Found
                         </span>
                       )}
                       {result?.status === 'error' && (
-                        <span className="flex items-center gap-1 text-xs text-red-400" title={result.error}>
-                          <X className="w-3 h-3" />
-                          Error
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30" title={result.error}>
+                          <XCircle className="w-3 h-3" />
+                          Failed
                         </span>
                       )}
                     </div>
                     <div className="truncate text-xs">
                       {result?.data?.brand ? (
-                        <span className="text-green-400">{result.data.brand}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">{result.data.brand}</span>
                       ) : supplement.brand ? (
                         <span className="text-muted-foreground">{supplement.brand}</span>
                       ) : (
-                        <span className="text-muted-foreground/50">-</span>
+                        <span className="text-yellow-500/70 font-medium">?</span>
                       )}
                     </div>
                     <div className="text-xs">
                       {result?.data?.price ? (
-                        <span className="text-green-400">${result.data.price}</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={result.data.price}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [supplement.id]: {
+                                ...prev[supplement.id],
+                                data: { ...prev[supplement.id]?.data, price: val }
+                              }
+                            }));
+                          }}
+                          className="w-16 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       ) : supplement.price ? (
                         <span className="text-muted-foreground">${supplement.price}</span>
                       ) : (
-                        <span className="text-muted-foreground/50">-</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [supplement.id]: {
+                                  ...prev[supplement.id],
+                                  status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                  data: { ...prev[supplement.id]?.data, price: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-12 h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       )}
                     </div>
                     <div className="text-xs">
                       {result?.data?.servings_per_container ? (
-                        <span className="text-green-400">{result.data.servings_per_container}</span>
+                        <input
+                          type="number"
+                          value={result.data.servings_per_container}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseInt(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [supplement.id]: {
+                                ...prev[supplement.id],
+                                data: { ...prev[supplement.id]?.data, servings_per_container: val }
+                              }
+                            }));
+                          }}
+                          className="w-14 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       ) : supplement.servings_per_container ? (
                         <span className="text-muted-foreground">{supplement.servings_per_container}</span>
                       ) : (
-                        <span className="text-muted-foreground/50">-</span>
+                        <input
+                          type="number"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseInt(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [supplement.id]: {
+                                  ...prev[supplement.id],
+                                  status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                  data: { ...prev[supplement.id]?.data, servings_per_container: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-12 h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       )}
                     </div>
                     <div className="text-xs">
-                      {result?.data?.intake_form ? (
-                        <span className="text-green-400">{result.data.intake_form}</span>
-                      ) : supplement.intake_form ? (
-                        <span className="text-muted-foreground">{supplement.intake_form}</span>
-                      ) : (
-                        <span className="text-muted-foreground/50">-</span>
-                      )}
+                      {(() => {
+                        const formValue = result?.data?.intake_form || supplement.intake_form;
+                        const isNew = !!result?.data?.intake_form;
+                        if (formValue) {
+                          const config = INTAKE_FORM_CONFIG[formValue.toLowerCase()];
+                          if (config) {
+                            const FormIcon = config.icon;
+                            return (
+                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 ring-1 ring-emerald-500/30' : config.bgColor} ${config.color} font-medium`}>
+                                <FormIcon className="w-3 h-3" />
+                                {config.label}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className={`px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 text-emerald-400' : 'bg-muted/50 text-muted-foreground'} font-medium`}>
+                              {formValue}
+                            </span>
+                          );
+                        }
+                        return (
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                setBatchAIResults((prev) => ({
+                                  ...prev,
+                                  [supplement.id]: {
+                                    ...prev[supplement.id],
+                                    status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                    data: { ...prev[supplement.id]?.data, intake_form: e.target.value }
+                                  }
+                                }));
+                              }
+                            }}
+                            className="h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs"
+                          >
+                            <option value="">?</option>
+                            <option value="capsule">Capsule</option>
+                            <option value="powder">Powder</option>
+                            <option value="liquid">Liquid</option>
+                            <option value="softgel">Softgel</option>
+                            <option value="tablet">Tablet</option>
+                            <option value="gummy">Gummy</option>
+                          </select>
+                        );
+                      })()}
                     </div>
                     <div className="text-xs">
                       {result?.data?.dose_per_serving ? (
-                        <span className="text-green-400">{result.data.dose_per_serving}</span>
+                        <input
+                          type="number"
+                          value={result.data.dose_per_serving}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [supplement.id]: {
+                                ...prev[supplement.id],
+                                data: { ...prev[supplement.id]?.data, dose_per_serving: val }
+                              }
+                            }));
+                          }}
+                          className="w-14 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       ) : supplement.dose_per_serving ? (
                         <span className="text-muted-foreground">{supplement.dose_per_serving}</span>
                       ) : (
-                        <span className="text-muted-foreground/50">-</span>
+                        <input
+                          type="number"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [supplement.id]: {
+                                  ...prev[supplement.id],
+                                  status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                  data: { ...prev[supplement.id]?.data, dose_per_serving: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-12 h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       )}
                     </div>
                     <div className="text-xs">
-                      {result?.data?.dose_unit ? (
-                        <span className="text-green-400">{result.data.dose_unit}</span>
-                      ) : supplement.dose_unit ? (
-                        <span className="text-muted-foreground">{supplement.dose_unit}</span>
-                      ) : (
-                        <span className="text-muted-foreground/50">-</span>
-                      )}
+                      {(() => {
+                        const unitValue = result?.data?.dose_unit || supplement.dose_unit;
+                        const isNew = !!result?.data?.dose_unit;
+                        if (unitValue) {
+                          const config = DOSE_UNIT_CONFIG[unitValue];
+                          if (config) {
+                            return (
+                              <span className={`px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 ring-1 ring-emerald-500/30' : config.bgColor} ${config.color} font-medium`}>
+                                {unitValue}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className={`px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 text-emerald-400' : 'bg-muted/50 text-muted-foreground'} font-medium`}>
+                              {unitValue}
+                            </span>
+                          );
+                        }
+                        return (
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                setBatchAIResults((prev) => ({
+                                  ...prev,
+                                  [supplement.id]: {
+                                    ...prev[supplement.id],
+                                    status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                    data: { ...prev[supplement.id]?.data, dose_unit: e.target.value }
+                                  }
+                                }));
+                              }
+                            }}
+                            className="h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs"
+                          >
+                            <option value="">?</option>
+                            <option value="mg">mg</option>
+                            <option value="g">g</option>
+                            <option value="mcg">mcg</option>
+                            <option value="IU">IU</option>
+                            <option value="ml">ml</option>
+                            <option value="CFU">CFU</option>
+                          </select>
+                        );
+                      })()}
                     </div>
                     <div className="text-xs truncate">
-                      {result?.data?.category ? (
-                        <span className="text-green-400">{result.data.category}</span>
-                      ) : supplement.category ? (
-                        <span className="text-muted-foreground">{supplement.category}</span>
-                      ) : (
-                        <span className="text-muted-foreground/50">-</span>
-                      )}
+                      {(() => {
+                        const catValue = result?.data?.category || supplement.category;
+                        const isNew = !!result?.data?.category;
+                        if (catValue) {
+                          const CategoryIcon = CATEGORY_ICONS[catValue];
+                          const bgColor = CATEGORY_COLORS[catValue] || "rgba(107, 114, 128, 0.2)";
+                          // Map category values to display labels
+                          const catLabels: Record<string, string> = {
+                            vitamin_mineral: "Vitamin",
+                            amino_protein: "Amino",
+                            herb_botanical: "Herb",
+                            probiotic: "Probiotic",
+                            other: "Other",
+                          };
+                          const label = catLabels[catValue] || catValue;
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium ${isNew ? 'ring-1 ring-emerald-500/30' : ''}`}
+                              style={{ backgroundColor: bgColor }}
+                            >
+                              {CategoryIcon && <CategoryIcon className="w-3 h-3" />}
+                              {label}
+                            </span>
+                          );
+                        }
+                        return (
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                setBatchAIResults((prev) => ({
+                                  ...prev,
+                                  [supplement.id]: {
+                                    ...prev[supplement.id],
+                                    status: prev[supplement.id]?.status === 'pending' ? 'success' : prev[supplement.id]?.status || 'success',
+                                    data: { ...prev[supplement.id]?.data, category: e.target.value }
+                                  }
+                                }));
+                              }
+                            }}
+                            className="h-6 px-1 rounded bg-yellow-500/10 text-yellow-500 font-medium border border-yellow-500/30 text-xs"
+                          >
+                            <option value="">?</option>
+                            <option value="vitamin_mineral">Vitamin</option>
+                            <option value="amino_protein">Amino</option>
+                            <option value="herb_botanical">Herb</option>
+                            <option value="probiotic">Probiotic</option>
+                            <option value="other">Other</option>
+                          </select>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -1442,30 +1833,25 @@ export default function SupplementsPage() {
 
           <DialogFooter className="flex-shrink-0 gap-2">
             <div className="flex-1 text-xs text-muted-foreground">
-              {Object.values(batchAIResults).filter((r) => r.status === 'success').length} supplements ready to save
-              {Object.values(batchAIResults).filter((r) => r.status === 'success' && r.selected !== false).length !== Object.values(batchAIResults).filter((r) => r.status === 'success').length && (
-                <span> ({Object.values(batchAIResults).filter((r) => r.status === 'success' && r.selected !== false).length} selected)</span>
-              )}
+              {(() => {
+                const saved = Object.values(batchAIResults).filter((r) => r.status === 'saved').length;
+                const found = Object.values(batchAIResults).filter((r) => r.status === 'success').length;
+                const fetching = Object.values(batchAIResults).filter((r) => r.status === 'fetching' || r.status === 'saving').length;
+                const errors = Object.values(batchAIResults).filter((r) => r.status === 'error').length;
+
+                if (fetching > 0) return `Processing... ${saved} saved`;
+                if (saved > 0 || found > 0 || errors > 0) {
+                  const parts = [];
+                  if (saved > 0) parts.push(`${saved} saved`);
+                  if (found > 0) parts.push(`${found} found (no data)`);
+                  if (errors > 0) parts.push(`${errors} failed`);
+                  return parts.join(', ');
+                }
+                return 'Click "Fetch All with AI" to start';
+              })()}
             </div>
             <Button variant="outline" onClick={() => setIsBatchAIModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveBatchAI}
-              disabled={isSavingBatch || Object.values(batchAIResults).filter((r) => r.status === 'success' && r.selected !== false).length === 0}
-              className="bg-purple-500 hover:bg-purple-600 text-white"
-            >
-              {isSavingBatch ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4 mr-2" />
-                  Save All Selected
-                </>
-              )}
+              {isBatchFetching ? 'Cancel' : 'Close'}
             </Button>
           </DialogFooter>
         </DialogContent>

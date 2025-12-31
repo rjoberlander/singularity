@@ -288,6 +288,61 @@ async function getPerplexityKey(userId: string): Promise<string | null> {
 /**
  * Web search using Perplexity API for supplement information
  */
+// Normalize and fix common AI mistakes in supplement data
+function normalizeSupplementData(data: any): any {
+  if (!data) return data;
+
+  const normalized = { ...data };
+
+  // Form values that might end up in dose_unit by mistake
+  const formValues = ['capsule', 'capsules', 'tablet', 'tablets', 'softgel', 'softgels', 'gummy', 'gummies', 'powder', 'liquid', 'spray', 'patch'];
+  // Valid dose units
+  const validUnits = ['mg', 'g', 'mcg', 'iu', 'ml', 'cfu', 'billion cfu'];
+
+  // Fix dose_unit if it contains a form value
+  if (normalized.dose_unit) {
+    const unitLower = String(normalized.dose_unit).toLowerCase();
+    if (formValues.includes(unitLower)) {
+      // Move to intake_form if not set
+      if (!normalized.intake_form) {
+        normalized.intake_form = unitLower.replace(/s$/, ''); // singularize
+      }
+      normalized.dose_unit = null;
+    }
+    // Normalize "billion afu/cfu" to just "CFU"
+    if (unitLower.includes('afu') || unitLower.includes('cfu')) {
+      normalized.dose_unit = 'CFU';
+      // If dose doesn't include billion, add it
+      if (unitLower.includes('billion') && normalized.dose_per_serving && normalized.dose_per_serving < 1000) {
+        // Keep as is, the "billion" is semantic
+      }
+    }
+  }
+
+  // Normalize intake_form
+  if (normalized.intake_form) {
+    const formLower = String(normalized.intake_form).toLowerCase();
+    // Singularize common plurals
+    if (formLower === 'capsules') normalized.intake_form = 'capsule';
+    if (formLower === 'tablets') normalized.intake_form = 'tablet';
+    if (formLower === 'softgels') normalized.intake_form = 'softgel';
+    if (formLower === 'gummies') normalized.intake_form = 'gummy';
+  }
+
+  // Ensure numeric fields are numbers
+  if (normalized.price && typeof normalized.price === 'string') {
+    normalized.price = parseFloat(normalized.price.replace(/[$,]/g, '')) || null;
+  }
+  if (normalized.servings_per_container && typeof normalized.servings_per_container === 'string') {
+    normalized.servings_per_container = parseInt(normalized.servings_per_container) || null;
+  }
+  if (normalized.dose_per_serving && typeof normalized.dose_per_serving === 'string') {
+    normalized.dose_per_serving = parseFloat(normalized.dose_per_serving) || null;
+  }
+
+  return normalized;
+}
+
 async function webSearchForSupplement(
   perplexityKey: string,
   supplementName: string,
@@ -297,16 +352,20 @@ async function webSearchForSupplement(
   try {
     const fieldDescriptions: Record<string, string> = {
       brand: 'brand/manufacturer name',
-      price: 'current retail price in USD',
-      servings_per_container: 'number of servings per container/bottle',
-      serving_size: 'number of units (capsules, scoops, etc.) per serving (e.g., 2 for "2 capsules per serving")',
-      intake_form: 'form (capsule, powder, liquid, spray, gummy, or patch)',
-      dose_per_serving: 'dose amount per serving (number only)',
-      dose_unit: 'dose unit (mg, g, mcg, IU, ml, or CFU)',
-      category: 'category (vitamin_mineral, amino_protein, herb_botanical, probiotic, other)'
+      price: 'current retail price in USD (number only, e.g., 29.99)',
+      servings_per_container: 'total servings per bottle (number)',
+      serving_size: 'units per serving (e.g., 2 if "take 2 capsules")',
+      intake_form: 'physical form: capsule, tablet, softgel, powder, liquid, gummy, or patch',
+      dose_per_serving: 'active ingredient amount per serving (number only)',
+      dose_unit: 'measurement unit: mg, g, mcg, IU, ml, or CFU (NOT capsule/tablet)',
+      category: 'vitamin_mineral, amino_protein, herb_botanical, probiotic, or other'
     };
 
-    const searchQuery = `${supplementName}${brand ? ` ${brand}` : ''} supplement. Find: ${missingFields.map(f => fieldDescriptions[f] || f).join(', ')}. Provide specific values.`;
+    // Always search for price
+    const fieldsToSearch = missingFields.includes('price') ? missingFields : ['price', ...missingFields];
+    // Avoid duplicate brand name in query (supplementName may already include brand)
+    const brandSuffix = brand && !supplementName.toLowerCase().includes(brand.toLowerCase()) ? ` ${brand}` : '';
+    const searchQuery = `${supplementName}${brandSuffix} supplement Amazon price. Find: ${fieldsToSearch.map(f => fieldDescriptions[f] || f).join(', ')}.`;
 
     console.log('Perplexity web search query:', searchQuery);
 
@@ -321,17 +380,26 @@ async function webSearchForSupplement(
         messages: [
           {
             role: 'system',
-            content: `You are a supplement research assistant. Return ONLY valid JSON with supplement details. For each field requested, provide the value or null if not found. Format:
+            content: `You are a supplement research assistant. Search Amazon, iHerb, and manufacturer sites for product details.
+
+MOST IMPORTANT: Find the PRICE on Amazon or iHerb. The price is almost always available - look at search results and product listings carefully. Extract the dollar amount.
+
+CRITICAL DISTINCTIONS:
+- intake_form = physical form (capsule, tablet, softgel, powder, liquid, gummy, patch)
+- dose_unit = measurement unit (mg, g, mcg, IU, ml, CFU) - NEVER put capsule/tablet here!
+- price = current retail price as a number (e.g., 29.99, 140.00)
+
+Return ONLY valid JSON:
 {
   "brand": "string or null",
-  "price": number or null,
+  "price": number or null (e.g., 29.99 - LOOK HARD for this on Amazon/iHerb),
   "servings_per_container": number or null,
-  "serving_size": number or null (how many units per serving, e.g., 2 for "2 capsules"),
-  "intake_form": "capsule|powder|liquid|spray|gummy|patch or null",
+  "serving_size": number or null,
+  "intake_form": "capsule|tablet|softgel|powder|liquid|gummy|patch or null",
   "dose_per_serving": number or null,
-  "dose_unit": "mg|g|mcg|IU|ml|CFU or null",
+  "dose_unit": "mg|g|mcg|IU|ml|CFU or null (NOT capsule/tablet!)",
   "category": "vitamin_mineral|amino_protein|herb_botanical|probiotic|other or null",
-  "confidence": number 0-1
+  "confidence": 0.0-1.0
 }`
           },
           { role: 'user', content: searchQuery }
@@ -355,7 +423,9 @@ async function webSearchForSupplement(
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      return { success: true, data: parsed };
+      // Normalize the data to fix common mistakes
+      const normalized = normalizeSupplementData(parsed);
+      return { success: true, data: normalized };
     }
 
     return { success: false, error: 'No JSON found in Perplexity response' };
@@ -1081,9 +1151,20 @@ Return ONLY valid JSON in this exact format:
 
         if (perplexityKey) {
           console.log(`Starting web search for ${lowConfidenceFields.length} fields...`);
+
+          // Use the original text_content for the search query if available (preserves full product name)
+          let searchName = supplement.name || 'supplement';
+          if (text_content) {
+            // Extract the product portion from text like "Krill Oil Sports Research supplement. Find: ..."
+            const cleanedText = text_content.split(/supplement\.|Find:/i)[0].trim();
+            if (cleanedText && cleanedText.length > searchName.length) {
+              searchName = cleanedText;
+            }
+          }
+
           const searchResult = await webSearchForSupplement(
             perplexityKey,
-            supplement.name || text_content?.split(' ')[0] || 'supplement',
+            searchName,
             supplement.brand || null,
             lowConfidenceFields
           );
@@ -1238,6 +1319,8 @@ router.post('/extract-supplements/stream', async (req: Request, res: Response): 
 
     // Process first pass results
     if (extractedData.supplements && extractedData.supplements.length > 0) {
+      // Normalize the data to fix common AI mistakes (form/unit confusion, etc.)
+      extractedData.supplements[0] = normalizeSupplementData(extractedData.supplements[0]);
       const supplement = extractedData.supplements[0];
       const baseConfidence = supplement.confidence || 0.7;
 
@@ -1286,9 +1369,20 @@ router.post('/extract-supplements/stream', async (req: Request, res: Response): 
 
         const perplexityKey = await getPerplexityKey(userId);
         if (perplexityKey) {
+          // Use the original text_content for the search query if available (preserves full product name)
+          // Parse out just the product info before "supplement" or "Find:"
+          let searchName = supplement.name || 'supplement';
+          if (text_content) {
+            // Extract the product portion from text like "Krill Oil Sports Research supplement. Find: ..."
+            const cleanedText = text_content.split(/supplement\.|Find:/i)[0].trim();
+            if (cleanedText && cleanedText.length > searchName.length) {
+              searchName = cleanedText;
+            }
+          }
+
           const searchResult = await webSearchForSupplement(
             perplexityKey,
-            supplement.name || text_content?.split(' ')[0] || 'supplement',
+            searchName,
             supplement.brand || null,
             lowConfidenceFields
           );
