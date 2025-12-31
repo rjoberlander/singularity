@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useToggleSupplement } from "@/hooks/useSupplements";
-import { Pill, Clock, DollarSign, ExternalLink } from "lucide-react";
+import { Pill, Clock, DollarSign, ExternalLink, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 interface SupplementCardProps {
@@ -36,9 +36,37 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
       with_meals: "With Meals",
       empty_stomach: "Empty Stomach",
       before_bed: "Before Bed",
+      wake_up: "Wake Up",
+      am: "AM",
+      lunch: "Lunch",
+      pm: "PM",
+      dinner: "Dinner",
     };
     return timingMap[timing] || timing;
   };
+
+  // Format dosage string
+  const formatDosage = () => {
+    const parts: string[] = [];
+
+    // Intake: "2 capsules"
+    if (supplement.intake_form) {
+      const qty = supplement.intake_quantity || 1;
+      const form = supplement.intake_form;
+      const plural = qty > 1 ? 's' : '';
+      parts.push(`${qty} ${form}${plural}`);
+    }
+
+    // Dose: "(600mg)"
+    if (supplement.dose_per_serving && supplement.dose_unit) {
+      parts.push(`(${supplement.dose_per_serving}${supplement.dose_unit})`);
+    }
+
+    return parts.length > 0 ? parts.join(' ') : null;
+  };
+
+  const dosageText = formatDosage();
+  const hasDosage = dosageText !== null;
 
   return (
     <Card
@@ -67,49 +95,61 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
           />
         </div>
 
-        {supplement.intake_form && (
-          <p className="text-lg font-medium mb-2">
-            {supplement.intake_quantity || 1} {supplement.intake_form}{(supplement.intake_quantity || 1) > 1 ? 's' : ''}
-            {supplement.dose_per_serving && supplement.dose_unit && (
-              <span className="text-sm text-muted-foreground ml-2">
-                ({supplement.dose_per_serving} {supplement.dose_unit})
-              </span>
-            )}
+        {/* Dosage - prominently displayed */}
+        {hasDosage ? (
+          <p className="text-lg font-semibold text-primary mb-2">
+            {dosageText}
+          </p>
+        ) : (
+          <p className="text-sm text-orange-500 mb-2 flex items-center gap-1">
+            <Plus className="w-3 h-3" />
+            Add dosage info
           </p>
         )}
 
-        <div className="flex flex-wrap gap-2 mb-3">
-          {supplement.category && (
-            <Badge variant="secondary">{supplement.category}</Badge>
-          )}
-          {supplement.timing && (
-            <Badge variant="outline" className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              {formatTiming(supplement.timing)}
-            </Badge>
-          )}
-        </div>
+        {/* Category + Timing + Buy link row */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {supplement.category && (
+              <Badge variant="secondary">{supplement.category}</Badge>
+            )}
+            {supplement.timing && (
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {formatTiming(supplement.timing)}
+              </Badge>
+            )}
+          </div>
 
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          {supplement.price_per_serving != null && (
-            <span className="flex items-center gap-1">
-              <DollarSign className="w-3 h-3" />
-              ${supplement.price_per_serving.toFixed(2)}/serving
-            </span>
-          )}
-          {supplement.purchase_url && (
+          {/* Buy link or Add link icon */}
+          {supplement.purchase_url ? (
             <a
               href={supplement.purchase_url}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 hover:text-primary"
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary shrink-0"
             >
               <ExternalLink className="w-3 h-3" />
               Buy
             </a>
+          ) : (
+            <span className="flex items-center gap-1 text-sm text-muted-foreground shrink-0">
+              <Plus className="w-3 h-3" />
+              <ExternalLink className="w-3 h-3" />
+            </span>
           )}
         </div>
+
+        {/* Price per serving */}
+        {supplement.price_per_serving != null && (
+          <div className="text-sm text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <DollarSign className="w-3 h-3" />
+              ${supplement.price_per_serving.toFixed(2)}/serving
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

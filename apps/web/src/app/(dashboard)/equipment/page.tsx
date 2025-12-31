@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates } from "@/hooks/useEquipment";
 import { EquipmentDuplicatesModal } from "@/components/equipment/EquipmentDuplicatesModal";
@@ -40,6 +40,8 @@ import {
   Brain,
   AlertTriangle,
   Copy,
+  FileSearch,
+  CheckCircle2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,6 +117,13 @@ export default function EquipmentPage() {
   const [extractedEquipment, setExtractedEquipment] = useState<ExtractedEquipment[]>([]);
   const [selectedExtracted, setSelectedExtracted] = useState<Set<number>>(new Set());
 
+  // Extraction progress state
+  const [extractionProgressOpen, setExtractionProgressOpen] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
+  const [processedInputs, setProcessedInputs] = useState<string[]>([]);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   // Duplicates modal state
   const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
 
@@ -186,13 +195,71 @@ export default function EquipmentPage() {
     setFormOpen(true);
   };
 
+  // Progress animation effect
+  useEffect(() => {
+    if (extractionProgressOpen && isExtracting) {
+      setProgress(0);
+      setProgressStage("preparing");
+
+      progressIntervalRef.current = setInterval(() => {
+        setProgress((prev) => {
+          if (prev < 15) {
+            setProgressStage("preparing");
+            return prev + 3;
+          } else if (prev < 75) {
+            setProgressStage("analyzing");
+            return prev + 0.5;
+          } else if (prev < 90) {
+            setProgressStage("extracting");
+            return prev + 0.3;
+          }
+          return prev;
+        });
+      }, 200);
+
+      return () => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+        }
+      };
+    }
+  }, [extractionProgressOpen, isExtracting]);
+
+  // Complete progress when extraction finishes
+  useEffect(() => {
+    if (!isExtracting && extractionProgressOpen && progress > 0) {
+      setProgress(100);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    }
+  }, [isExtracting, extractionProgressOpen, progress]);
+
   // AI Extraction handlers
   const handleAIExtract = async () => {
     if (!aiInput.trim()) return;
 
+    // Show progress modal
+    setExtractionProgressOpen(true);
     setIsExtracting(true);
+    setProgress(0);
+    setProgressStage("preparing");
+    setProcessedInputs([]);
+
+    // Mark input as processed
+    setTimeout(() => {
+      setProcessedInputs(["Text input"]);
+    }, 500);
+
     try {
       const result = await extractMutation.mutateAsync({ text_content: aiInput });
+
+      // Close progress modal
+      setExtractionProgressOpen(false);
+      setProgress(0);
+      setProgressStage("preparing");
+      setProcessedInputs([]);
+
       if (result.equipment && result.equipment.length > 0) {
         setExtractedEquipment(result.equipment);
         setSelectedExtracted(new Set(result.equipment.map((_, i) => i)));
@@ -202,6 +269,10 @@ export default function EquipmentPage() {
         toast.error("No equipment found in the text");
       }
     } catch (err: any) {
+      setExtractionProgressOpen(false);
+      setProgress(0);
+      setProgressStage("preparing");
+      setProcessedInputs([]);
       toast.error(err?.response?.data?.error || "Failed to extract equipment");
     } finally {
       setIsExtracting(false);
@@ -477,6 +548,118 @@ export default function EquipmentPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
       />
+
+      {/* Extraction Progress Modal */}
+      <Dialog open={extractionProgressOpen} onOpenChange={(open) => !isExtracting && setExtractionProgressOpen(open)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5" />
+              Extracting Equipment...
+            </DialogTitle>
+            <DialogDescription>
+              AI is analyzing your equipment information
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center justify-center py-8">
+            {/* Progress stages */}
+            <div className="flex items-center justify-center gap-8 mb-6">
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "preparing" ? "text-primary" : progress > 15 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "preparing" ? "border-primary bg-primary/10" : progress > 15 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress > 15 ? <Check className="w-5 h-5" /> : <FileSearch className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Preparing</span>
+              </div>
+
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "analyzing" ? "text-primary" : progress > 75 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "analyzing" ? "border-primary bg-primary/10" : progress > 75 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress > 75 ? <Check className="w-5 h-5" /> : progressStage === "analyzing" ? <Brain className="w-5 h-5 animate-pulse" /> : <Brain className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Analyzing</span>
+              </div>
+
+              <div className={`flex flex-col items-center gap-2 ${progressStage === "extracting" ? "text-primary" : progress >= 100 ? "text-green-500" : "text-muted-foreground"}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "extracting" ? "border-primary bg-primary/10" : progress >= 100 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
+                  {progress >= 100 ? <Check className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </div>
+                <span className="text-xs font-medium">Extracting</span>
+              </div>
+            </div>
+
+            {/* Progress bars container */}
+            <div className="w-full max-w-md space-y-4 mb-4">
+              {/* Input progress bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <FileSearch className="w-3.5 h-3.5" />
+                    Input Read
+                  </span>
+                  <span className="font-semibold text-primary">
+                    {processedInputs.length} / 1
+                  </span>
+                </div>
+                <div className="relative">
+                  <Progress
+                    value={processedInputs.length > 0 ? 100 : (progressStage === "preparing" ? 50 : 100)}
+                    className="h-3 bg-muted/50"
+                  />
+                  {/* Input dot overlay */}
+                  <div className="absolute inset-0 flex items-center justify-around px-1">
+                    <div
+                      className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                        processedInputs.length > 0
+                          ? "bg-white shadow-sm"
+                          : "bg-muted-foreground/30"
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Overall progress bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5" />
+                    AI Processing
+                  </span>
+                  <span className="font-medium">{Math.round(progress)}%</span>
+                </div>
+                <Progress value={progress} className="h-3" />
+              </div>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              {progressStage === "preparing" && "Reading input..."}
+              {progressStage === "analyzing" && "AI is analyzing equipment information..."}
+              {progressStage === "extracting" && "Extracting equipment details..."}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {Math.round(progress)}% complete
+            </p>
+
+            {/* Input list - show processed inputs */}
+            {processedInputs.length > 0 && (
+              <div className="mt-4 w-full max-w-md">
+                <div className="text-xs text-muted-foreground mb-2">Input:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {processedInputs.map((inputName, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 text-green-600 text-xs"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>{inputName}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Extraction Review Modal */}
       <Dialog open={extractionModalOpen} onOpenChange={setExtractionModalOpen}>

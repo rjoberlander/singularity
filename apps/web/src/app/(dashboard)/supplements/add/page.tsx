@@ -54,22 +54,12 @@ const FREQUENCY_OPTIONS = [
 ];
 
 const INTAKE_FORM_OPTIONS = [
-  { value: "pill", label: "Pill" },
   { value: "capsule", label: "Capsule" },
-  { value: "softgel", label: "Softgel" },
-  { value: "tablet", label: "Tablet" },
-  { value: "scoop", label: "Scoop" },
-  { value: "dropper", label: "Dropper" },
-  { value: "drop", label: "Drop" },
+  { value: "powder", label: "Powder" },
+  { value: "liquid", label: "Liquid" },
   { value: "spray", label: "Spray" },
   { value: "gummy", label: "Gummy" },
-  { value: "lozenge", label: "Lozenge" },
-  { value: "packet", label: "Packet" },
-  { value: "teaspoon", label: "Teaspoon" },
-  { value: "tablespoon", label: "Tablespoon" },
-  { value: "chewable", label: "Chewable" },
   { value: "patch", label: "Patch" },
-  { value: "powder", label: "Powder (serving)" },
 ];
 
 const DOSE_UNIT_OPTIONS = [

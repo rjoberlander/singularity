@@ -35,7 +35,6 @@ import {
   FileText,
   Image as ImageIcon,
   Upload,
-  Link2,
   AlertTriangle,
   FileSearch,
   Brain,
@@ -75,22 +74,12 @@ const FREQUENCY_OPTIONS = [
 ];
 
 const INTAKE_FORM_OPTIONS = [
-  { value: "pill", label: "Pill" },
   { value: "capsule", label: "Capsule" },
-  { value: "softgel", label: "Softgel" },
-  { value: "tablet", label: "Tablet" },
-  { value: "scoop", label: "Scoop" },
-  { value: "dropper", label: "Dropper" },
-  { value: "drop", label: "Drop" },
+  { value: "powder", label: "Powder" },
+  { value: "liquid", label: "Liquid" },
   { value: "spray", label: "Spray" },
   { value: "gummy", label: "Gummy" },
-  { value: "lozenge", label: "Lozenge" },
-  { value: "packet", label: "Packet" },
-  { value: "teaspoon", label: "Teaspoon" },
-  { value: "tablespoon", label: "Tablespoon" },
-  { value: "chewable", label: "Chewable" },
   { value: "patch", label: "Patch" },
-  { value: "powder", label: "Powder (serving)" },
 ];
 
 const DOSE_UNIT_OPTIONS = [
@@ -124,10 +113,8 @@ export function SupplementAddCombinedModal({
 
   // AI tab state
   const [text, setText] = useState("");
-  const [url, setUrl] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [inputMode, setInputMode] = useState<"text" | "url">("text");
   const [isExtracting, setIsExtracting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
@@ -161,9 +148,7 @@ export function SupplementAddCombinedModal({
   useEffect(() => {
     if (!open) {
       setText("");
-      setUrl("");
       setAttachedFile(null);
-      setInputMode("text");
       setIsExtracting(false);
       setProgress(0);
       setProgressStage("preparing");
@@ -220,7 +205,7 @@ export function SupplementAddCombinedModal({
 
   // AI extraction handler
   const handleAISubmit = useCallback(async () => {
-    if (!text.trim() && !attachedFile && !url.trim()) return;
+    if (!text.trim() && !attachedFile) return;
 
     // If we have the extraction modal handler, use it for full extraction flow
     if (onOpenExtractionModal) {
@@ -228,7 +213,6 @@ export function SupplementAddCombinedModal({
       onOpenExtractionModal({
         text: text.trim() || undefined,
         file: attachedFile || undefined,
-        url: url.trim() || undefined,
       });
       return;
     }
@@ -249,11 +233,6 @@ export function SupplementAddCombinedModal({
         result = await extractSupplements.mutateAsync({
           image_base64: base64,
           source_type: "image",
-        });
-      } else if (url.trim()) {
-        result = await extractSupplements.mutateAsync({
-          text_content: `[URL]: ${url.trim()}`,
-          source_type: "text",
         });
       } else if (text.trim()) {
         result = await extractSupplements.mutateAsync({
@@ -276,14 +255,13 @@ export function SupplementAddCombinedModal({
       setIsExtracting(false);
       setProgress(0);
     }
-  }, [text, attachedFile, url, onOpenExtractionModal, onOpenChange, extractSupplements, onSuccess]);
+  }, [text, attachedFile, onOpenExtractionModal, onOpenChange, extractSupplements, onSuccess]);
 
   // File handling
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setAttachedFile(file);
-      setInputMode("text");
     }
   };
 
@@ -298,13 +276,6 @@ export function SupplementAddCombinedModal({
           return;
         }
       }
-    }
-
-    const pastedText = e.clipboardData.getData("text");
-    if (pastedText && (pastedText.startsWith("http://") || pastedText.startsWith("https://"))) {
-      e.preventDefault();
-      setUrl(pastedText);
-      setInputMode("url");
     }
   };
 
@@ -337,7 +308,6 @@ export function SupplementAddCombinedModal({
       const file = files[0];
       if (file.type.startsWith("image/") || file.type === "application/pdf") {
         setAttachedFile(file);
-        setInputMode("text");
       }
     }
   };
@@ -478,54 +448,25 @@ export function SupplementAddCombinedModal({
                       </div>
                     )}
 
-                    {/* Mode toggle */}
-                    <div className="flex gap-2 mb-4">
-                      <Button
-                        size="sm"
-                        variant={inputMode === "text" ? "default" : "outline"}
-                        onClick={() => setInputMode("text")}
-                      >
-                        Text/Image
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={inputMode === "url" ? "default" : "outline"}
-                        onClick={() => setInputMode("url")}
-                      >
-                        <Link2 className="w-4 h-4 mr-1" />
-                        URL
-                      </Button>
-                    </div>
-
-                    {inputMode === "text" ? (
-                      <div className="space-y-2">
-                        <Textarea
-                          value={text}
-                          onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
-                          onPaste={handlePaste}
-                          placeholder="Paste supplement info, receipt, or product description..."
-                          className="min-h-[120px] resize-none"
-                          rows={5}
-                        />
-                        {text.length > 0 && (
-                          <div className={`text-xs text-right ${
-                            text.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
-                            text.length > WARNING_THRESHOLD ? "text-amber-500" :
-                            "text-muted-foreground"
-                          }`}>
-                            {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <Input
-                        type="url"
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        placeholder="https://amazon.com/dp/..."
-                        className="mb-2"
+                    <div className="space-y-2">
+                      <Textarea
+                        value={text}
+                        onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
+                        onPaste={handlePaste}
+                        placeholder="Drag & drop file or copy/paste text or URL for AI extraction."
+                        className="min-h-[120px] resize-none"
+                        rows={5}
                       />
-                    )}
+                      {text.length > 0 && (
+                        <div className={`text-xs text-right ${
+                          text.length > MAX_TEXT_LENGTH ? "text-destructive font-medium" :
+                          text.length > WARNING_THRESHOLD ? "text-amber-500" :
+                          "text-muted-foreground"
+                        }`}>
+                          {text.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
 
                     <div className="flex flex-col gap-3 mt-4">
                       <Button
@@ -540,16 +481,12 @@ export function SupplementAddCombinedModal({
                       <Button
                         className="w-full"
                         onClick={handleAISubmit}
-                        disabled={(!text.trim() && !attachedFile && !url.trim()) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
+                        disabled={(!text.trim() && !attachedFile) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
                       >
                         <Send className="w-4 h-4 mr-2" />
                         Extract Supplements
                       </Button>
                     </div>
-
-                    <p className="text-xs text-muted-foreground text-center mt-4">
-                      Paste text, drop an image, or enter a product URL to extract supplement details using AI
-                    </p>
                   </>
                 )}
               </div>
