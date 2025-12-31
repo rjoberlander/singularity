@@ -4,8 +4,8 @@
   "description": "Singularity - AI-Powered Health Protocol Tracking",
   "private": true,
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "dev:api": "cd apps/api && npm run dev",
@@ -17,7 +17,8 @@
     "build:mobile": "cd apps/mobile && npm run build:web",
     "build:web": "cd apps/web && npm run build",
     "build:mcp": "cd apps/mcp-server && npm run build",
-    "install:all": "npm install && cd apps/api && npm install && cd ../mobile && npm install && cd ../web && npm install && cd ../mcp-server && npm install"
+    "build:packages": "npm run build -w @singularity/shared-types && npm run build -w @singularity/shared-utils && npm run build -w @singularity/shared-api",
+    "install:all": "npm install && npm run build:packages"
   },
   "repository": {
     "type": "git",
