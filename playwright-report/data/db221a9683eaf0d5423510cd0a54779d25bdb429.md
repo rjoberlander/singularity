@@ -1,0 +1,807 @@
+# Page snapshot
+
+```yaml
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - link:
+          - /url: /dashboard
+          - generic:
+            - img
+          - generic: Singularity
+      - navigation:
+        - link:
+          - /url: /dashboard
+          - img
+          - text: Dashboard
+        - link:
+          - /url: /biomarkers
+          - img
+          - text: Biomarkers
+        - link:
+          - /url: /supplements
+          - img
+          - text: Supplements
+        - link:
+          - /url: /equipment
+          - img
+          - text: Equipment
+        - link:
+          - /url: /routines
+          - img
+          - text: Routines
+        - link:
+          - /url: /goals
+          - img
+          - text: Goals
+        - link:
+          - /url: /changelog
+          - img
+          - text: Change Log
+        - link:
+          - /url: /docs
+          - img
+          - text: Protocol Docs
+        - link:
+          - /url: /chat
+          - img
+          - text: AI Chat
+      - generic:
+        - link:
+          - /url: /settings
+          - img
+          - text: Settings
+    - generic:
+      - banner:
+        - generic:
+          - button:
+            - img
+            - generic: Toggle theme
+          - generic:
+            - button:
+              - generic:
+                - img
+              - generic: rjoberlander
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=1]: Supplements
+              - img
+            - generic:
+              - generic:
+                - button: All
+                - button:
+                  - img
+                  - text: Vitamin
+                - button:
+                  - img
+                  - text: Mineral
+                - button:
+                  - img
+                  - text: Amino Acid
+                - button:
+                  - img
+                  - text: Herb
+                - button:
+                  - img
+                  - text: Probiotic
+                - button:
+                  - img
+                  - text: Omega
+                - button:
+                  - img
+                  - text: Antioxidant
+                - button:
+                  - img
+                  - text: Hormone
+                - button:
+                  - img
+                  - text: Enzyme
+                - button:
+                  - img
+                  - text: Other
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=3]: SUPPLEMENT COSTS
+                  - generic:
+                    - img
+                    - generic: 26 active / 26 total
+                  - generic:
+                    - generic:
+                      - generic: Monthly
+                      - generic: $12.00
+                    - generic:
+                      - generic: Yearly
+                      - generic: $146.00
+                    - generic:
+                      - generic: Daily
+                      - generic: $0.40
+                - generic:
+                  - heading [level=3]: STATUS
+                  - generic:
+                    - button: All
+                    - button: Active
+                    - button: Inactive
+                - generic:
+                  - generic:
+                    - img
+                    - textbox:
+                      - /placeholder: Search...
+                - generic:
+                  - generic:
+                    - generic:
+                      - textbox:
+                        - /placeholder: Drag & drop file or copy/paste text or URL for AI extraction.
+                    - generic:
+                      - button:
+                        - img
+                        - text: Attach Image/PDF
+                      - button [disabled]:
+                        - img
+                        - text: Extract Supplements
+                - generic:
+                  - button:
+                    - img
+                    - text: Add Supplement
+              - generic:
+                - heading [level=3]: ALL SUPPLEMENTS
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Apigenin
+                            - paragraph: Swanson
+                        - switch [checked]
+                      - paragraph: (50mg)
+                      - generic:
+                        - generic:
+                          - generic: antioxidant
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/Swanson-Apigenin-Prostate-Supplements-Capsules/dp/B001TEIJIQ
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Ashwagandha KSM-66
+                            - paragraph: Jarrow Formulas
+                        - switch [checked]
+                      - paragraph: (450mg)
+                      - generic:
+                        - generic:
+                          - generic: herb
+                          - generic:
+                            - img
+                            - text: PM
+                        - link:
+                          - /url: https://www.amazon.com/Jarrow-Formulas-Ashwagandha-Supports-Resistance/dp/B0013OQEO8
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: B12 Methylcobalamin
+                            - paragraph: Life Extension
+                        - switch [checked]
+                      - paragraph: (500mcg)
+                      - generic:
+                        - generic:
+                          - generic: vitamin
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B00028N1QU
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Collagen
+                            - paragraph: Healthy Bones Co.
+                        - switch [checked]
+                      - paragraph: (13g)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B0D9ZTNZLR
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Creatine Monohydrate
+                            - paragraph: Thorne
+                        - switch [checked]
+                      - paragraph: (10g)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/Thorne-Creatine-High-Quality-Monohydrate-Gluten-Free/dp/B07978VPPH
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: DHEA
+                            - paragraph: Pure Encapsulations
+                        - switch [checked]
+                      - paragraph: (25mg)
+                      - generic:
+                        - generic:
+                          - generic: hormone
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B0016QTR10
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: DS-01 Daily Synbiotic
+                            - paragraph: Seed
+                        - switch [checked]
+                      - paragraph: (2capsules)
+                      - generic:
+                        - generic:
+                          - generic: probiotic
+                          - generic:
+                            - img
+                            - text: Wake Up
+                        - link:
+                          - /url: https://seed.com/daily-synbiotic-2
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Essential Aminos
+                            - paragraph: Pure Encapsulations
+                        - switch [checked]
+                      - paragraph: (1cap)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B074R3KVY8
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: EVOO (raw)
+                            - paragraph: Laconiko ZOI
+                        - switch [checked]
+                      - paragraph: (1Tbsp)
+                      - generic:
+                        - generic:
+                          - generic: antioxidant
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://laconiko.com/products/zoi-ultra-high-phenolic-evoo-rich-in-oleocanthal
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Finasteride
+                            - paragraph: Generic Rx
+                        - switch [checked]
+                      - paragraph: (1mg)
+                      - generic:
+                        - generic:
+                          - generic: hormone
+                          - generic:
+                            - img
+                            - text: AM
+                        - generic:
+                          - img
+                          - img
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Fish Oil (EPA-heavy)
+                            - paragraph: Sports Research Triple Strength
+                        - switch [checked]
+                      - paragraph: (2softgels)
+                      - generic:
+                        - generic:
+                          - generic: omega
+                          - generic:
+                            - img
+                            - text: Dinner
+                        - link:
+                          - /url: https://www.amazon.com/Sports-Research-Triple-Strength-1250mg/dp/B0BJ7NN9L5
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: GABA
+                            - paragraph: NOW Foods
+                        - switch [checked]
+                      - paragraph: (100mg)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/NOW-Supplements-GABA-500-Capsules/dp/B0013OQHN6
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Glucosamine + Chondroitin + MSM
+                            - paragraph: Puritan's Pride
+                        - switch [checked]
+                      - paragraph: (2caps)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B004R63690
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Glycine
+                            - paragraph: NOW Foods Powder
+                        - switch [checked]
+                      - paragraph: (2.5g)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/NOW-Supplements-Glycine-Powder-1-Pound/dp/B0013OVZJW
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: H2TAB Hydrogen Tablet
+                            - paragraph: H2TAB
+                        - switch [checked]
+                      - paragraph: (1tablet)
+                      - generic:
+                        - generic:
+                          - generic: antioxidant
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/Molecular-H2TAB-Magnesium-Antioxidants-Cognitive/dp/B0F11Q5NVH
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Krill Oil
+                            - paragraph: Sports Research Antarctic
+                        - switch [checked]
+                      - paragraph: (1softgel)
+                      - generic:
+                        - generic:
+                          - generic: omega
+                          - generic:
+                            - img
+                            - text: Dinner
+                        - link:
+                          - /url: https://www.amazon.com/dp/B00IP1E3O0
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Krill Oil
+                            - paragraph: Sports Research Antarctic Krill
+                        - switch [checked]
+                      - paragraph: (1000mg)
+                      - generic:
+                        - generic:
+                          - generic: omega
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B00IP1E3O0
+                          - img
+                          - text: Buy
+                      - generic:
+                        - generic:
+                          - img
+                          - text: $0.40/serving
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: L-Lysine
+                            - paragraph: Pure Encapsulations
+                        - switch [checked]
+                      - paragraph: (500mg)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B000H85JYC
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: L-Theanine
+                            - paragraph: Thorne
+                        - switch [checked]
+                      - paragraph: (200mg)
+                      - generic:
+                        - generic:
+                          - generic: amino_acid
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/Thorne-Research-L-Theanine-Supplement-Relaxation/dp/B0797BLW59
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Magnesium Threonate
+                            - paragraph: Life Extension Neuro-Mag
+                        - switch [checked]
+                      - paragraph: (145mg)
+                      - generic:
+                        - generic:
+                          - generic: mineral
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/Life-Extension-Neuro-Mag-L-Threonate-Vegetarian/dp/B006P536E6
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Myo-Inositol
+                            - paragraph: NOW Foods Powder
+                        - switch [checked]
+                      - paragraph: (900mg)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: Before Bed
+                        - link:
+                          - /url: https://www.amazon.com/NOW-Foods-733739005298-Inositol-1-Pound/dp/B007XA489O
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Phosphatidylserine
+                            - paragraph: Thorne
+                        - switch [checked]
+                      - paragraph: (150mg)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/Thorne-Research-Iso-Phos-Phosphatidylserine-Supplement/dp/B000FGZG4O
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Two-Per-Day Multi
+                            - paragraph: Life Extension
+                        - switch [checked]
+                      - paragraph: (1cap)
+                      - generic:
+                        - generic:
+                          - generic: vitamin
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B01IROPPR8
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: UC-II (undenatured collagen)
+                            - paragraph: NOW UC-II
+                        - switch [checked]
+                      - paragraph: (40mg)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B014MHI0P8
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Vitamin D3 + K2
+                            - paragraph: Pure Encapsulations
+                        - switch [checked]
+                      - paragraph: (1cap)
+                      - generic:
+                        - generic:
+                          - generic: vitamin
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B0BZ8TMDQ5
+                          - img
+                          - text: Buy
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                          - generic:
+                            - heading [level=3]: Whey Protein
+                            - paragraph: Puori PW1
+                        - switch [checked]
+                      - paragraph: (42g)
+                      - generic:
+                        - generic:
+                          - generic: other
+                          - generic:
+                            - img
+                            - text: AM
+                        - link:
+                          - /url: https://www.amazon.com/dp/B09B2RP12L
+                          - img
+                          - text: Buy
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e6] [cursor=pointer]:
+    - img [ref=e7]
+  - alert
+  - dialog "Edit Supplement" [ref=e11]:
+    - heading "Edit Supplement" [level=2] [ref=e13]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - text: Name *
+          - textbox "Vitamin D3" [active] [ref=e17]: Apigenin
+        - generic [ref=e18]:
+          - text: Qty
+          - spinbutton [ref=e19]: "1"
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - generic [ref=e22]: When
+          - generic [ref=e23]:
+            - button "Wake" [ref=e24] [cursor=pointer]
+            - button "AM" [ref=e25] [cursor=pointer]
+            - button "Lunch" [ref=e26] [cursor=pointer]
+            - button "PM" [ref=e27] [cursor=pointer]
+            - button "Dinner" [ref=e28] [cursor=pointer]
+            - button "Bed" [ref=e29] [cursor=pointer]
+        - generic [ref=e30]:
+          - generic [ref=e31]: Freq
+          - generic [ref=e32]:
+            - button "Daily" [ref=e33] [cursor=pointer]
+            - button "2x" [ref=e34] [cursor=pointer]
+            - button "3x" [ref=e35] [cursor=pointer]
+            - button "Weekly" [ref=e36] [cursor=pointer]
+            - button "PRN" [ref=e37] [cursor=pointer]
+      - generic [ref=e38]:
+        - generic [ref=e39]: URL
+        - textbox "https://..." [ref=e40]: https://www.amazon.com/Swanson-Apigenin-Prostate-Supplements-Capsules/dp/B001TEIJIQ
+        - button [ref=e41] [cursor=pointer]:
+          - img [ref=e42]
+        - button [ref=e45] [cursor=pointer]:
+          - img [ref=e46]
+        - button "Populate by AI" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - generic [ref=e53]: Populate by AI
+      - generic [ref=e54]:
+        - generic [ref=e55]: Notes
+        - textbox "Notes..." [ref=e56]
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - generic [ref=e60]: Product
+          - button "Populate by AI" [ref=e61] [cursor=pointer]:
+            - img [ref=e62]
+            - generic [ref=e64]: Populate by AI
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - generic [ref=e67]: Price
+            - spinbutton [ref=e68]
+          - generic [ref=e69]:
+            - generic [ref=e70]: Srv
+            - spinbutton [ref=e71]
+          - generic [ref=e72]:
+            - generic [ref=e73]: Brand
+            - textbox "Thorne" [ref=e74]: Swanson
+      - generic [ref=e75]:
+        - generic [ref=e76]: Form
+        - generic [ref=e77]:
+          - button "Capsule" [ref=e78] [cursor=pointer]
+          - button "Powder" [ref=e79] [cursor=pointer]
+          - button "Liquid" [ref=e80] [cursor=pointer]
+          - button "Spray" [ref=e81] [cursor=pointer]
+          - button "Gummy" [ref=e82] [cursor=pointer]
+          - button "Patch" [ref=e83] [cursor=pointer]
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - generic [ref=e86]: Dose
+          - spinbutton [ref=e87]: "50"
+        - generic [ref=e88]:
+          - generic [ref=e89]: Unit
+          - generic [ref=e90]:
+            - button "mg" [ref=e91] [cursor=pointer]
+            - button "g" [ref=e92] [cursor=pointer]
+            - button "mcg" [ref=e93] [cursor=pointer]
+            - button "IU" [ref=e94] [cursor=pointer]
+            - button "ml" [ref=e95] [cursor=pointer]
+            - button "CFU" [ref=e96] [cursor=pointer]
+      - generic [ref=e97]:
+        - generic [ref=e98]:
+          - generic [ref=e99]: Category
+          - button "Vitamin" [ref=e100] [cursor=pointer]
+          - button "Mineral" [ref=e101] [cursor=pointer]
+          - button "Amino" [ref=e102] [cursor=pointer]
+          - button "Herb" [ref=e103] [cursor=pointer]
+          - button "Probiotic" [ref=e104] [cursor=pointer]
+        - generic [ref=e105]:
+          - button "Omega" [ref=e106] [cursor=pointer]
+          - button "Antioxidant" [ref=e107] [cursor=pointer]
+          - button "Hormone" [ref=e108] [cursor=pointer]
+          - button "Enzyme" [ref=e109] [cursor=pointer]
+          - button "Other" [ref=e110] [cursor=pointer]
+      - generic [ref=e111]:
+        - button [ref=e112] [cursor=pointer]:
+          - img [ref=e113]
+        - generic [ref=e116]:
+          - button "Cancel" [ref=e117] [cursor=pointer]
+          - button "Save" [ref=e118] [cursor=pointer]
+    - button "Close" [ref=e119] [cursor=pointer]:
+      - img [ref=e120]
+      - generic [ref=e123]: Close
+```

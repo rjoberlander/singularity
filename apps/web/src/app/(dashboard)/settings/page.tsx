@@ -17,6 +17,7 @@ import {
 import { FamilySharing } from "@/components/settings/FamilySharing";
 import { DataExport } from "@/components/settings/DataExport";
 import { AIKeys } from "@/components/settings/AIKeys";
+import { AIConnectors } from "@/components/settings/AIConnectors";
 import { usersApi } from "@/lib/api";
 import {
   User,
@@ -31,6 +32,7 @@ import {
   Sun,
   Loader2,
   Key,
+  Plug,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -105,7 +107,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid grid-cols-3 sm:grid-cols-6 w-full h-auto gap-1">
+        <TabsList className="grid grid-cols-4 sm:grid-cols-7 w-full h-auto gap-1">
           <TabsTrigger value="profile" className="flex items-center gap-2 px-2 py-2">
             <User className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline truncate">Profile</span>
@@ -114,13 +116,17 @@ export default function SettingsPage() {
             <Key className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline truncate">AI Keys</span>
           </TabsTrigger>
+          <TabsTrigger value="connectors" className="flex items-center gap-2 px-2 py-2">
+            <Plug className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline truncate">Connectors</span>
+          </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2 px-2 py-2">
             <Bell className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline truncate">Notifications</span>
+            <span className="hidden sm:inline truncate">Alerts</span>
           </TabsTrigger>
           <TabsTrigger value="appearance" className="flex items-center gap-2 px-2 py-2">
             <Palette className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline truncate">Appearance</span>
+            <span className="hidden sm:inline truncate">Theme</span>
           </TabsTrigger>
           <TabsTrigger value="sharing" className="flex items-center gap-2 px-2 py-2">
             <Users className="w-4 h-4 shrink-0" />
@@ -214,6 +220,11 @@ export default function SettingsPage() {
         {/* AI Keys Tab */}
         <TabsContent value="ai">
           <AIKeys />
+        </TabsContent>
+
+        {/* AI Connectors Tab */}
+        <TabsContent value="connectors">
+          <AIConnectors />
         </TabsContent>
 
         {/* Notifications Tab */}

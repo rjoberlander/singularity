@@ -352,3 +352,13 @@ export const eightSleepApi = {
     api.patch("/eight-sleep/settings", data),
   getTimezones: () => api.get("/eight-sleep/timezones"),
 };
+
+// Access Tokens (MCP/AI Connectors)
+export const accessTokensApi = {
+  list: () => api.get("/access-tokens"),
+  create: (data: { name: string; scopes?: string[]; expires_in_days?: number }) =>
+    api.post("/access-tokens", data),
+  delete: (id: string) => api.delete(`/access-tokens/${id}`),
+  toggle: (id: string) => api.patch(`/access-tokens/${id}/toggle`),
+  test: (token: string) => api.post("/access-tokens/test", { token }),
+};
