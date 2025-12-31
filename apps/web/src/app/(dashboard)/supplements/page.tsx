@@ -28,7 +28,18 @@ import {
   Zap,
   MoreHorizontal,
   LucideIcon,
+  Sparkles,
 } from "lucide-react";
+
+// Check which supplements have missing important fields
+function getSupplementsWithMissingData(supplements: Supplement[] | undefined): Supplement[] {
+  if (!supplements) return [];
+  return supplements.filter(s => {
+    const missing = !s.brand || !s.price || !s.dose_per_serving || !s.dose_unit ||
+                    !s.category || !s.timing || !s.servings_per_container || !s.intake_form;
+    return missing;
+  });
+}
 
 const CATEGORIES = [
   "All",
@@ -97,6 +108,7 @@ export default function SupplementsPage() {
   });
 
   const costs = useSupplementCosts(supplements);
+  const supplementsWithMissingData = getSupplementsWithMissingData(supplements);
 
   const filteredSupplements = supplements?.filter((s) =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -234,6 +246,30 @@ export default function SupplementsPage() {
                 <div className="pt-2">
                   <SupplementChatInput onSubmit={handleChatSubmit} isProcessing={isProcessing} />
                 </div>
+
+                {/* Populate Details by AI Button */}
+                {supplementsWithMissingData.length > 0 && (
+                  <div className="pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full bg-primary/10 border-primary/30 hover:bg-primary/20"
+                      onClick={() => {
+                        // Open the first supplement with missing data for editing
+                        if (supplementsWithMissingData.length > 0) {
+                          setEditingSupplement(supplementsWithMissingData[0]);
+                          setFormOpen(true);
+                        }
+                      }}
+                    >
+                      <Sparkles className="w-4 h-4 mr-2 text-primary" />
+                      <span className="text-primary">Populate by AI</span>
+                      <span className="ml-1 text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">
+                        {supplementsWithMissingData.length}
+                      </span>
+                    </Button>
+                  </div>
+                )}
 
                 {/* Add Supplement Button */}
                 <div className="pt-2">
