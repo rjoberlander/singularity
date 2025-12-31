@@ -303,7 +303,7 @@ async function webSearchForSupplement(
       intake_form: 'form (capsule, powder, liquid, spray, gummy, or patch)',
       dose_per_serving: 'dose amount per serving (number only)',
       dose_unit: 'dose unit (mg, g, mcg, IU, ml, or CFU)',
-      category: 'category (vitamin, mineral, amino_acid, herb, probiotic, omega, antioxidant, hormone, enzyme, other)'
+      category: 'category (vitamin_mineral, amino_protein, herb_botanical, probiotic, other)'
     };
 
     const searchQuery = `${supplementName}${brand ? ` ${brand}` : ''} supplement. Find: ${missingFields.map(f => fieldDescriptions[f] || f).join(', ')}. Provide specific values.`;
@@ -330,7 +330,7 @@ async function webSearchForSupplement(
   "intake_form": "capsule|powder|liquid|spray|gummy|patch or null",
   "dose_per_serving": number or null,
   "dose_unit": "mg|g|mcg|IU|ml|CFU or null",
-  "category": "vitamin|mineral|amino_acid|herb|probiotic|omega|antioxidant|hormone|enzyme|other or null",
+  "category": "vitamin_mineral|amino_protein|herb_botanical|probiotic|other or null",
   "confidence": number 0-1
 }`
           },
@@ -892,7 +892,7 @@ Return ONLY valid JSON in this exact format:
       "price": number or null - total price in dollars if visible,
       "price_per_serving": number or null - calculated if price and servings known,
       "purchase_url": "string or null - if URL was provided",
-      "category": "string - vitamin, mineral, amino_acid, herb, probiotic, omega, antioxidant, hormone, enzyme, other",
+      "category": "string - vitamin_mineral, amino_protein, herb_botanical, probiotic, other",
       "timing": "string or null - MUST be one of: wake_up, am, lunch, pm, dinner, before_bed",
       "timing_reason": "string or null - WHY take at this time (e.g., 'cognitive benefits during waking hours')",
       "frequency": "string or null - daily, twice_daily, three_times_daily, weekly, as_needed",
@@ -1219,7 +1219,7 @@ router.post('/extract-supplements/stream', async (req: Request, res: Response): 
     }
 
     const actualContent = (text_content || '') + urlContent;
-    const systemPrompt = `You are a supplement extraction assistant. Extract: brand, price, servings_per_container, serving_size (how many units per serving, e.g., 2 capsules = 1 serving), intake_form (capsule/powder/liquid/spray/gummy/patch), dose_per_serving, dose_unit (mg/g/mcg/IU/ml/CFU), category (vitamin/mineral/amino_acid/herb/probiotic/omega/antioxidant/hormone/enzyme/other). Return JSON with field_confidence for each field (0-1).`;
+    const systemPrompt = `You are a supplement extraction assistant. Extract: brand, price, servings_per_container, serving_size (how many units per serving, e.g., 2 capsules = 1 serving), intake_form (capsule/powder/liquid/spray/gummy/patch), dose_per_serving, dose_unit (mg/g/mcg/IU/ml/CFU), category (vitamin_mineral/amino_protein/herb_botanical/probiotic/other). Return JSON with field_confidence for each field (0-1).`;
 
     const response = await anthropic.messages.create({
       model: AI_CONFIG.model,

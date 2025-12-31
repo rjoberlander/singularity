@@ -17,7 +17,9 @@ function getMissingFields(supplement: Supplement): string[] {
   if (!supplement.dose_per_serving) missing.push("dose");
   if (!supplement.dose_unit) missing.push("unit");
   if (!supplement.category) missing.push("category");
-  if (!supplement.timing) missing.push("timing");
+  // Check timings array or legacy timing field
+  const hasTimings = (supplement.timings && supplement.timings.length > 0) || supplement.timing;
+  if (!hasTimings) missing.push("timing");
   if (!supplement.servings_per_container) missing.push("servings");
   if (!supplement.intake_form) missing.push("form");
   return missing;
@@ -42,23 +44,37 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
     }
   };
 
+  const timingMap: Record<string, string> = {
+    morning: "Morning",
+    afternoon: "Afternoon",
+    evening: "Evening",
+    with_meals: "With Meals",
+    empty_stomach: "Empty Stomach",
+    before_bed: "Bed",
+    wake_up: "Wake",
+    am: "AM",
+    lunch: "Lunch",
+    pm: "PM",
+    dinner: "Dinner",
+  };
+
   const formatTiming = (timing?: string) => {
     if (!timing) return null;
-    const timingMap: Record<string, string> = {
-      morning: "Morning",
-      afternoon: "Afternoon",
-      evening: "Evening",
-      with_meals: "With Meals",
-      empty_stomach: "Empty Stomach",
-      before_bed: "Before Bed",
-      wake_up: "Wake Up",
-      am: "AM",
-      lunch: "Lunch",
-      pm: "PM",
-      dinner: "Dinner",
-    };
     return timingMap[timing] || timing;
   };
+
+  // Get display timings from either timings array or legacy timing field
+  const getDisplayTimings = (): string[] => {
+    if (supplement.timings && supplement.timings.length > 0) {
+      return supplement.timings.map(t => timingMap[t] || t);
+    }
+    if (supplement.timing) {
+      return [formatTiming(supplement.timing) || supplement.timing];
+    }
+    return [];
+  };
+
+  const displayTimings = getDisplayTimings();
 
   // Format dosage string
   const formatDosage = () => {
@@ -128,10 +144,10 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
             {supplement.category && (
               <Badge variant="secondary">{supplement.category}</Badge>
             )}
-            {supplement.timing && (
+            {displayTimings.length > 0 && (
               <Badge variant="outline" className="flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                {formatTiming(supplement.timing)}
+                {displayTimings.join(" + ")}
               </Badge>
             )}
           </div>

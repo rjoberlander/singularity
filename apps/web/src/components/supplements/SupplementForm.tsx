@@ -19,15 +19,10 @@ import { Loader2, Trash2, Copy, ExternalLink, Check, Sparkles } from "lucide-rea
 import { toast } from "sonner";
 
 const CATEGORIES = [
-  { value: "vitamin", label: "Vitamin" },
-  { value: "mineral", label: "Mineral" },
-  { value: "amino_acid", label: "Amino" },
-  { value: "herb", label: "Herb" },
+  { value: "vitamin_mineral", label: "Vitamin/Mineral" },
+  { value: "amino_protein", label: "Amino/Protein" },
+  { value: "herb_botanical", label: "Herb/Botanical" },
   { value: "probiotic", label: "Probiotic" },
-  { value: "omega", label: "Omega" },
-  { value: "antioxidant", label: "Antioxidant" },
-  { value: "hormone", label: "Hormone" },
-  { value: "enzyme", label: "Enzyme" },
   { value: "other", label: "Other" },
 ];
 
@@ -42,10 +37,18 @@ const TIMING_OPTIONS = [
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
-  { value: "twice_daily", label: "2x" },
-  { value: "three_times_daily", label: "3x" },
-  { value: "weekly", label: "Weekly" },
-  { value: "as_needed", label: "PRN" },
+  { value: "every_other_day", label: "Every Other" },
+  { value: "as_needed", label: "As Needed" },
+];
+
+const DAY_OPTIONS = [
+  { value: "sun", label: "S" },
+  { value: "mon", label: "M" },
+  { value: "tue", label: "T" },
+  { value: "wed", label: "W" },
+  { value: "thu", label: "T" },
+  { value: "fri", label: "F" },
+  { value: "sat", label: "S" },
 ];
 
 const INTAKE_FORM_OPTIONS = [
@@ -214,7 +217,7 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
 
   const extractSupplements = useExtractSupplements();
 
-  const [formData, setFormData] = useState<CreateSupplementRequest>({
+  const [formData, setFormData] = useState<CreateSupplementRequest & { product_data_source?: string; product_updated_at?: string }>({
     name: "",
     brand: "",
     intake_quantity: 1,
@@ -226,8 +229,9 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     price: undefined,
     purchase_url: "",
     category: "",
-    timing: "",
+    timings: [],
     frequency: "",
+    frequency_days: [],
     notes: "",
     product_data_source: undefined,
     product_updated_at: undefined,
@@ -252,6 +256,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
 
   useEffect(() => {
     if (supplement) {
+      // Handle legacy timing -> timings migration
+      const timings = supplement.timings || (supplement.timing ? [supplement.timing as any] : []);
       setFormData({
         name: supplement.name,
         brand: supplement.brand || "",
@@ -264,11 +270,12 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         price: supplement.price,
         purchase_url: supplement.purchase_url || "",
         category: supplement.category || "",
-        timing: supplement.timing || "",
+        timings,
         frequency: supplement.frequency || "",
+        frequency_days: supplement.frequency_days || [],
         notes: supplement.notes || "",
-        product_data_source: supplement.product_data_source,
-        product_updated_at: supplement.product_updated_at,
+        product_data_source: (supplement as any).product_data_source,
+        product_updated_at: (supplement as any).product_updated_at,
       });
     } else {
       setFormData({
@@ -283,8 +290,9 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         price: undefined,
         purchase_url: "",
         category: "",
-        timing: "",
+        timings: [],
         frequency: "",
+        frequency_days: [],
         notes: "",
         product_data_source: undefined,
         product_updated_at: undefined,
@@ -579,45 +587,92 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             </span>
           </div>
 
-          {/* Row 2: When & Freq */}
-          <div className="flex gap-4">
-            <div className="flex items-center gap-1">
-              <Label className="text-xs text-muted-foreground shrink-0">When</Label>
-              <div className="flex gap-0.5">
-                {TIMING_OPTIONS.map((opt) => (
+          {/* Row 2: Freq - presets + day picker */}
+          <div className="flex items-center gap-1">
+            <Label className="text-xs text-muted-foreground shrink-0 w-8">Freq</Label>
+            <div className="flex gap-0.5">
+              {FREQUENCY_OPTIONS.map((opt) => {
+                const isCustom = formData.frequency === "custom" || (formData.frequency_days && formData.frequency_days.length > 0);
+                const isSelected = formData.frequency === opt.value && !isCustom;
+                return (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setFormData({ ...formData, timing: opt.value === formData.timing ? "" : opt.value })}
+                    onClick={() => setFormData({
+                      ...formData,
+                      frequency: opt.value === formData.frequency ? "" : opt.value,
+                      frequency_days: [] // Clear custom days when selecting a preset
+                    })}
                     className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
-                      formData.timing === opt.value
+                      isSelected
                         ? "bg-primary text-primary-foreground border-primary"
                         : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
                     }`}
                   >
                     {opt.label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-1">
-              <Label className="text-xs text-muted-foreground shrink-0">Freq</Label>
-              <div className="flex gap-0.5">
-                {FREQUENCY_OPTIONS.map((opt) => (
+            {/* Day picker - always visible */}
+            <div className="flex gap-0.5 ml-1 pl-1 border-l border-muted-foreground/20">
+              {DAY_OPTIONS.map((day) => {
+                const isSelected = formData.frequency_days?.includes(day.value as any) || false;
+                return (
+                  <button
+                    key={day.value}
+                    type="button"
+                    onClick={() => {
+                      const currentDays = formData.frequency_days || [];
+                      const newDays = isSelected
+                        ? currentDays.filter(d => d !== day.value)
+                        : [...currentDays, day.value as any];
+                      setFormData({
+                        ...formData,
+                        frequency: newDays.length > 0 ? "custom" : "",
+                        frequency_days: newDays
+                      });
+                    }}
+                    className={`w-5 h-5 text-[10px] rounded border transition-colors ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                    }`}
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Row 3: When (multi-select) */}
+          <div className="flex items-center gap-1">
+            <Label className="text-xs text-muted-foreground shrink-0 w-8">When</Label>
+            <div className="flex gap-0.5">
+              {TIMING_OPTIONS.map((opt) => {
+                const isSelected = formData.timings?.includes(opt.value as any) || false;
+                return (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setFormData({ ...formData, frequency: opt.value === formData.frequency ? "" : opt.value })}
+                    onClick={() => {
+                      const currentTimings = formData.timings || [];
+                      const newTimings = isSelected
+                        ? currentTimings.filter(t => t !== opt.value)
+                        : [...currentTimings, opt.value as any];
+                      setFormData({ ...formData, timings: newTimings });
+                    }}
                     className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
-                      formData.frequency === opt.value
+                      isSelected
                         ? "bg-primary text-primary-foreground border-primary"
                         : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
                     }`}
                   >
                     {opt.label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
 
@@ -818,41 +873,23 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             )}
           </div>
 
-          {/* Category chips - two rows */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-0.5">
-              <Label className="text-xs text-muted-foreground shrink-0 flex items-center mr-1">Category<AIIndicator field="category" aiFields={aiFields} /></Label>
-              {CATEGORIES.slice(0, 5).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => updateProductField('category', opt.value === formData.category ? "" : opt.value)}
-                  className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
-                    formData.category === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-0.5 pl-[60px]">
-              {CATEGORIES.slice(5).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => updateProductField('category', opt.value === formData.category ? "" : opt.value)}
-                  className={`px-1.5 py-0.5 text-xs rounded border transition-colors ${
-                    formData.category === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          {/* Category chips */}
+          <div className="flex items-center gap-1">
+            <Label className="text-xs text-muted-foreground shrink-0 flex items-center mr-1">Category<AIIndicator field="category" aiFields={aiFields} /></Label>
+            {CATEGORIES.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => updateProductField('category', opt.value === formData.category ? "" : opt.value)}
+                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                  formData.category === opt.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           <DialogFooter className="flex flex-row items-center pt-2">

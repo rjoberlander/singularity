@@ -94,15 +94,10 @@ const TIMING_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  "vitamin",
-  "mineral",
-  "amino_acid",
-  "herb",
+  "vitamin_mineral",
+  "amino_protein",
+  "herb_botanical",
   "probiotic",
-  "omega",
-  "antioxidant",
-  "hormone",
-  "enzyme",
   "other",
 ];
 

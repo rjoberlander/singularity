@@ -18,14 +18,9 @@ import {
   Pill,
   ChevronUp,
   ChevronDown,
-  Droplet,
   Atom,
   TreeDeciduous,
   Bug,
-  Fish,
-  Apple,
-  Moon,
-  Zap,
   MoreHorizontal,
   LucideIcon,
   Sparkles,
@@ -35,52 +30,39 @@ import {
 function getSupplementsWithMissingData(supplements: Supplement[] | undefined): Supplement[] {
   if (!supplements) return [];
   return supplements.filter(s => {
+    // Check timings array or legacy timing field
+    const hasTimings = (s.timings && s.timings.length > 0) || s.timing;
     const missing = !s.brand || !s.price || !s.dose_per_serving || !s.dose_unit ||
-                    !s.category || !s.timing || !s.servings_per_container || !s.intake_form;
+                    !s.category || !hasTimings || !s.servings_per_container || !s.intake_form;
     return missing;
   });
 }
 
 const CATEGORIES = [
   "All",
-  "Vitamin",
-  "Mineral",
-  "Amino Acid",
-  "Herb",
+  "Vitamin/Mineral",
+  "Amino/Protein",
+  "Herb/Botanical",
   "Probiotic",
-  "Omega",
-  "Antioxidant",
-  "Hormone",
-  "Enzyme",
   "Other",
 ];
 
 // Category icons
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
-  Vitamin: Pill,
-  Mineral: Droplet,
-  "Amino Acid": Atom,
-  Herb: TreeDeciduous,
+  "Vitamin/Mineral": Pill,
+  "Amino/Protein": Atom,
+  "Herb/Botanical": TreeDeciduous,
   Probiotic: Bug,
-  Omega: Fish,
-  Antioxidant: Apple,
-  Hormone: Moon,
-  Enzyme: Zap,
   Other: MoreHorizontal,
 };
 
 // Category colors for button backgrounds
 const CATEGORY_COLORS: Record<string, string> = {
   All: "rgba(107, 142, 90, 0.2)",
-  Vitamin: "rgba(234, 179, 8, 0.2)",
-  Mineral: "rgba(59, 130, 246, 0.2)",
-  "Amino Acid": "rgba(139, 92, 246, 0.2)",
-  Herb: "rgba(34, 197, 94, 0.2)",
+  "Vitamin/Mineral": "rgba(234, 179, 8, 0.2)",
+  "Amino/Protein": "rgba(139, 92, 246, 0.2)",
+  "Herb/Botanical": "rgba(34, 197, 94, 0.2)",
   Probiotic: "rgba(236, 72, 153, 0.2)",
-  Omega: "rgba(20, 184, 166, 0.2)",
-  Antioxidant: "rgba(239, 68, 68, 0.2)",
-  Hormone: "rgba(168, 85, 247, 0.2)",
-  Enzyme: "rgba(249, 115, 22, 0.2)",
   Other: "rgba(107, 114, 128, 0.2)",
 };
 

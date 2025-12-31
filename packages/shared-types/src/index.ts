@@ -54,6 +54,12 @@ export interface CreateBiomarkerRequest {
 // Supplement timing options
 export type SupplementTiming = 'wake_up' | 'am' | 'lunch' | 'pm' | 'dinner' | 'before_bed' | 'specific';
 
+// Supplement frequency options
+export type SupplementFrequency = 'daily' | 'every_other_day' | 'custom' | 'as_needed';
+
+// Day of week for custom frequency
+export type DayOfWeek = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
+
 // Supplement intake form options
 export type SupplementIntakeForm =
   | 'pill' | 'capsule' | 'softgel' | 'tablet'
@@ -81,12 +87,14 @@ export interface Supplement {
   price_per_serving?: number;
   purchase_url?: string;
   category?: string;
-  timing?: SupplementTiming | string;
+  timing?: SupplementTiming | string;  // Deprecated: use timings array
+  timings?: SupplementTiming[];        // Multiple timing selections (multi-select)
   timing_specific?: string; // HH:MM format when timing = 'specific'
   timing_reason?: string;   // Why at this time (e.g., "cognitive benefits during waking hours")
   reason?: string;          // Why taking (e.g., "Phospholipid-bound omega-3s + astaxanthin")
   mechanism?: string;       // How it works (e.g., "Phospholipid form integrates into cell membranes")
-  frequency?: string;
+  frequency?: SupplementFrequency | string;
+  frequency_days?: DayOfWeek[];        // Days of week for custom frequency
   is_active: boolean;
   notes?: string;
   linked_goals?: SupplementGoal[]; // Populated via join
@@ -115,12 +123,14 @@ export interface CreateSupplementRequest {
   price_per_serving?: number;
   purchase_url?: string;
   category?: string;
-  timing?: SupplementTiming | string;
+  timing?: SupplementTiming | string;  // Deprecated: use timings array
+  timings?: SupplementTiming[];        // Multiple timing selections
   timing_specific?: string;
   timing_reason?: string;
   reason?: string;
   mechanism?: string;
-  frequency?: string;
+  frequency?: SupplementFrequency | string;
+  frequency_days?: DayOfWeek[];        // Days of week for custom frequency
   notes?: string;
   goal_ids?: string[]; // IDs of goals to link
 }
