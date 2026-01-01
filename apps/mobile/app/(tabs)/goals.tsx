@@ -1,30 +1,45 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useGoals } from '@/lib/hooks';
+import { GoalAddModal } from '@/components/goals/GoalAddModal';
+import type { Goal } from '@singularity/shared-types';
 
 interface GoalCardProps {
-  title: string;
-  category?: string;
-  targetBiomarker?: string;
-  currentValue?: number;
-  targetValue?: number;
-  direction: 'increase' | 'decrease' | 'maintain';
-  status: 'active' | 'achieved' | 'paused';
-  progress: number;
-  interventions: string[];
+  goal: Goal;
+  onPress?: () => void;
 }
 
-function GoalCard({
-  title,
-  category,
-  targetBiomarker,
-  currentValue,
-  targetValue,
-  direction,
-  status,
-  progress,
-  interventions
-}: GoalCardProps) {
+function calculateProgress(goal: Goal): number {
+  if (goal.current_value === undefined || goal.target_value === undefined) {
+    return 0;
+  }
+
+  const current = goal.current_value;
+  const target = goal.target_value;
+
+  if (goal.direction === 'increase') {
+    // Progress towards increasing value
+    if (current >= target) return 100;
+    if (current <= 0) return 0;
+    return Math.round((current / target) * 100);
+  } else if (goal.direction === 'decrease') {
+    // Progress towards decreasing value (inverse)
+    if (current <= target) return 100;
+    // Assume starting from 2x target as baseline
+    const start = target * 2;
+    if (current >= start) return 0;
+    return Math.round(((start - current) / (start - target)) * 100);
+  }
+
+  // maintain
+  const diff = Math.abs(current - target);
+  const tolerance = target * 0.1; // 10% tolerance
+  if (diff <= tolerance) return 100;
+  return Math.max(0, Math.round((1 - diff / target) * 100));
+}
+
+function GoalCard({ goal, onPress }: GoalCardProps) {
   const statusColors = {
     active: '#10b981',
     achieved: '#22c55e',
@@ -37,30 +52,32 @@ function GoalCard({
     maintain: 'remove',
   } as const;
 
+  const progress = calculateProgress(goal);
+
   return (
-    <TouchableOpacity style={styles.goalCard} activeOpacity={0.7}>
+    <TouchableOpacity style={styles.goalCard} activeOpacity={0.7} onPress={onPress}>
       <View style={styles.goalHeader}>
         <View style={styles.goalTitleRow}>
-          <Text style={styles.goalTitle}>{title}</Text>
-          <View style={[styles.statusDot, { backgroundColor: statusColors[status] }]} />
+          <Text style={styles.goalTitle}>{goal.title}</Text>
+          <View style={[styles.statusDot, { backgroundColor: statusColors[goal.status] }]} />
         </View>
-        {category && <Text style={styles.categoryText}>{category}</Text>}
+        {goal.category && <Text style={styles.categoryText}>{goal.category}</Text>}
       </View>
 
-      {targetBiomarker && currentValue !== undefined && targetValue !== undefined && (
+      {goal.target_biomarker && goal.current_value !== undefined && goal.target_value !== undefined && (
         <View style={styles.biomarkerTarget}>
           <View style={styles.targetRow}>
-            <Text style={styles.biomarkerName}>{targetBiomarker}</Text>
+            <Text style={styles.biomarkerName}>{goal.target_biomarker}</Text>
             <Ionicons
-              name={directionIcons[direction]}
+              name={directionIcons[goal.direction]}
               size={20}
-              color={direction === 'decrease' ? '#ef4444' : '#10b981'}
+              color={goal.direction === 'decrease' ? '#ef4444' : '#10b981'}
             />
           </View>
           <View style={styles.valuesRow}>
-            <Text style={styles.currentValue}>{currentValue}</Text>
+            <Text style={styles.currentValue}>{goal.current_value}</Text>
             <Ionicons name="arrow-forward" size={16} color="#6b7280" />
-            <Text style={styles.targetValue}>{targetValue}</Text>
+            <Text style={styles.targetValue}>{goal.target_value}</Text>
           </View>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${Math.min(progress, 100)}%` }]} />
@@ -69,65 +86,94 @@ function GoalCard({
         </View>
       )}
 
-      {interventions.length > 0 && (
+      {goal.interventions && goal.interventions.length > 0 && (
         <View style={styles.interventions}>
           <Text style={styles.interventionsLabel}>Interventions:</Text>
-          {interventions.map((intervention, index) => (
-            <View key={index} style={styles.interventionItem}>
-              <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-              <Text style={styles.interventionText}>{intervention}</Text>
+          {goal.interventions.slice(0, 3).map((intervention) => (
+            <View key={intervention.id} style={styles.interventionItem}>
+              <Ionicons
+                name={intervention.status === 'completed' ? 'checkmark-circle' : 'ellipse-outline'}
+                size={16}
+                color={intervention.status === 'completed' ? '#10b981' : '#6b7280'}
+              />
+              <Text style={styles.interventionText}>{intervention.intervention}</Text>
             </View>
           ))}
+          {goal.interventions.length > 3 && (
+            <Text style={styles.moreText}>+{goal.interventions.length - 3} more</Text>
+          )}
         </View>
+      )}
+
+      {goal.notes && (
+        <Text style={styles.notesText} numberOfLines={2}>{goal.notes}</Text>
       )}
     </TouchableOpacity>
   );
 }
 
-const SAMPLE_GOALS: GoalCardProps[] = [
-  {
-    title: 'Optimize Vitamin D Levels',
-    category: 'Vitamins',
-    targetBiomarker: 'Vitamin D',
-    currentValue: 45,
-    targetValue: 70,
-    direction: 'increase',
-    status: 'active',
-    progress: 64,
-    interventions: ['5000 IU D3 daily', 'Morning sunlight exposure'],
-  },
-  {
-    title: 'Reduce Inflammation',
-    category: 'Metabolic',
-    targetBiomarker: 'hs-CRP',
-    currentValue: 2.1,
-    targetValue: 1.0,
-    direction: 'decrease',
-    status: 'active',
-    progress: 45,
-    interventions: ['Omega-3 supplementation', 'Anti-inflammatory diet'],
-  },
-  {
-    title: 'Improve Sleep Quality',
-    category: 'Lifestyle',
-    direction: 'maintain',
-    status: 'active',
-    progress: 75,
-    interventions: ['Magnesium before bed', 'Blue light blocking', 'Consistent sleep schedule'],
-  },
-];
+type FilterType = 'all' | 'active' | 'achieved';
 
 export default function Goals() {
-  const [goals] = useState<GoalCardProps[]>(SAMPLE_GOALS);
-  const [filter, setFilter] = useState<'all' | 'active' | 'achieved'>('all');
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const filteredGoals = goals.filter(g => {
-    if (filter === 'all') return true;
-    return g.status === filter;
-  });
+  const { data: goals, isLoading, error, refetch } = useGoals();
 
-  const activeCount = goals.filter(g => g.status === 'active').length;
-  const achievedCount = goals.filter(g => g.status === 'achieved').length;
+  // Calculate stats
+  const stats = useMemo(() => {
+    if (!goals) return { activeCount: 0, achievedCount: 0 };
+
+    return {
+      activeCount: goals.filter(g => g.status === 'active').length,
+      achievedCount: goals.filter(g => g.status === 'achieved').length,
+    };
+  }, [goals]);
+
+  // Filter goals
+  const filteredGoals = useMemo(() => {
+    if (!goals) return [];
+
+    return goals
+      .filter(g => {
+        if (filter === 'all') return true;
+        return g.status === filter;
+      })
+      // Sort: active first, then by priority
+      .sort((a, b) => {
+        if (a.status !== b.status) {
+          if (a.status === 'active') return -1;
+          if (b.status === 'active') return 1;
+        }
+        return a.priority - b.priority;
+      });
+  }, [goals, filter]);
+
+  const handleAddSuccess = () => {
+    refetch();
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#10b981" />
+        <Text style={styles.loadingText}>Loading goals...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+        <Text style={styles.errorTitle}>Failed to load goals</Text>
+        <Text style={styles.errorSubtitle}>Please check your connection and try again</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -135,12 +181,12 @@ export default function Goals() {
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
           <Ionicons name="flag-outline" size={24} color="#10b981" />
-          <Text style={styles.statValue}>{activeCount}</Text>
+          <Text style={styles.statValue}>{stats.activeCount}</Text>
           <Text style={styles.statLabel}>Active Goals</Text>
         </View>
         <View style={styles.statCard}>
           <Ionicons name="trophy-outline" size={24} color="#f59e0b" />
-          <Text style={styles.statValue}>{achievedCount}</Text>
+          <Text style={styles.statValue}>{stats.achievedCount}</Text>
           <Text style={styles.statLabel}>Achieved</Text>
         </View>
       </View>
@@ -176,7 +222,7 @@ export default function Goals() {
       {/* Goals List */}
       <ScrollView style={styles.listContainer} contentContainerStyle={styles.listContent}>
         {filteredGoals.length > 0 ? (
-          filteredGoals.map((goal, index) => <GoalCard key={index} {...goal} />)
+          filteredGoals.map((goal) => <GoalCard key={goal.id} goal={goal} />)
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="trophy-outline" size={64} color="#374151" />
@@ -189,9 +235,16 @@ export default function Goals() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
+      <TouchableOpacity style={styles.fab} onPress={() => setIsAddModalOpen(true)}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Add Modal */}
+      <GoalAddModal
+        visible={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={handleAddSuccess}
+      />
     </View>
   );
 }
@@ -200,6 +253,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#9ca3af',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  errorSubtitle: {
+    color: '#6b7280',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    backgroundColor: '#10b981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
@@ -253,6 +348,7 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingTop: 0,
+    paddingBottom: 100,
   },
   goalCard: {
     backgroundColor: '#111111',
@@ -351,6 +447,18 @@ const styles = StyleSheet.create({
   interventionText: {
     fontSize: 14,
     color: '#9ca3af',
+    flex: 1,
+  },
+  moreText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  notesText: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   emptyState: {
     alignItems: 'center',

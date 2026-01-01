@@ -1,17 +1,18 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useState, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoutines } from '@/lib/hooks';
+import { RoutineAddModal } from '@/components/routines/RoutineAddModal';
+import type { Routine, RoutineItem as RoutineItemType } from '@singularity/shared-types';
 
 interface RoutineItemProps {
-  title: string;
-  time?: string;
-  duration?: string;
-  linkedSupplement?: string;
-  completed?: boolean;
+  item: RoutineItemType;
   onToggle?: () => void;
 }
 
-function RoutineItem({ title, time, duration, linkedSupplement, completed, onToggle }: RoutineItemProps) {
+function RoutineItemCard({ item, onToggle }: RoutineItemProps) {
+  const completed = item.completed || false;
+
   return (
     <TouchableOpacity
       style={[styles.routineItem, completed && styles.routineItemCompleted]}
@@ -22,98 +23,113 @@ function RoutineItem({ title, time, duration, linkedSupplement, completed, onTog
         {completed && <Ionicons name="checkmark" size={16} color="#fff" />}
       </View>
       <View style={styles.routineItemContent}>
-        <Text style={[styles.routineItemTitle, completed && styles.textCompleted]}>{title}</Text>
+        <Text style={[styles.routineItemTitle, completed && styles.textCompleted]}>
+          {item.title}
+        </Text>
         <View style={styles.routineItemMeta}>
-          {time && (
+          {item.time && (
             <View style={styles.metaItem}>
               <Ionicons name="time-outline" size={12} color="#6b7280" />
-              <Text style={styles.metaText}>{time}</Text>
+              <Text style={styles.metaText}>{item.time}</Text>
             </View>
           )}
-          {duration && (
+          {item.duration && (
             <View style={styles.metaItem}>
               <Ionicons name="hourglass-outline" size={12} color="#6b7280" />
-              <Text style={styles.metaText}>{duration}</Text>
+              <Text style={styles.metaText}>{item.duration}</Text>
             </View>
           )}
-          {linkedSupplement && (
+          {item.linked_supplement && (
             <View style={[styles.metaItem, styles.supplementTag]}>
               <Ionicons name="fitness-outline" size={12} color="#10b981" />
-              <Text style={[styles.metaText, { color: '#10b981' }]}>{linkedSupplement}</Text>
+              <Text style={[styles.metaText, { color: '#10b981' }]}>{item.linked_supplement}</Text>
             </View>
           )}
         </View>
+        {item.description && (
+          <Text style={styles.descriptionText} numberOfLines={2}>{item.description}</Text>
+        )}
       </View>
     </TouchableOpacity>
   );
 }
 
-interface Routine {
-  id: string;
-  name: string;
-  timeOfDay: string;
-  items: {
-    id: string;
-    title: string;
-    time?: string;
-    duration?: string;
-    linkedSupplement?: string;
-    completed: boolean;
-  }[];
-}
-
-const SAMPLE_ROUTINES: Routine[] = [
-  {
-    id: '1',
-    name: 'Morning Routine',
-    timeOfDay: 'morning',
-    items: [
-      { id: '1', title: 'Wake up + hydrate', time: '6:00 AM', completed: true },
-      { id: '2', title: 'Take morning supplements', linkedSupplement: 'Vitamin D3, Omega-3', completed: true },
-      { id: '3', title: 'Cold shower', duration: '3 min', completed: false },
-      { id: '4', title: 'Meditation', duration: '10 min', completed: false },
-    ],
-  },
-  {
-    id: '2',
-    name: 'Evening Routine',
-    timeOfDay: 'evening',
-    items: [
-      { id: '5', title: 'Take evening supplements', time: '8:00 PM', linkedSupplement: 'Magnesium', completed: false },
-      { id: '6', title: 'Blue light blocking', time: '9:00 PM', completed: false },
-      { id: '7', title: 'Reading', duration: '30 min', completed: false },
-      { id: '8', title: 'Sleep', time: '10:00 PM', completed: false },
-    ],
-  },
-];
-
 export default function Routines() {
-  const [routines, setRoutines] = useState<Routine[]>(SAMPLE_ROUTINES);
   const [selectedDay, setSelectedDay] = useState('Today');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // Local completion state (since API may not persist per-day completion)
+  const [completedItems, setCompletedItems] = useState<Set<string>>(new Set());
+
+  const { data: routines, isLoading, error, refetch } = useRoutines();
 
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const today = new Date().getDay();
 
-  const toggleItem = (routineId: string, itemId: string) => {
-    setRoutines(prev =>
-      prev.map(routine => {
-        if (routine.id !== routineId) return routine;
-        return {
-          ...routine,
-          items: routine.items.map(item =>
-            item.id === itemId ? { ...item, completed: !item.completed } : item
-          ),
-        };
-      })
-    );
+  const toggleItem = (itemId: string) => {
+    setCompletedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
   };
 
-  const totalItems = routines.reduce((sum, r) => sum + r.items.length, 0);
-  const completedItems = routines.reduce(
-    (sum, r) => sum + r.items.filter(i => i.completed).length,
-    0
-  );
-  const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+  // Calculate progress stats
+  const stats = useMemo(() => {
+    if (!routines) return { totalItems: 0, completedCount: 0, progress: 0 };
+
+    let totalItems = 0;
+    routines.forEach(r => {
+      totalItems += (r.items?.length || 0);
+    });
+
+    const completedCount = completedItems.size;
+    const progress = totalItems > 0 ? (completedCount / totalItems) * 100 : 0;
+
+    return { totalItems, completedCount, progress };
+  }, [routines, completedItems]);
+
+  // Enhance routine items with local completion state
+  const enhancedRoutines = useMemo(() => {
+    if (!routines) return [];
+
+    return routines.map(routine => ({
+      ...routine,
+      items: (routine.items || []).map(item => ({
+        ...item,
+        completed: completedItems.has(item.id),
+      })),
+    }));
+  }, [routines, completedItems]);
+
+  const handleAddSuccess = () => {
+    refetch();
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#10b981" />
+        <Text style={styles.loadingText}>Loading routines...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+        <Text style={styles.errorTitle}>Failed to load routines</Text>
+        <Text style={styles.errorSubtitle}>Please check your connection and try again</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -121,13 +137,13 @@ export default function Routines() {
       <View style={styles.progressCard}>
         <View style={styles.progressHeader}>
           <Text style={styles.progressTitle}>Today's Progress</Text>
-          <Text style={styles.progressPercent}>{Math.round(progress)}%</Text>
+          <Text style={styles.progressPercent}>{Math.round(stats.progress)}%</Text>
         </View>
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          <View style={[styles.progressFill, { width: `${stats.progress}%` }]} />
         </View>
         <Text style={styles.progressSubtext}>
-          {completedItems} of {totalItems} tasks completed
+          {stats.completedCount} of {stats.totalItems} tasks completed
         </Text>
       </View>
 
@@ -149,29 +165,57 @@ export default function Routines() {
 
       {/* Routines List */}
       <ScrollView style={styles.listContainer} contentContainerStyle={styles.listContent}>
-        {routines.map(routine => (
-          <View key={routine.id} style={styles.routineSection}>
-            <View style={styles.routineHeader}>
-              <Text style={styles.routineName}>{routine.name}</Text>
-              <Text style={styles.routineCount}>
-                {routine.items.filter(i => i.completed).length}/{routine.items.length}
-              </Text>
+        {enhancedRoutines.length > 0 ? (
+          enhancedRoutines.map(routine => (
+            <View key={routine.id} style={styles.routineSection}>
+              <View style={styles.routineHeader}>
+                <View>
+                  <Text style={styles.routineName}>{routine.name}</Text>
+                  {routine.time_of_day && (
+                    <Text style={styles.routineTime}>{routine.time_of_day}</Text>
+                  )}
+                </View>
+                <Text style={styles.routineCount}>
+                  {routine.items?.filter(i => i.completed).length || 0}/{routine.items?.length || 0}
+                </Text>
+              </View>
+              {routine.items && routine.items.length > 0 ? (
+                routine.items.map(item => (
+                  <RoutineItemCard
+                    key={item.id}
+                    item={item}
+                    onToggle={() => toggleItem(item.id)}
+                  />
+                ))
+              ) : (
+                <View style={styles.emptyRoutine}>
+                  <Text style={styles.emptyRoutineText}>No items in this routine</Text>
+                </View>
+              )}
             </View>
-            {routine.items.map(item => (
-              <RoutineItem
-                key={item.id}
-                {...item}
-                onToggle={() => toggleItem(routine.id, item.id)}
-              />
-            ))}
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="list-outline" size={64} color="#374151" />
+            <Text style={styles.emptyTitle}>No routines yet</Text>
+            <Text style={styles.emptySubtitle}>
+              Create your first routine to track daily habits
+            </Text>
           </View>
-        ))}
+        )}
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
+      <TouchableOpacity style={styles.fab} onPress={() => setIsAddModalOpen(true)}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Add Modal */}
+      <RoutineAddModal
+        visible={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={handleAddSuccess}
+      />
     </View>
   );
 }
@@ -180,6 +224,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#9ca3af',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  errorSubtitle: {
+    color: '#6b7280',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    backgroundColor: '#10b981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   progressCard: {
     backgroundColor: '#111111',
@@ -222,6 +308,7 @@ const styles = StyleSheet.create({
   daySelector: {
     paddingHorizontal: 16,
     marginBottom: 16,
+    maxHeight: 44,
   },
   dayChip: {
     paddingHorizontal: 16,
@@ -247,6 +334,7 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingTop: 0,
+    paddingBottom: 100,
   },
   routineSection: {
     marginBottom: 24,
@@ -254,13 +342,18 @@ const styles = StyleSheet.create({
   routineHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 12,
   },
   routineName: {
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
+  },
+  routineTime: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
   routineCount: {
     fontSize: 14,
@@ -323,6 +416,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
+  },
+  descriptionText: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 8,
+  },
+  emptyRoutine: {
+    backgroundColor: '#111111',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  emptyRoutineText: {
+    color: '#6b7280',
+    fontSize: 14,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 64,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#9ca3af',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 8,
+    textAlign: 'center',
   },
   fab: {
     position: 'absolute',

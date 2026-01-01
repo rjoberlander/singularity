@@ -1,31 +1,87 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { useState, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSupplements, useToggleSupplement } from '@/lib/hooks';
+import { SupplementAddModal } from '@/components/supplements/SupplementAddModal';
+import type { Supplement } from '@singularity/shared-types';
 
-interface SupplementCardProps {
-  name: string;
-  brand?: string;
-  dose: string;
-  timing: string;
-  frequency: string;
-  isActive: boolean;
-  pricePerServing?: number;
-  onToggle: () => void;
+// Format timing display
+function formatTiming(timing?: string | string[]): string {
+  if (!timing) return 'Anytime';
+
+  const timingLabels: Record<string, string> = {
+    wake_up: 'Wake up',
+    am: 'Morning',
+    lunch: 'Lunch',
+    pm: 'Afternoon',
+    dinner: 'Dinner',
+    before_bed: 'Before bed',
+    specific: 'Specific time',
+  };
+
+  if (Array.isArray(timing)) {
+    return timing.map(t => timingLabels[t] || t).join(', ');
+  }
+
+  return timingLabels[timing] || timing;
 }
 
-function SupplementCard({ name, brand, dose, timing, frequency, isActive, pricePerServing, onToggle }: SupplementCardProps) {
+// Format frequency display
+function formatFrequency(frequency?: string): string {
+  const frequencyLabels: Record<string, string> = {
+    daily: 'Daily',
+    every_other_day: 'Every other day',
+    custom: 'Custom',
+    as_needed: 'As needed',
+  };
+
+  if (!frequency) return 'Daily';
+  return frequencyLabels[frequency] || frequency;
+}
+
+// Format dose display
+function formatDose(supplement: Supplement): string {
+  const quantity = supplement.intake_quantity || 1;
+  const form = supplement.intake_form || 'dose';
+  const doseAmount = supplement.dose_per_serving;
+  const doseUnit = supplement.dose_unit;
+
+  if (doseAmount && doseUnit) {
+    return `${quantity} ${form} (${doseAmount}${doseUnit})`;
+  }
+
+  return `${quantity} ${form}`;
+}
+
+interface SupplementCardProps {
+  supplement: Supplement;
+  onToggle: () => void;
+  onPress?: () => void;
+}
+
+function SupplementCard({ supplement, onToggle, onPress }: SupplementCardProps) {
+  const dose = formatDose(supplement);
+  const timing = formatTiming(supplement.timings || supplement.timing);
+  const frequency = formatFrequency(supplement.frequency);
+
   return (
-    <View style={[styles.supplementCard, !isActive && styles.supplementCardInactive]}>
+    <TouchableOpacity
+      style={[styles.supplementCard, !supplement.is_active && styles.supplementCardInactive]}
+      activeOpacity={0.7}
+      onPress={onPress}
+    >
       <View style={styles.supplementHeader}>
         <View style={styles.supplementInfo}>
-          <Text style={[styles.supplementName, !isActive && styles.textInactive]}>{name}</Text>
-          {brand && <Text style={styles.brandText}>{brand}</Text>}
+          <Text style={[styles.supplementName, !supplement.is_active && styles.textInactive]}>
+            {supplement.name}
+          </Text>
+          {supplement.brand && <Text style={styles.brandText}>{supplement.brand}</Text>}
         </View>
         <Switch
-          value={isActive}
+          value={supplement.is_active}
           onValueChange={onToggle}
           trackColor={{ false: '#374151', true: '#10b98140' }}
-          thumbColor={isActive ? '#10b981' : '#6b7280'}
+          thumbColor={supplement.is_active ? '#10b981' : '#6b7280'}
         />
       </View>
 
@@ -33,8 +89,8 @@ function SupplementCard({ name, brand, dose, timing, frequency, isActive, priceP
         <View style={styles.doseBadge}>
           <Text style={styles.doseText}>{dose}</Text>
         </View>
-        {pricePerServing && (
-          <Text style={styles.priceText}>${pricePerServing.toFixed(2)}/serving</Text>
+        {supplement.price_per_serving && (
+          <Text style={styles.priceText}>${supplement.price_per_serving.toFixed(2)}/serving</Text>
         )}
       </View>
 
@@ -48,63 +104,91 @@ function SupplementCard({ name, brand, dose, timing, frequency, isActive, priceP
           <Text style={styles.scheduleText}>{frequency}</Text>
         </View>
       </View>
-    </View>
+
+      {supplement.reason && (
+        <Text style={styles.reasonText} numberOfLines={2}>{supplement.reason}</Text>
+      )}
+    </TouchableOpacity>
   );
 }
 
-interface Supplement {
-  id: string;
-  name: string;
-  brand?: string;
-  dose: string;
-  timing: string;
-  frequency: string;
-  isActive: boolean;
-  pricePerServing?: number;
-}
-
-const SAMPLE_SUPPLEMENTS: Supplement[] = [
-  { id: '1', name: 'Vitamin D3', brand: 'Thorne', dose: '5000 IU', timing: 'Morning', frequency: 'Daily', isActive: true, pricePerServing: 0.25 },
-  { id: '2', name: 'Omega-3', brand: 'Nordic Naturals', dose: '2000mg', timing: 'With meals', frequency: 'Daily', isActive: true, pricePerServing: 0.45 },
-  { id: '3', name: 'Magnesium Glycinate', brand: 'Pure Encapsulations', dose: '400mg', timing: 'Evening', frequency: 'Daily', isActive: true, pricePerServing: 0.35 },
-  { id: '4', name: 'Creatine', brand: 'Thorne', dose: '5g', timing: 'Post-workout', frequency: 'Daily', isActive: false, pricePerServing: 0.20 },
-];
-
 export default function Supplements() {
-  const [supplements, setSupplements] = useState<Supplement[]>(SAMPLE_SUPPLEMENTS);
   const [showInactive, setShowInactive] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const toggleSupplement = (id: string) => {
-    setSupplements(prev =>
-      prev.map(s => (s.id === id ? { ...s, isActive: !s.isActive } : s))
-    );
+  const { data: supplements, isLoading, error, refetch } = useSupplements();
+  const toggleMutation = useToggleSupplement();
+
+  const handleToggle = (id: string) => {
+    toggleMutation.mutate(id);
   };
 
-  const activeCount = supplements.filter(s => s.isActive).length;
-  const totalCost = supplements
-    .filter(s => s.isActive)
-    .reduce((sum, s) => sum + (s.pricePerServing || 0), 0);
+  // Calculate summary stats
+  const stats = useMemo(() => {
+    if (!supplements) return { activeCount: 0, dailyCost: 0, monthlyCost: 0 };
 
-  const displayedSupplements = showInactive
-    ? supplements
-    : supplements.filter(s => s.isActive);
+    const activeSupplements = supplements.filter(s => s.is_active);
+    const dailyCost = activeSupplements.reduce((sum, s) => sum + (s.price_per_serving || 0), 0);
+
+    return {
+      activeCount: activeSupplements.length,
+      dailyCost,
+      monthlyCost: dailyCost * 30,
+    };
+  }, [supplements]);
+
+  const displayedSupplements = useMemo(() => {
+    if (!supplements) return [];
+    const filtered = showInactive ? supplements : supplements.filter(s => s.is_active);
+    // Sort: active first, then by name
+    return filtered.sort((a, b) => {
+      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [supplements, showInactive]);
+
+  const handleAddSuccess = () => {
+    refetch();
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#10b981" />
+        <Text style={styles.loadingText}>Loading supplements...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+        <Text style={styles.errorTitle}>Failed to load supplements</Text>
+        <Text style={styles.errorSubtitle}>Please check your connection and try again</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       {/* Summary Card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{activeCount}</Text>
+          <Text style={styles.summaryValue}>{stats.activeCount}</Text>
           <Text style={styles.summaryLabel}>Active</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>${totalCost.toFixed(2)}</Text>
+          <Text style={styles.summaryValue}>${stats.dailyCost.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Daily Cost</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>${(totalCost * 30).toFixed(0)}</Text>
+          <Text style={styles.summaryValue}>${stats.monthlyCost.toFixed(0)}</Text>
           <Text style={styles.summaryLabel}>Monthly</Text>
         </View>
       </View>
@@ -126,8 +210,8 @@ export default function Supplements() {
           displayedSupplements.map(supplement => (
             <SupplementCard
               key={supplement.id}
-              {...supplement}
-              onToggle={() => toggleSupplement(supplement.id)}
+              supplement={supplement}
+              onToggle={() => handleToggle(supplement.id)}
             />
           ))
         ) : (
@@ -142,9 +226,16 @@ export default function Supplements() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
+      <TouchableOpacity style={styles.fab} onPress={() => setIsAddModalOpen(true)}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Add Modal */}
+      <SupplementAddModal
+        visible={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={handleAddSuccess}
+      />
     </View>
   );
 }
@@ -153,6 +244,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#9ca3af',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  errorSubtitle: {
+    color: '#6b7280',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    backgroundColor: '#10b981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   summaryCard: {
     flexDirection: 'row',
@@ -196,6 +329,7 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingTop: 0,
+    paddingBottom: 100,
   },
   supplementCard: {
     backgroundColor: '#111111',
@@ -261,6 +395,12 @@ const styles = StyleSheet.create({
   scheduleText: {
     fontSize: 14,
     color: '#6b7280',
+  },
+  reasonText: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 10,
+    fontStyle: 'italic',
   },
   emptyState: {
     alignItems: 'center',
