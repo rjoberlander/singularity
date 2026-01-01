@@ -13,8 +13,59 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Supplement, Equipment, RoutineItem } from "@/types";
-import { Pill, Zap, Clock, ListTodo, GripVertical } from "lucide-react";
+import {
+  Pill, Zap, Clock, ListTodo, GripVertical,
+  Sunrise, Sun, Utensils, Sunset, Moon,
+  Atom, Leaf, Bug, MoreHorizontal, LucideIcon,
+  FlaskConical, Droplet, Wind, Candy, Square
+} from "lucide-react";
 import { toast } from "sonner";
+
+// Category icons for supplements
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  "vitamin_mineral": Pill,
+  "amino_protein": Atom,
+  "herb_botanical": Leaf,
+  "probiotic": Bug,
+  "other": MoreHorizontal,
+};
+
+// Category icon stroke colors
+const CATEGORY_ICON_COLORS: Record<string, string> = {
+  "vitamin_mineral": "rgb(234, 179, 8)",
+  "amino_protein": "rgb(139, 92, 246)",
+  "herb_botanical": "rgb(34, 197, 94)",
+  "probiotic": "rgb(236, 72, 153)",
+  "other": "rgb(107, 114, 128)",
+};
+
+// Timing icons, colors, and row background colors
+const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: string; bgColor: string }> = {
+  wake_up: { icon: Sunrise, color: "text-orange-400", label: "Wake", bgColor: "rgba(251, 146, 60, 0.08)" },
+  morning: { icon: Sunrise, color: "text-orange-400", label: "Morning", bgColor: "rgba(251, 146, 60, 0.08)" },
+  am: { icon: Sun, color: "text-yellow-400", label: "AM", bgColor: "rgba(250, 204, 21, 0.08)" },
+  lunch: { icon: Utensils, color: "text-amber-500", label: "Lunch", bgColor: "rgba(245, 158, 11, 0.08)" },
+  pm: { icon: Sunset, color: "text-orange-500", label: "PM", bgColor: "rgba(249, 115, 22, 0.08)" },
+  dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner", bgColor: "rgba(192, 132, 252, 0.08)" },
+  before_bed: { icon: Moon, color: "text-indigo-400", label: "Before Bed", bgColor: "rgba(129, 140, 248, 0.08)" },
+  bed: { icon: Moon, color: "text-violet-400", label: "Bed", bgColor: "rgba(139, 92, 246, 0.08)" },
+};
+
+// Intake form icons and colors
+const INTAKE_FORM_CONFIG: Record<string, { icon: LucideIcon; color: string }> = {
+  capsule: { icon: Pill, color: "text-blue-400" },
+  capsules: { icon: Pill, color: "text-blue-400" },
+  powder: { icon: FlaskConical, color: "text-amber-400" },
+  liquid: { icon: Droplet, color: "text-cyan-400" },
+  spray: { icon: Wind, color: "text-teal-400" },
+  gummy: { icon: Candy, color: "text-pink-400" },
+  gummies: { icon: Candy, color: "text-pink-400" },
+  patch: { icon: Square, color: "text-purple-400" },
+  tablet: { icon: Pill, color: "text-slate-400" },
+  tablets: { icon: Pill, color: "text-slate-400" },
+  softgel: { icon: Pill, color: "text-blue-300" },
+  softgels: { icon: Pill, color: "text-blue-300" },
+};
 
 // Day abbreviations for display
 const DAY_ABBREVS: Record<string, string> = {
@@ -35,6 +86,7 @@ const TIME_SLOTS = [
   { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
   { value: "before_bed", label: "Before Bed" },
+  { value: "bed", label: "Bed" },
 ];
 
 // Normalize timing values to canonical form
@@ -205,6 +257,48 @@ export default function RoutinesPage() {
     return items;
   }, [routines]);
 
+  // Items without timing (unscheduled)
+  const unscheduledItems = useMemo(() => {
+    const items: ScheduleItem[] = [];
+
+    // Supplements without timing
+    (supplements || [])
+      .filter((s) => !s.timing)
+      .forEach((s) => {
+        items.push({
+          id: `supplement-${s.id}`,
+          type: "supplement" as const,
+          name: s.name,
+          brand: s.brand,
+          timing: "",
+          timeOfDay: "",
+          frequency: s.frequency,
+          notes: s.timing_reason || s.reason,
+          original: s,
+        });
+      });
+
+    // Equipment without timing
+    (equipment || [])
+      .filter((e) => !e.usage_timing)
+      .forEach((e) => {
+        items.push({
+          id: `equipment-${e.id}`,
+          type: "equipment" as const,
+          name: e.name,
+          brand: e.brand,
+          timing: "",
+          timeOfDay: "",
+          frequency: e.usage_frequency,
+          duration: e.usage_duration,
+          notes: e.usage_protocol,
+          original: e,
+        });
+      });
+
+    return items;
+  }, [supplements, equipment]);
+
   // Combine all schedule items
   const allScheduleItems = useMemo(() => {
     return [...supplementScheduleItems, ...equipmentScheduleItems, ...routineScheduleItems];
@@ -253,17 +347,46 @@ export default function RoutinesPage() {
     }
   };
 
-  const getItemIcon = (type: string) => {
-    switch (type) {
-      case "supplement":
-        return <Pill className="w-3 h-3 flex-shrink-0" />;
-      case "equipment":
-        return <Zap className="w-3 h-3 flex-shrink-0" />;
-      case "routine":
-        return <ListTodo className="w-3 h-3 flex-shrink-0" />;
-      default:
-        return null;
+  // Get icon based on type and category for supplements
+  const getItemIcon = (item: ScheduleItem) => {
+    if (item.type === "supplement") {
+      const supplement = item.original as Supplement;
+      const category = supplement.category || "other";
+      const IconComponent = CATEGORY_ICONS[category] || Pill;
+      const iconColor = CATEGORY_ICON_COLORS[category] || CATEGORY_ICON_COLORS.other;
+      return <IconComponent className="w-3 h-3 flex-shrink-0" style={{ color: iconColor }} />;
     }
+    if (item.type === "equipment") {
+      return <Zap className="w-3 h-3 flex-shrink-0 text-amber-400" />;
+    }
+    if (item.type === "routine") {
+      return <ListTodo className="w-3 h-3 flex-shrink-0 text-blue-400" />;
+    }
+    return null;
+  };
+
+  // Get dose/quantity display for supplements
+  const getSupplementDose = (item: ScheduleItem): { text: string; icon: LucideIcon; color: string } | null => {
+    if (item.type !== "supplement") return null;
+    const supplement = item.original as Supplement;
+
+    if (supplement.intake_form) {
+      const qty = supplement.intake_quantity || 1;
+      const formConfig = INTAKE_FORM_CONFIG[supplement.intake_form.toLowerCase()] || { icon: Pill, color: "text-muted-foreground" };
+      return {
+        text: `${qty}`,
+        icon: formConfig.icon,
+        color: formConfig.color,
+      };
+    }
+    if (supplement.intake_quantity) {
+      return {
+        text: `${supplement.intake_quantity}`,
+        icon: Pill,
+        color: "text-muted-foreground",
+      };
+    }
+    return null;
   };
 
   // Format days for display (e.g., "Mo We Fr")
@@ -378,78 +501,140 @@ export default function RoutinesPage() {
           const specialForSlot = getSpecialItemsForTimeSlot(slot.value);
           const hasItems = dailyForSlot.length > 0 || specialForSlot.length > 0;
           const isDropTarget = dropTarget === slot.value;
+          const timingConfig = TIMING_CONFIG[slot.value];
+          const TimingIcon = timingConfig?.icon || Sun;
 
-          // Show all slots when dragging, otherwise only show slots with items
-          if (!hasItems && !draggedItem) return null;
+          // Always show all time slots so user can see full day structure and drag items anywhere
 
           return (
             <div
               key={slot.value}
-              className={`grid grid-cols-[80px_1fr_1fr] border-b last:border-b-0 transition-colors ${
+              className={`grid grid-cols-[80px_1fr_1fr] border-b last:border-b-0 transition-colors relative overflow-hidden ${
                 isDropTarget ? "bg-primary/10" : ""
               }`}
+              style={{ backgroundColor: isDropTarget ? undefined : timingConfig?.bgColor }}
               onDragOver={(e) => handleDragOver(e, slot.value)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, slot.value)}
             >
-              {/* Time Label */}
-              <div className="p-2 border-r bg-muted/30 text-xs text-muted-foreground font-medium">
+              {/* Time Label with Icon */}
+              <div className={`p-2 border-r bg-muted/30 text-xs font-medium flex items-center gap-1.5 ${timingConfig?.color || "text-muted-foreground"}`}>
+                <TimingIcon className="w-3.5 h-3.5" />
                 {slot.label}
               </div>
 
               {/* Daily Column - 3 columns */}
               <div className={`p-2 border-r min-h-[40px] ${isDropTarget ? "ring-2 ring-primary/50 ring-inset" : ""}`}>
                 <div className="grid grid-cols-3 gap-1">
-                  {dailyForSlot.map((item) => (
-                    <button
-                      key={item.id}
-                      draggable={item.type !== "routine"}
-                      onDragStart={(e) => handleDragStart(e, item)}
-                      onDragEnd={handleDragEnd}
-                      onClick={() => handleItemClick(item)}
-                      className={`text-left p-1 rounded border text-[11px] transition-colors ${
-                        item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-                      } ${getItemColor(item.type)} ${
-                        draggedItem?.id === item.id ? "opacity-50" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-1">
-                        {getItemIcon(item.type)}
-                        <span className="truncate font-medium">{item.name}</span>
-                      </div>
-                    </button>
-                  ))}
+                  {dailyForSlot.map((item) => {
+                    const dose = getSupplementDose(item);
+                    const DoseIcon = dose?.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        draggable={item.type !== "routine"}
+                        onDragStart={(e) => handleDragStart(e, item)}
+                        onDragEnd={handleDragEnd}
+                        onClick={() => handleItemClick(item)}
+                        className={`text-left p-1 rounded border text-[11px] transition-colors ${
+                          item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                        } ${getItemColor(item.type)} ${
+                          draggedItem?.id === item.id ? "opacity-50" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          {getItemIcon(item)}
+                          <span className="truncate font-medium flex-1">{item.name}</span>
+                          {dose && DoseIcon && (
+                            <span className={`flex items-center gap-0.5 text-[10px] ${dose.color}`}>
+                              {dose.text}<DoseIcon className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Special Column - 2 columns */}
+              {/* Special Column - 1 column */}
               <div className={`p-2 min-h-[40px] ${isDropTarget ? "ring-2 ring-primary/50 ring-inset" : ""}`}>
-                <div className="grid grid-cols-2 gap-1">
-                  {specialForSlot.map((item) => (
-                    <button
-                      key={item.id}
-                      draggable={item.type !== "routine"}
-                      onDragStart={(e) => handleDragStart(e, item)}
-                      onDragEnd={handleDragEnd}
-                      onClick={() => handleItemClick(item)}
-                      className={`text-left p-1 rounded border text-[11px] transition-colors ${
-                        item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-                      } ${getItemColor(item.type)} ${
-                        draggedItem?.id === item.id ? "opacity-50" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-1">
-                        {getItemIcon(item.type)}
-                        <span className="truncate font-medium flex-1">{item.name}</span>
-                        <span className="text-[9px] opacity-70 flex-shrink-0">{formatDaysDisplay(item)}</span>
-                      </div>
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-1">
+                  {specialForSlot.map((item) => {
+                    const dose = getSupplementDose(item);
+                    const DoseIcon = dose?.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        draggable={item.type !== "routine"}
+                        onDragStart={(e) => handleDragStart(e, item)}
+                        onDragEnd={handleDragEnd}
+                        onClick={() => handleItemClick(item)}
+                        className={`text-left p-1 rounded border text-[11px] transition-colors ${
+                          item.type !== "routine" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                        } ${getItemColor(item.type)} ${
+                          draggedItem?.id === item.id ? "opacity-50" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          {getItemIcon(item)}
+                          <span className="truncate font-medium flex-1">{item.name}</span>
+                          {dose && DoseIcon && (
+                            <span className={`flex items-center gap-0.5 text-[10px] ${dose.color}`}>
+                              {dose.text}<DoseIcon className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                          <span className="text-[9px] opacity-70 flex-shrink-0">{formatDaysDisplay(item)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
+
+              {/* Large timing icon as background watermark - bottom right */}
+              <div className="absolute -bottom-3 -right-3 opacity-10 pointer-events-none">
+                <TimingIcon className={`w-20 h-20 ${timingConfig?.color || "text-muted-foreground"}`} />
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* No Schedule Section - Always shown at bottom */}
+      <div className="border rounded-lg overflow-hidden bg-card">
+        <div className="p-3 bg-muted/30 border-b">
+          <h2 className="text-sm font-semibold text-muted-foreground">No Schedule</h2>
+        </div>
+        <div className="p-3 min-h-[50px]">
+          {unscheduledItems.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {unscheduledItems.map((item) => {
+                const dose = getSupplementDose(item);
+                const DoseIcon = dose?.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleItemClick(item)}
+                    className={`text-left px-2 py-1 rounded border text-xs transition-colors cursor-pointer ${getItemColor(item.type)}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {getItemIcon(item)}
+                      <span className="font-medium">{item.name}</span>
+                      {dose && DoseIcon && (
+                        <span className={`flex items-center gap-0.5 text-[10px] ${dose.color}`}>
+                          {dose.text}<DoseIcon className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 italic">All items have a scheduled time</p>
+          )}
+        </div>
       </div>
 
       {/* Legend */}
@@ -464,7 +649,7 @@ export default function RoutinesPage() {
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-blue-500/30 border border-blue-500/50" />
-          <span>Routines</span>
+          <span>Schedules</span>
         </div>
       </div>
 
@@ -473,7 +658,7 @@ export default function RoutinesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {selectedItem && getItemIcon(selectedItem.type)}
+              {selectedItem && getItemIcon(selectedItem)}
               {selectedItem?.name}
             </DialogTitle>
           </DialogHeader>

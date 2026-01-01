@@ -179,11 +179,77 @@ export default function EquipmentPage() {
     }
   }, [duplicates, extractedEquipment]);
 
-  const filteredEquipment = equipment?.filter((e) =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.brand?.toLowerCase().includes(search.toLowerCase()) ||
-    e.model?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredEquipment = useMemo(() => {
+    const filtered = equipment?.filter((e) =>
+      e.name.toLowerCase().includes(search.toLowerCase()) ||
+      e.brand?.toLowerCase().includes(search.toLowerCase()) ||
+      e.model?.toLowerCase().includes(search.toLowerCase())
+    );
+
+    // Sort: active items first, then inactive at the bottom
+    return filtered?.sort((a, b) => {
+      if (a.is_active === b.is_active) return 0;
+      return a.is_active ? -1 : 1;
+    });
+  }, [equipment, search]);
+
+  // Valid options for validation
+  const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed', 'custom'];
+  const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'before_bed'];
+  const VALID_CATEGORIES = ['lllt', 'microneedling', 'sleep', 'skincare', 'recovery', 'other'];
+
+  // Calculate missing field counts across all equipment
+  const missingFieldCounts = useMemo(() => {
+    if (!equipment) return { total: 0, needsSchedule: 0, needsProductInfo: 0, equipmentNeedingSchedule: [] as Equipment[], equipmentNeedingProductInfo: [] as Equipment[] };
+
+    const equipmentNeedingSchedule: Equipment[] = [];
+    const equipmentNeedingProductInfo: Equipment[] = [];
+
+    equipment.forEach((e) => {
+      // Check schedule (frequency + timing + duration must be valid)
+      const hasValidFreq = e.usage_frequency && VALID_FREQUENCIES.includes(e.usage_frequency.toLowerCase());
+      const hasValidTiming = e.usage_timing && VALID_TIMINGS.includes(e.usage_timing.toLowerCase());
+      const hasDuration = e.usage_duration && e.usage_duration.trim() !== '';
+      if (!hasValidFreq || !hasValidTiming || !hasDuration) {
+        equipmentNeedingSchedule.push(e);
+      }
+
+      // Check product info (brand, category, purpose, protocol, duration)
+      const hasValidCategory = e.category && VALID_CATEGORIES.includes(e.category.toLowerCase());
+      if (!e.brand || !hasValidCategory || !e.purpose || !e.usage_protocol || !e.usage_duration) {
+        equipmentNeedingProductInfo.push(e);
+      }
+    });
+
+    return {
+      total: new Set([...equipmentNeedingSchedule, ...equipmentNeedingProductInfo].map(e => e.id)).size,
+      needsSchedule: equipmentNeedingSchedule.length,
+      needsProductInfo: equipmentNeedingProductInfo.length,
+      equipmentNeedingSchedule,
+      equipmentNeedingProductInfo,
+    };
+  }, [equipment]);
+
+  // Handler to open first equipment needing schedule
+  const handleOpenScheduleModal = () => {
+    if (missingFieldCounts.equipmentNeedingSchedule.length > 0) {
+      setEditingEquipment(missingFieldCounts.equipmentNeedingSchedule[0]);
+      setFormOpen(true);
+    }
+  };
+
+  // Handler to open first equipment needing product info and trigger AI
+  const handlePopulateByAI = () => {
+    if (missingFieldCounts.equipmentNeedingProductInfo.length > 0) {
+      const item = missingFieldCounts.equipmentNeedingProductInfo[0];
+      setEditingEquipment(item);
+      setFormOpen(true);
+      setTimeout(() => {
+        const aiButton = document.querySelector('[data-ai-fill-button]') as HTMLButtonElement;
+        if (aiButton) aiButton.click();
+      }, 100);
+    }
+  };
 
   const handleEdit = (item: Equipment) => {
     setEditingEquipment(item);
@@ -193,6 +259,17 @@ export default function EquipmentPage() {
   const handleAdd = () => {
     setEditingEquipment(null);
     setFormOpen(true);
+  };
+
+  // AI Fill handler - opens form and triggers AI fill
+  const handleAIFill = (item: Equipment) => {
+    setEditingEquipment(item);
+    setFormOpen(true);
+    // Set a flag to trigger AI fill when form opens
+    setTimeout(() => {
+      const aiButton = document.querySelector('[data-ai-fill-button]') as HTMLButtonElement;
+      if (aiButton) aiButton.click();
+    }, 100);
   };
 
   // Progress animation effect
@@ -359,6 +436,60 @@ export default function EquipmentPage() {
               </div>
             </div>
 
+            {/* Missing Data Warning Bar */}
+            {missingFieldCounts.total > 0 && (
+              <div className="flex items-center gap-4 flex-wrap">
+                {/* Warning Icon */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <AlertTriangle className="w-8 h-8 text-yellow-500" />
+                  <span className="text-lg font-bold text-yellow-500">Warning:</span>
+                </div>
+
+                {/* Schedule Missing - Orange */}
+                {missingFieldCounts.needsSchedule > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-orange-400">
+                      <span className="font-semibold">{missingFieldCounts.needsSchedule}</span> need frequency/timing/duration
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400"
+                      onClick={handleOpenScheduleModal}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Schedule
+                      <span className="ml-1 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
+                        {missingFieldCounts.needsSchedule}
+                      </span>
+                    </Button>
+                  </div>
+                )}
+
+                {/* Product Info Missing - Purple */}
+                {missingFieldCounts.needsProductInfo > 0 && hasAIKey && (
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                    <span className="text-sm text-purple-400">
+                      <span className="font-semibold">{missingFieldCounts.needsProductInfo}</span> Equipment missing product info: AI can search & fill
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400"
+                      onClick={handlePopulateByAI}
+                    >
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Populate by AI
+                      <span className="ml-1 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
+                        {missingFieldCounts.needsProductInfo}
+                      </span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Main Content - Two Column Layout */}
             <div className="flex gap-4">
               {/* Left Sidebar */}
@@ -520,6 +651,7 @@ export default function EquipmentPage() {
                         equipment={item}
                         isDuplicate={duplicateIds.has(item.id)}
                         onClick={handleEdit}
+                        onAIFill={hasAIKey ? handleAIFill : undefined}
                       />
                     ))}
                   </div>

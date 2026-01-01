@@ -101,16 +101,33 @@ export function useDeleteSupplement() {
 export function useSupplementCosts(supplements: Supplement[] | undefined) {
   const activeSupplements = supplements?.filter((s) => s.is_active) || [];
 
-  const dailyCost = activeSupplements.reduce(
-    (sum, s) => sum + (s.price_per_serving || 0),
-    0
-  );
+  // Calculate daily cost for each supplement based on price, servings, intake quantity, timings, and frequency
+  const dailyCost = activeSupplements.reduce((sum, s) => {
+    if (!s.price || !s.servings_per_container) return sum;
+
+    const intakeQty = s.intake_quantity || 1;
+    const timingsCount = s.timings?.length || (s.timing ? 1 : 0) || 1;
+
+    let freqMultiplier = 1;
+    if (s.frequency === "every_other_day") freqMultiplier = 0.5;
+    else if (s.frequency === "as_needed") freqMultiplier = 0.5;
+
+    const dailyServings = intakeQty * timingsCount * freqMultiplier;
+    const costPerServing = s.price / s.servings_per_container;
+    const supplementDailyCost = costPerServing * dailyServings;
+
+    return sum + supplementDailyCost;
+  }, 0);
+
+  // Round daily to 2 decimal places, then derive monthly/yearly from that
+  // This ensures the displayed math is consistent (daily * 30 = monthly)
+  const roundedDaily = Math.round(dailyCost * 100) / 100;
 
   return {
-    daily: dailyCost,
-    weekly: dailyCost * 7,
-    monthly: dailyCost * 30,
-    yearly: dailyCost * 365,
+    daily: roundedDaily,
+    weekly: Math.round(roundedDaily * 7 * 100) / 100,
+    monthly: Math.round(roundedDaily * 30 * 100) / 100,
+    yearly: Math.round(roundedDaily * 365 * 100) / 100,
     activeCount: activeSupplements.length,
     totalCount: supplements?.length || 0,
   };

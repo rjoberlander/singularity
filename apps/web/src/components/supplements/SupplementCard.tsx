@@ -72,7 +72,8 @@ const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: st
   pm: { icon: Sunset, color: "text-orange-500", label: "PM", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
   evening: { icon: Sunset, color: "text-orange-500", label: "Evening", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
   dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner", bgColor: "rgba(192, 132, 252, 0.08)", iconBg: "rgba(192, 132, 252, 0.15)" },
-  before_bed: { icon: Moon, color: "text-indigo-400", label: "Bed", bgColor: "rgba(129, 140, 248, 0.08)", iconBg: "rgba(129, 140, 248, 0.15)" },
+  before_bed: { icon: Moon, color: "text-indigo-400", label: "Before Bed", bgColor: "rgba(129, 140, 248, 0.08)", iconBg: "rgba(129, 140, 248, 0.15)" },
+  bed: { icon: Moon, color: "text-violet-400", label: "Bed", bgColor: "rgba(139, 92, 246, 0.08)", iconBg: "rgba(139, 92, 246, 0.15)" },
   empty_stomach: { icon: Pill, color: "text-gray-400", label: "Empty Stomach", bgColor: "rgba(156, 163, 175, 0.08)", iconBg: "rgba(156, 163, 175, 0.15)" },
 };
 

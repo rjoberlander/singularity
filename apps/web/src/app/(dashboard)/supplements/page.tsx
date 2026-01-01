@@ -144,7 +144,8 @@ const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; selectedC
   lunch: { icon: Utensils, color: "text-amber-500", selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500", label: "Lunch" },
   pm: { icon: Sunset, color: "text-orange-500", selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500", label: "PM" },
   dinner: { icon: Utensils, color: "text-purple-400", selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400", label: "Dinner" },
-  before_bed: { icon: Moon, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Bed" },
+  before_bed: { icon: Moon, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Before Bed" },
+  bed: { icon: Moon, color: "text-violet-400", selectedColor: "bg-violet-500/30 border-violet-500/50 text-violet-400", label: "Bed" },
 };
 
 // Intake form icons and colors
@@ -194,6 +195,7 @@ export default function SupplementsPage() {
   const [userInputEntries, setUserInputEntries] = useState<Record<string, { frequency: string; timings: string[] }>>({});
   const [isSavingUserInput, setIsSavingUserInput] = useState(false);
   const [isCostWarningModalOpen, setIsCostWarningModalOpen] = useState(false);
+  const [isCostBreakdownModalOpen, setIsCostBreakdownModalOpen] = useState(false);
 
   // Batch AI population state
   const [isBatchAIModalOpen, setIsBatchAIModalOpen] = useState(false);
@@ -347,6 +349,18 @@ export default function SupplementsPage() {
     return dailyServings > 0 ? s.servings_per_container / dailyServings : 0;
   };
 
+  // Sorted supplements by monthly cost for breakdown modal
+  const supplementsSortedByCost = useMemo(() => {
+    if (!allSupplements) return [];
+    return [...allSupplements]
+      .filter(s => s.is_active)
+      .map(s => ({
+        ...s,
+        monthlyCost: getMonthlyCost(s) === 999999 ? 0 : getMonthlyCost(s)
+      }))
+      .sort((a, b) => b.monthlyCost - a.monthlyCost);
+  }, [allSupplements]);
+
   const filteredSupplements = useMemo(() => {
     let result = supplements?.filter((s) =>
       s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -355,13 +369,19 @@ export default function SupplementsPage() {
 
     if (result) {
       result = [...result].sort((a, b) => {
+        // First, sort by active status (active items first, inactive at bottom)
+        if (a.is_active !== b.is_active) {
+          return a.is_active ? -1 : 1;
+        }
+
+        // Then sort by the selected sort option within each group
         switch (sortBy) {
           case "time":
             return getEarliestTiming(a) - getEarliestTiming(b);
           case "name":
             return a.name.localeCompare(b.name);
           case "cost":
-            return getMonthlyCost(a) - getMonthlyCost(b);
+            return getMonthlyCost(b) - getMonthlyCost(a); // Most expensive first
           case "duration":
             return getBottleDuration(b) - getBottleDuration(a); // Longest first
           default:
@@ -988,24 +1008,29 @@ export default function SupplementsPage() {
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">SUPPLEMENT COSTS</h3>
                   {supplements && supplements.length > 0 ? (
                     <>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Pill className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">
-                          {costs.activeCount} active / {costs.totalCount} total
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Monthly</span>
-                          <span className="text-lg font-bold">${costs.monthly.toFixed(2)}</span>
+                      <div
+                        className="cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors"
+                        onClick={() => setIsCostBreakdownModalOpen(true)}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Pill className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            {costs.activeCount} active / {costs.totalCount} total
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Yearly</span>
-                          <span className="text-sm font-medium text-muted-foreground">${costs.yearly.toFixed(2)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Daily</span>
-                          <span className="text-sm font-medium text-muted-foreground">${costs.daily.toFixed(2)}</span>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Daily</span>
+                            <span className="text-sm font-medium text-muted-foreground">${costs.daily.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Monthly</span>
+                            <span className="text-lg font-bold">${costs.monthly.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Yearly</span>
+                            <span className="text-sm font-medium text-muted-foreground">${costs.yearly.toFixed(2)}</span>
+                          </div>
                         </div>
                       </div>
                       {/* Cost Warning */}
@@ -1852,6 +1877,84 @@ export default function SupplementsPage() {
             </div>
             <Button variant="outline" onClick={() => setIsBatchAIModalOpen(false)}>
               {isBatchFetching ? 'Cancel' : 'Close'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cost Breakdown Modal */}
+      <Dialog open={isCostBreakdownModalOpen} onOpenChange={setIsCostBreakdownModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pill className="w-5 h-5 text-primary" />
+              Monthly Cost Breakdown
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {costs.activeCount} active supplements • ${costs.monthly.toFixed(2)}/month
+            </p>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto py-2">
+            {/* Table Header */}
+            <div className="grid grid-cols-[1fr,100px,100px] gap-2 px-3 py-2 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
+              <div>Supplement</div>
+              <div className="text-right">Monthly</div>
+              <div className="text-right">Running Total</div>
+            </div>
+
+            {/* Table Rows */}
+            <div className="divide-y">
+              {(() => {
+                let runningTotal = 0;
+                return supplementsSortedByCost.map((supplement) => {
+                  runningTotal += supplement.monthlyCost;
+                  return (
+                    <div key={supplement.id} className="grid grid-cols-[1fr,100px,100px] gap-2 px-3 py-2.5 items-center hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-medium text-sm truncate">{supplement.name}</span>
+                        {supplement.purchase_url ? (
+                          <a
+                            href={supplement.purchase_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 shrink-0"
+                            title="Open product page"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        ) : null}
+                      </div>
+                      <div className="text-right">
+                        {supplement.monthlyCost > 0 ? (
+                          <span className="text-sm font-medium">${supplement.monthlyCost.toFixed(2)}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">—</span>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm text-muted-foreground">${runningTotal.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          <DialogFooter className="flex-shrink-0 border-t pt-3">
+            <div className="flex-1 flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Daily:</span>
+                <span className="font-medium">${costs.daily.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Yearly:</span>
+                <span className="font-medium">${costs.yearly.toFixed(2)}</span>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => setIsCostBreakdownModalOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

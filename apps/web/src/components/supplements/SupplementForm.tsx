@@ -32,7 +32,8 @@ const TIMING_OPTIONS: { value: string; label: string; icon: LucideIcon; selected
   { value: "lunch", label: "Lunch", icon: Utensils, selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500" },
   { value: "pm", label: "PM", icon: Sunset, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500" },
   { value: "dinner", label: "Dinner", icon: Utensils, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
-  { value: "before_bed", label: "Bed", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
+  { value: "before_bed", label: "Before Bed", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
+  { value: "bed", label: "Bed", icon: Moon, selectedColor: "bg-violet-500/30 border-violet-500/50 text-violet-400" },
 ];
 
 const FREQUENCY_OPTIONS = [
