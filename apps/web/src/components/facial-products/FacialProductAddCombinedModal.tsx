@@ -2,9 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useHasActiveAIKey, useExtractSupplements } from "@/hooks/useAI";
-import { useCreateSupplement } from "@/hooks/useSupplements";
-import { CreateSupplementRequest } from "@/types";
+import { useHasActiveAIKey } from "@/hooks/useAI";
+import { useCreateFacialProduct } from "@/hooks/useFacialProducts";
+import { CreateFacialProductRequest, FacialProductRoutine } from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -18,13 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Loader2,
   Sparkles,
@@ -40,72 +33,63 @@ import {
   Brain,
   CheckCircle2,
   Check,
+  Sun,
+  Moon,
+  Droplet,
+  FlaskConical,
+  Layers,
+  Shield,
+  Eye,
+  Leaf,
+  MoreHorizontal,
+  LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
-const CATEGORIES = [
-  "vitamin_mineral",
-  "amino_protein",
-  "herb_botanical",
-  "probiotic",
-  "other",
+const CATEGORIES: { value: string; label: string; icon: LucideIcon }[] = [
+  { value: "cleanser", label: "Cleanser", icon: Droplet },
+  { value: "toner", label: "Toner", icon: Droplet },
+  { value: "essence_serum", label: "Essence/Serum", icon: FlaskConical },
+  { value: "moisturizer", label: "Moisturizer", icon: Layers },
+  { value: "sunscreen", label: "Sunscreen", icon: Shield },
+  { value: "eye_care", label: "Eye Care", icon: Eye },
+  { value: "treatment", label: "Treatment", icon: Sparkles },
+  { value: "mask", label: "Mask", icon: Leaf },
+  { value: "other", label: "Other", icon: MoreHorizontal },
 ];
 
-// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
-const TIMING_OPTIONS = [
-  { value: "wake_up", label: "Wake" },
-  { value: "am", label: "AM" },
-  { value: "lunch", label: "Lunch" },
-  { value: "pm", label: "PM" },
-  { value: "dinner", label: "Dinner" },
-  { value: "evening", label: "Evening" },
-  { value: "bed", label: "Bed" },
+const ROUTINE_OPTIONS: { value: string; label: string; icon: LucideIcon; selectedColor: string }[] = [
+  { value: "am", label: "AM", icon: Sun, selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400" },
+  { value: "pm", label: "PM", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
 ];
 
-const FREQUENCY_OPTIONS = [
-  { value: "daily", label: "Daily" },
-  { value: "twice_daily", label: "Twice Daily" },
-  { value: "three_times_daily", label: "3x Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "as_needed", label: "As Needed" },
-];
-
-const INTAKE_FORM_OPTIONS = [
-  { value: "capsule", label: "Capsule" },
-  { value: "powder", label: "Powder" },
+const FORM_OPTIONS = [
+  { value: "cream", label: "Cream" },
+  { value: "gel", label: "Gel" },
+  { value: "lotion", label: "Lotion" },
+  { value: "oil", label: "Oil" },
+  { value: "serum", label: "Serum" },
   { value: "liquid", label: "Liquid" },
+  { value: "foam", label: "Foam" },
   { value: "spray", label: "Spray" },
-  { value: "gummy", label: "Gummy" },
-  { value: "patch", label: "Patch" },
 ];
 
-const DOSE_UNIT_OPTIONS = [
-  { value: "mg", label: "mg (milligrams)" },
-  { value: "g", label: "g (grams)" },
-  { value: "mcg", label: "mcg (micrograms)" },
-  { value: "IU", label: "IU (International Units)" },
-  { value: "ml", label: "ml (milliliters)" },
-  { value: "CFU", label: "CFU (Colony Forming Units)" },
-  { value: "%", label: "% (percent)" },
-];
-
-// ~50K chars is safe for Claude's context
 const MAX_TEXT_LENGTH = 50000;
 const WARNING_THRESHOLD = 40000;
 
-interface SupplementAddCombinedModalProps {
+interface FacialProductAddCombinedModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   onOpenExtractionModal?: (input: { text?: string; file?: File; url?: string }) => void;
 }
 
-export function SupplementAddCombinedModal({
+export function FacialProductAddCombinedModal({
   open,
   onOpenChange,
   onSuccess,
   onOpenExtractionModal,
-}: SupplementAddCombinedModalProps) {
+}: FacialProductAddCombinedModalProps) {
   const [activeTab, setActiveTab] = useState<"ai" | "manual">("ai");
 
   // AI tab state
@@ -120,26 +104,24 @@ export function SupplementAddCombinedModal({
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Manual form state
-  const [formData, setFormData] = useState<CreateSupplementRequest>({
+  const [formData, setFormData] = useState<CreateFacialProductRequest>({
     name: "",
     brand: "",
-    intake_quantity: 1,
-    intake_form: "",
-    dose_per_serving: undefined,
-    dose_unit: "",
-    servings_per_container: undefined,
+    step_order: undefined,
+    application_form: "",
+    routines: [],
+    size_amount: undefined,
+    size_unit: "ml",
     price: undefined,
     purchase_url: "",
     category: "",
-    timing: "",
-    frequency: "",
+    purpose: "",
     notes: "",
   });
 
   // Hooks
   const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
-  const createSupplement = useCreateSupplement();
-  const extractSupplements = useExtractSupplements();
+  const createProduct = useCreateFacialProduct();
 
   // Reset state when modal closes
   useEffect(() => {
@@ -152,16 +134,15 @@ export function SupplementAddCombinedModal({
       setFormData({
         name: "",
         brand: "",
-        intake_quantity: 1,
-        intake_form: "",
-        dose_per_serving: undefined,
-        dose_unit: "",
-        servings_per_container: undefined,
+        step_order: undefined,
+        application_form: "",
+        routines: [],
+        size_amount: undefined,
+        size_unit: "ml",
         price: undefined,
         purchase_url: "",
         category: "",
-        timing: "",
-        frequency: "",
+        purpose: "",
         notes: "",
       });
       if (progressIntervalRef.current) {
@@ -204,7 +185,7 @@ export function SupplementAddCombinedModal({
   const handleAISubmit = useCallback(async () => {
     if (!text.trim() && !attachedFile) return;
 
-    // If we have the extraction modal handler, use it for full extraction flow
+    // If we have the extraction modal handler, use it
     if (onOpenExtractionModal) {
       onOpenChange(false);
       onOpenExtractionModal({
@@ -214,45 +195,9 @@ export function SupplementAddCombinedModal({
       return;
     }
 
-    // Otherwise do inline extraction (fallback)
-    setIsExtracting(true);
-
-    try {
-      let result;
-
-      if (attachedFile) {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(attachedFile);
-        });
-        result = await extractSupplements.mutateAsync({
-          image_base64: base64,
-          source_type: "image",
-        });
-      } else if (text.trim()) {
-        result = await extractSupplements.mutateAsync({
-          text_content: text.trim(),
-          source_type: "text",
-        });
-      }
-
-      if (result && result.supplements?.length > 0) {
-        toast.success(`Extracted ${result.supplements.length} supplements`);
-        onOpenChange(false);
-        onSuccess?.();
-      } else {
-        toast.error("No supplements found in the input");
-      }
-    } catch (error: any) {
-      console.error("Extraction failed:", error);
-      toast.error(error?.response?.data?.error || "Failed to extract supplements");
-    } finally {
-      setIsExtracting(false);
-      setProgress(0);
-    }
-  }, [text, attachedFile, onOpenExtractionModal, onOpenChange, extractSupplements, onSuccess]);
+    // Otherwise show a message that full extraction isn't implemented yet
+    toast.info("AI extraction coming soon! Use Manual tab for now.");
+  }, [text, attachedFile, onOpenExtractionModal, onOpenChange]);
 
   // File handling
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -314,24 +259,21 @@ export function SupplementAddCombinedModal({
     e.preventDefault();
 
     try {
-      // Clean the form data - convert empty strings to undefined
-      // to avoid database CHECK constraint violations
       const cleanedData: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(formData)) {
-        if (value === "" || value === null) {
-          // Skip empty strings and nulls - don't send them
+        if (value === "" || value === null || (Array.isArray(value) && value.length === 0)) {
           continue;
         }
         cleanedData[key] = value;
       }
 
-      await createSupplement.mutateAsync(cleanedData as any);
-      toast.success("Supplement added successfully");
+      await createProduct.mutateAsync(cleanedData as any);
+      toast.success("Product added successfully");
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
-      console.error("Failed to save supplement:", error);
-      toast.error("Failed to save supplement. Please try again.");
+      console.error("Failed to save product:", error);
+      toast.error("Failed to save product. Please try again.");
     }
   };
 
@@ -347,7 +289,7 @@ export function SupplementAddCombinedModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Add Supplement</DialogTitle>
+          <DialogTitle>Add Facial Product</DialogTitle>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "ai" | "manual")} className="flex-1 flex flex-col overflow-hidden">
@@ -366,7 +308,6 @@ export function SupplementAddCombinedModal({
           <TabsContent value="ai" className="flex-1 overflow-auto mt-4">
             {isExtracting ? (
               <div className="flex flex-col items-center justify-center py-8">
-                {/* Progress stages */}
                 <div className="flex items-center justify-center gap-8 mb-6">
                   <div className={`flex flex-col items-center gap-2 ${progressStage === "preparing" ? "text-primary" : progress > 15 ? "text-green-500" : "text-muted-foreground"}`}>
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${progressStage === "preparing" ? "border-primary bg-primary/10" : progress > 15 ? "border-green-500 bg-green-500/10" : "border-muted"}`}>
@@ -396,8 +337,8 @@ export function SupplementAddCombinedModal({
 
                 <p className="text-sm text-muted-foreground">
                   {progressStage === "preparing" && "Reading input..."}
-                  {progressStage === "analyzing" && "AI is analyzing supplement information..."}
-                  {progressStage === "extracting" && "Extracting supplement details..."}
+                  {progressStage === "analyzing" && "AI is analyzing skincare products..."}
+                  {progressStage === "extracting" && "Extracting product details..."}
                 </p>
               </div>
             ) : (
@@ -427,7 +368,6 @@ export function SupplementAddCombinedModal({
                   </div>
                 ) : (
                   <>
-                    {/* API Key Warning */}
                     {!isCheckingKey && !hasAIKey && (
                       <Alert variant="destructive" className="mb-4">
                         <AlertTriangle className="h-4 w-4" />
@@ -440,7 +380,6 @@ export function SupplementAddCombinedModal({
                       </Alert>
                     )}
 
-                    {/* Attached file preview */}
                     {attachedFile && (
                       <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-muted rounded">
                         {getFileIcon()}
@@ -461,7 +400,7 @@ export function SupplementAddCombinedModal({
                         value={text}
                         onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT_LENGTH))}
                         onPaste={handlePaste}
-                        placeholder="Drag & drop file or copy/paste text or URL for AI extraction."
+                        placeholder="Paste your skincare routine, product list, or Amazon URL for AI extraction."
                         className="min-h-[120px] resize-none"
                         rows={5}
                       />
@@ -492,7 +431,7 @@ export function SupplementAddCombinedModal({
                         disabled={(!text.trim() && !attachedFile) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
                       >
                         <Send className="w-4 h-4 mr-2" />
-                        Extract Supplements
+                        Extract Products
                       </Button>
                     </div>
                   </>
@@ -504,6 +443,7 @@ export function SupplementAddCombinedModal({
           {/* Manual Tab */}
           <TabsContent value="manual" className="flex-1 overflow-auto mt-4">
             <form onSubmit={handleManualSubmit} className="space-y-4">
+              {/* Name and Brand */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Name *</Label>
@@ -511,7 +451,7 @@ export function SupplementAddCombinedModal({
                     id="name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Vitamin D3"
+                    placeholder="e.g., Anua Heartleaf Cleansing Oil"
                     required
                   />
                 </div>
@@ -521,160 +461,139 @@ export function SupplementAddCombinedModal({
                     id="brand"
                     value={formData.brand}
                     onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                    placeholder="e.g., Thorne"
+                    placeholder="e.g., Anua"
                   />
                 </div>
               </div>
 
-              {/* Intake Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {/* Routine and Step Order */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="intake_quantity">Intake</Label>
-                  <Select
-                    value={(formData.intake_quantity || 1).toString()}
-                    onValueChange={(value) => setFormData({ ...formData, intake_quantity: parseInt(value, 10) })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Qty" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                        <SelectItem key={num} value={num.toString()}>
-                          {num}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="intake_form">Form</Label>
-                  <Select
-                    value={formData.intake_form || ""}
-                    onValueChange={(value) => setFormData({ ...formData, intake_form: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select form" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INTAKE_FORM_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
+                  <Label>Routine</Label>
+                  <div className="flex gap-2">
+                    {ROUTINE_OPTIONS.map((opt) => {
+                      const isSelected = formData.routines?.includes(opt.value as FacialProductRoutine) || false;
+                      const RoutineIcon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            const currentRoutines = formData.routines || [];
+                            const newRoutines = isSelected
+                              ? currentRoutines.filter(r => r !== opt.value)
+                              : [...currentRoutines, opt.value as FacialProductRoutine];
+                            setFormData({ ...formData, routines: newRoutines });
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded border transition-colors ${
+                            isSelected
+                              ? opt.selectedColor
+                              : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <RoutineIcon className="w-4 h-4" />
                           {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="dose_per_serving">Per Serving</Label>
+                  <Label htmlFor="step_order">Step Order</Label>
                   <Input
-                    id="dose_per_serving"
+                    id="step_order"
                     type="number"
-                    step="any"
-                    value={formData.dose_per_serving ?? ""}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        dose_per_serving: e.target.value ? parseFloat(e.target.value) : undefined,
-                      })
-                    }
-                    placeholder="e.g., 1000"
+                    min={1}
+                    max={20}
+                    value={formData.step_order ?? ""}
+                    onChange={(e) => setFormData({ ...formData, step_order: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="e.g., 1"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dose_unit">Unit</Label>
-                  <Select
-                    value={formData.dose_unit}
-                    onValueChange={(value) => setFormData({ ...formData, dose_unit: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DOSE_UNIT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              </div>
+
+              {/* Category */}
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORIES.map((cat) => {
+                    const CatIcon = cat.icon;
+                    const isSelected = formData.category === cat.value;
+                    return (
+                      <button
+                        key={cat.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, category: cat.value })}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded border transition-colors ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                        }`}
+                      >
+                        <CatIcon className="w-3.5 h-3.5" />
+                        {cat.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat.charAt(0).toUpperCase() + cat.slice(1).replace("_", " ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="timing">Timing</Label>
-                  <Select
-                    value={formData.timing}
-                    onValueChange={(value) => setFormData({ ...formData, timing: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select timing" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMING_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {/* Form */}
+              <div className="space-y-2">
+                <Label>Form</Label>
+                <div className="flex flex-wrap gap-2">
+                  {FORM_OPTIONS.map((form) => {
+                    const isSelected = formData.application_form === form.value;
+                    return (
+                      <button
+                        key={form.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, application_form: form.value })}
+                        className={`px-2.5 py-1.5 text-sm rounded border transition-colors ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                        }`}
+                      >
+                        {form.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Size and Price */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="frequency">Frequency</Label>
-                  <Select
-                    value={formData.frequency}
-                    onValueChange={(value) => setFormData({ ...formData, frequency: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select frequency" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FREQUENCY_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="servings_per_container">Servings Per Container</Label>
+                  <Label htmlFor="size_amount">Size</Label>
                   <Input
-                    id="servings_per_container"
+                    id="size_amount"
                     type="number"
-                    value={formData.servings_per_container ?? ""}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        servings_per_container: e.target.value ? parseInt(e.target.value) : undefined,
-                      })
-                    }
+                    step="0.1"
+                    value={formData.size_amount ?? ""}
+                    onChange={(e) => setFormData({ ...formData, size_amount: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    placeholder="e.g., 200"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="size_unit">Unit</Label>
+                  <div className="flex gap-1">
+                    {["ml", "oz", "g"].map((unit) => (
+                      <button
+                        key={unit}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, size_unit: unit })}
+                        className={`flex-1 px-2 py-2 text-sm rounded border transition-colors ${
+                          formData.size_unit === unit
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                        }`}
+                      >
+                        {unit}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="price">Price ($)</Label>
                   <Input
@@ -682,24 +601,33 @@ export function SupplementAddCombinedModal({
                     type="number"
                     step="0.01"
                     value={formData.price ?? ""}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        price: e.target.value ? parseFloat(e.target.value) : undefined,
-                      })
-                    }
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    placeholder="e.g., 24.99"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="purchase_url">Purchase URL</Label>
-                  <Input
-                    id="purchase_url"
-                    type="url"
-                    value={formData.purchase_url}
-                    onChange={(e) => setFormData({ ...formData, purchase_url: e.target.value })}
-                    placeholder="https://..."
-                  />
-                </div>
+              </div>
+
+              {/* Purchase URL */}
+              <div className="space-y-2">
+                <Label htmlFor="purchase_url">Purchase URL</Label>
+                <Input
+                  id="purchase_url"
+                  type="url"
+                  value={formData.purchase_url}
+                  onChange={(e) => setFormData({ ...formData, purchase_url: e.target.value })}
+                  placeholder="https://www.amazon.com/..."
+                />
+              </div>
+
+              {/* Purpose and Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="purpose">Purpose</Label>
+                <Input
+                  id="purpose"
+                  value={formData.purpose}
+                  onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+                  placeholder="e.g., First cleanse to remove sunscreen"
+                />
               </div>
 
               <div className="space-y-2">
@@ -708,7 +636,7 @@ export function SupplementAddCombinedModal({
                   id="notes"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={3}
+                  rows={2}
                   placeholder="Any additional notes..."
                 />
               </div>
@@ -717,9 +645,9 @@ export function SupplementAddCombinedModal({
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={createSupplement.isPending}>
-                  {createSupplement.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Add Supplement
+                <Button type="submit" disabled={createProduct.isPending}>
+                  {createProduct.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Add Product
                 </Button>
               </div>
             </form>

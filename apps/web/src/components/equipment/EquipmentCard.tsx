@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { useToggleEquipment } from "@/hooks/useEquipment";
 import {
   Cpu,
-  Timer,
   Zap,
   Moon,
   Sparkles,
@@ -21,6 +20,7 @@ import {
   Sunset,
   LucideIcon,
   AlertTriangle,
+  BedDouble,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,27 +28,29 @@ import { toast } from "sonner";
 const isEmpty = (val: string | null | undefined): boolean => !val || val.trim() === '';
 
 // Valid frequency options (must match form options)
-const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed', 'custom'];
+// Note: 'custom' is NOT valid by itself - it requires days to be selected
+const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed'];
 
 // Valid timing options (must match form options)
-const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'before_bed'];
+const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'bed', 'evening'];
 
 // Valid categories
 const VALID_CATEGORIES = ['lllt', 'microneedling', 'sleep', 'skincare', 'recovery', 'other'];
 
 // Check which important fields are missing or invalid
 function getMissingFields(equipment: Equipment): {
-  schedule: boolean;
+  frequency: boolean;
+  timing: boolean;
+  duration: boolean;
   details: boolean;
   protocol: boolean;
 } {
-  // Schedule: frequency + timing + duration (must be valid options, not just non-empty)
-  const hasValidFrequency = !isEmpty(equipment.usage_frequency) &&
-    VALID_FREQUENCIES.includes(equipment.usage_frequency?.toLowerCase() || '');
-  const hasValidTiming = !isEmpty(equipment.usage_timing) &&
-    VALID_TIMINGS.includes(equipment.usage_timing?.toLowerCase() || '');
-  const hasDuration = !isEmpty(equipment.usage_duration);
-  const schedule = !hasValidFrequency || !hasValidTiming || !hasDuration;
+  // Individual schedule fields
+  const frequency = !(!isEmpty(equipment.usage_frequency) &&
+    VALID_FREQUENCIES.includes(equipment.usage_frequency?.toLowerCase() || ''));
+  const timing = !(!isEmpty(equipment.usage_timing) &&
+    VALID_TIMINGS.includes(equipment.usage_timing?.toLowerCase() || ''));
+  const duration = isEmpty(equipment.usage_duration);
 
   // Details: brand, category (must be valid), purpose
   const hasValidCategory = !isEmpty(equipment.category) &&
@@ -58,7 +60,7 @@ function getMissingFields(equipment: Equipment): {
   // Protocol: duration + usage_protocol
   const protocol = isEmpty(equipment.usage_duration) || isEmpty(equipment.usage_protocol);
 
-  return { schedule, details, protocol };
+  return { frequency, timing, duration, details, protocol };
 }
 
 // Category config with icons and colors
@@ -72,23 +74,24 @@ const CATEGORY_CONFIG: Record<string, { icon: LucideIcon; color: string; bgColor
 };
 
 // Timing config with icons, colors, and card background colors (matching supplements)
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_CONFIG: Record<string, { icon: LucideIcon; label: string; color: string; cardBgColor: string }> = {
   wake_up: { icon: Sunrise, label: "Wake", color: "text-orange-400", cardBgColor: "rgba(251, 146, 60, 0.08)" },
   am: { icon: Sun, label: "AM", color: "text-yellow-400", cardBgColor: "rgba(250, 204, 21, 0.08)" },
-  morning: { icon: Sun, label: "AM", color: "text-yellow-400", cardBgColor: "rgba(250, 204, 21, 0.08)" }, // legacy
+  morning: { icon: Sun, label: "AM", color: "text-yellow-400", cardBgColor: "rgba(250, 204, 21, 0.08)" }, // legacy alias
   lunch: { icon: Utensils, label: "Lunch", color: "text-amber-500", cardBgColor: "rgba(245, 158, 11, 0.08)" },
   pm: { icon: Sunset, label: "PM", color: "text-orange-500", cardBgColor: "rgba(249, 115, 22, 0.08)" },
-  afternoon: { icon: Sunset, label: "PM", color: "text-orange-500", cardBgColor: "rgba(249, 115, 22, 0.08)" }, // legacy
+  afternoon: { icon: Sunset, label: "PM", color: "text-orange-500", cardBgColor: "rgba(249, 115, 22, 0.08)" }, // legacy alias
   dinner: { icon: Utensils, label: "Dinner", color: "text-purple-400", cardBgColor: "rgba(192, 132, 252, 0.08)" },
-  before_bed: { icon: Moon, label: "Bed", color: "text-indigo-400", cardBgColor: "rgba(129, 140, 248, 0.08)" },
-  evening: { icon: Moon, label: "Evening", color: "text-indigo-400", cardBgColor: "rgba(129, 140, 248, 0.08)" }, // legacy
-  all_night: { icon: Moon, label: "All night", color: "text-indigo-400", cardBgColor: "rgba(129, 140, 248, 0.08)" },
+  evening: { icon: Moon, label: "Evening", color: "text-purple-400", cardBgColor: "rgba(192, 132, 252, 0.08)" },
+  bed: { icon: BedDouble, label: "Bed", color: "text-indigo-400", cardBgColor: "rgba(129, 140, 248, 0.08)" },
+  all_night: { icon: Moon, label: "All night", color: "text-indigo-400", cardBgColor: "rgba(129, 140, 248, 0.08)" }, // legacy alias
 };
 
 // Frequency display mapping
 const FREQUENCY_MAP: Record<string, string> = {
   daily: "Daily",
-  every_other_day: "Every Other",
+  every_other_day: "Every Other Day",
   twice_daily: "2x Daily",
   three_times_daily: "3x Daily",
   weekly: "Weekly",
@@ -108,7 +111,7 @@ interface EquipmentCardProps {
 export function EquipmentCard({ equipment, isDuplicate, onClick, onAIFill }: EquipmentCardProps) {
   const toggleEquipment = useToggleEquipment();
   const missingFields = getMissingFields(equipment);
-  const hasMissingFields = missingFields.schedule || missingFields.details || missingFields.protocol;
+  const hasMissingFields = missingFields.frequency || missingFields.timing || missingFields.duration || missingFields.details || missingFields.protocol;
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -134,31 +137,40 @@ export function EquipmentCard({ equipment, isDuplicate, onClick, onAIFill }: Equ
   const timingKey = equipment.usage_timing?.toLowerCase().replace(/\s+/g, '_') || "";
   const timingConfig = TIMING_CONFIG[timingKey];
 
-  // Parse duration to show clean minutes
-  const parseDuration = (duration?: string): string | null => {
+  // Format duration for display
+  const formatDuration = (duration?: string): string | null => {
     if (!duration) return null;
-    // Handle "all_night" or "all night"
+    // Handle "all_night" format
     if (duration.toLowerCase().includes('all_night') || duration.toLowerCase().includes('all night')) {
-      return "All night";
+      return "8h";
     }
-    // Extract first number from ranges like "10-15 minutes" -> "10 min"
-    const match = duration.match(/(\d+)/);
-    if (match) {
-      const mins = parseInt(match[1]);
-      if (mins >= 60) {
-        return `${Math.floor(mins / 60)}h`;
-      }
+    // Handle "X minutes" format
+    const minMatch = duration.match(/(\d+)\s*min/i);
+    if (minMatch) {
+      const mins = parseInt(minMatch[1]);
+      if (mins >= 60) return `${Math.floor(mins / 60)}h`;
+      return `${mins} min`;
+    }
+    // Handle "X hour(s)" format
+    const hourMatch = duration.match(/(\d+)\s*hour/i);
+    if (hourMatch) return `${hourMatch[1]}h`;
+    // Handle plain number
+    const mins = parseInt(duration);
+    if (!isNaN(mins)) {
+      if (mins >= 60) return `${Math.floor(mins / 60)}h`;
       return `${mins} min`;
     }
     return duration;
   };
 
-  const formattedDuration = parseDuration(equipment.usage_duration);
+  const formattedDuration = formatDuration(equipment.usage_duration);
   const formattedFrequency = equipment.usage_frequency ? (FREQUENCY_MAP[equipment.usage_frequency] || equipment.usage_frequency) : null;
 
-  // Get card background color from timing
-  const cardBgColor = timingConfig?.cardBgColor || "transparent";
-  const TimingIcon = timingConfig?.icon || Sun;
+  // Get card background color from timing, or fall back to category for sleep equipment
+  const isSleepCategory = equipment.category?.toLowerCase() === 'sleep';
+  const cardBgColor = timingConfig?.cardBgColor || (isSleepCategory ? "rgba(129, 140, 248, 0.08)" : "transparent");
+  const TimingIcon = timingConfig?.icon || (isSleepCategory ? BedDouble : null);
+  const watermarkColor = timingConfig?.color || (isSleepCategory ? "text-indigo-400" : "");
 
   return (
     <Card
@@ -227,8 +239,7 @@ export function EquipmentCard({ equipment, isDuplicate, onClick, onAIFill }: Equ
           )}
           {/* Duration */}
           {formattedDuration && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-muted text-muted-foreground">
-              <Timer className="w-3 h-3" />
+            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-md bg-muted text-muted-foreground">
               {formattedDuration}
             </span>
           )}
@@ -263,9 +274,19 @@ export function EquipmentCard({ equipment, isDuplicate, onClick, onAIFill }: Equ
                 <AlertTriangle className="w-4 h-4" />
                 Missing:
               </span>
-              {missingFields.schedule && (
+              {missingFields.frequency && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
-                  Frequency & Timing
+                  Frequency
+                </span>
+              )}
+              {missingFields.timing && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                  When
+                </span>
+              )}
+              {missingFields.duration && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                  Duration
                 </span>
               )}
               {missingFields.details && (
@@ -284,9 +305,9 @@ export function EquipmentCard({ equipment, isDuplicate, onClick, onAIFill }: Equ
       </CardContent>
 
       {/* Large timing icon as background watermark - like supplements */}
-      {timingConfig && (
+      {TimingIcon && (
         <div className="absolute -bottom-4 -right-4 opacity-15 pointer-events-none">
-          <TimingIcon className={`w-24 h-24 ${timingConfig.color}`} />
+          <TimingIcon className={`w-24 h-24 ${watermarkColor}`} />
         </div>
       )}
     </Card>

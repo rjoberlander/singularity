@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Settings,
   Moon,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
@@ -32,8 +33,9 @@ const navItems = [
   { name: "Biomarkers", href: "/biomarkers", icon: Activity },
   { name: "Sleep", href: "/sleep", icon: Moon },
   { name: "Supplements", href: "/supplements", icon: Pill },
+  { name: "Facial Products", href: "/facial-products", icon: Sparkles },
   { name: "Equipment", href: "/equipment", icon: Cpu },
-  { name: "Routines", href: "/routines", icon: Clock },
+  { name: "Schedule", href: "/schedule", icon: Clock },
   { name: "Goals", href: "/goals", icon: Target },
   { name: "Change Log", href: "/changelog", icon: History },
   { name: "Protocol Docs", href: "/docs", icon: FileText },

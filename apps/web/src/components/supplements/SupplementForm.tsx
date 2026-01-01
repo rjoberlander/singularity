@@ -15,7 +15,7 @@ import {
 import { useCreateSupplement, useUpdateSupplement, useDeleteSupplement } from "@/hooks/useSupplements";
 import { useExtractSupplements } from "@/hooks/useAI";
 import { aiApi } from "@/lib/api";
-import { Loader2, Trash2, Copy, ExternalLink, Check, Sparkles, Sunrise, Sun, Utensils, Sunset, Moon, LucideIcon, Pill, FlaskConical, Droplet, Wind, Candy, Square } from "lucide-react";
+import { Loader2, Trash2, Copy, ExternalLink, Check, Sparkles, Sunrise, Sun, Utensils, Sunset, Moon, BedDouble, LucideIcon, Pill, FlaskConical, Droplet, Wind, Candy, Square } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -26,19 +26,20 @@ const CATEGORIES = [
   { value: "other", label: "Other" },
 ];
 
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_OPTIONS: { value: string; label: string; icon: LucideIcon; selectedColor: string }[] = [
   { value: "wake_up", label: "Wake", icon: Sunrise, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400" },
   { value: "am", label: "AM", icon: Sun, selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400" },
   { value: "lunch", label: "Lunch", icon: Utensils, selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500" },
   { value: "pm", label: "PM", icon: Sunset, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500" },
   { value: "dinner", label: "Dinner", icon: Utensils, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
-  { value: "before_bed", label: "Before Bed", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
-  { value: "bed", label: "Bed", icon: Moon, selectedColor: "bg-violet-500/30 border-violet-500/50 text-violet-400" },
+  { value: "evening", label: "Evening", icon: Moon, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
+  { value: "bed", label: "Bed", icon: BedDouble, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
 ];
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
-  { value: "every_other_day", label: "Every Other" },
+  { value: "every_other_day", label: "Every Other Day" },
   { value: "as_needed", label: "As Needed" },
 ];
 

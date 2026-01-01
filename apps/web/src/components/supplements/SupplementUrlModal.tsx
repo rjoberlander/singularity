@@ -84,13 +84,15 @@ const DOSE_UNIT_OPTIONS = [
   { value: "%", label: "%" },
 ];
 
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_OPTIONS = [
-  { value: "wake_up", label: "Wake Up" },
-  { value: "am", label: "AM (Morning)" },
+  { value: "wake_up", label: "Wake" },
+  { value: "am", label: "AM" },
   { value: "lunch", label: "Lunch" },
-  { value: "pm", label: "PM (Afternoon)" },
+  { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
-  { value: "before_bed", label: "Before Bed" },
+  { value: "evening", label: "Evening" },
+  { value: "bed", label: "Bed" },
 ];
 
 const CATEGORY_OPTIONS = [

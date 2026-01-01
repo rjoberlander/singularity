@@ -45,6 +45,7 @@ import {
   Utensils,
   Sunset,
   Moon,
+  BedDouble,
   Check,
   X,
   Clock,
@@ -116,18 +117,19 @@ const STATUS_FILTERS = [
 ];
 
 // Timing order for sorting (earliest to latest in the day)
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_ORDER: Record<string, number> = {
   wake_up: 1,
-  morning: 2,
-  am: 3,
-  with_meals: 4,
-  lunch: 5,
-  afternoon: 6,
-  pm: 7,
-  evening: 8,
-  dinner: 9,
-  before_bed: 10,
-  empty_stomach: 11, // no specific time
+  morning: 2, // legacy alias for am
+  am: 2,
+  with_meals: 3, // legacy
+  lunch: 4,
+  afternoon: 5, // legacy alias for pm
+  pm: 5,
+  dinner: 6,
+  evening: 7,
+  bed: 8,
+  empty_stomach: 9, // no specific time
 };
 
 const SORT_OPTIONS = [
@@ -138,14 +140,15 @@ const SORT_OPTIONS = [
 ];
 
 // Timing icons and colors for the modal
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; selectedColor: string; label: string }> = {
   wake_up: { icon: Sunrise, color: "text-orange-400", selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400", label: "Wake" },
   am: { icon: Sun, color: "text-yellow-400", selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400", label: "AM" },
   lunch: { icon: Utensils, color: "text-amber-500", selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500", label: "Lunch" },
   pm: { icon: Sunset, color: "text-orange-500", selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500", label: "PM" },
   dinner: { icon: Utensils, color: "text-purple-400", selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400", label: "Dinner" },
-  before_bed: { icon: Moon, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Before Bed" },
-  bed: { icon: Moon, color: "text-violet-400", selectedColor: "bg-violet-500/30 border-violet-500/50 text-violet-400", label: "Bed" },
+  evening: { icon: Moon, color: "text-purple-400", selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400", label: "Evening" },
+  bed: { icon: BedDouble, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Bed" },
 };
 
 // Intake form icons and colors
@@ -1273,11 +1276,11 @@ export default function SupplementsPage() {
                   >
                     <option value="">Select...</option>
                     <option value="daily">Daily</option>
-                    <option value="every_other_day">Every Other</option>
+                    <option value="every_other_day">Every Other Day</option>
                     <option value="as_needed">As Needed</option>
                   </select>
                   <div className="flex flex-wrap gap-1">
-                    {['wake_up', 'am', 'lunch', 'pm', 'dinner', 'before_bed'].map((time) => {
+                    {['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].map((time) => {
                       const config = TIMING_CONFIG[time];
                       const TimingIcon = config.icon;
                       const isSelected = userInputEntries[supplement.id]?.timings?.includes(time);

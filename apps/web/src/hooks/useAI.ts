@@ -56,6 +56,47 @@ export function useExtractSupplements() {
   });
 }
 
+export interface ExtractedFacialProductData {
+  products: Array<{
+    name: string;
+    brand?: string;
+    step_order?: number;
+    application_form?: string;
+    routines?: ('am' | 'pm')[];
+    size_amount?: number;
+    size_unit?: string;
+    price?: number;
+    purchase_url?: string;
+    category?: string;
+    subcategory?: string;
+    purpose?: string;
+    key_ingredients?: string[];
+    spf_rating?: number;
+    confidence: number;
+    field_confidence?: Record<string, number>;
+  }>;
+  source_info?: {
+    store_name?: string;
+    purchase_date?: string;
+    total_items?: number;
+  };
+  extraction_notes?: string;
+}
+
+export function useExtractFacialProducts() {
+  return useMutation({
+    mutationFn: async (data: {
+      image_base64?: string;
+      text_content?: string;
+      source_type: "image" | "text";
+      product_url?: string;
+    }) => {
+      const response = await aiApi.extractFacialProducts(data);
+      return response.data.data as ExtractedFacialProductData;
+    },
+  });
+}
+
 interface ExtractedEquipmentData {
   equipment: Array<{
     name: string;

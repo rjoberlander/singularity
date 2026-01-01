@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates } from "@/hooks/useEquipment";
+import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates, useUpdateEquipment } from "@/hooks/useEquipment";
 import { EquipmentDuplicatesModal } from "@/components/equipment/EquipmentDuplicatesModal";
 import { EquipmentCard } from "@/components/equipment/EquipmentCard";
 import { EquipmentForm } from "@/components/equipment/EquipmentForm";
@@ -42,7 +42,15 @@ import {
   Copy,
   FileSearch,
   CheckCircle2,
+  Sunrise,
+  Sun,
+  Utensils,
+  Sunset,
+  BedDouble,
+  Clock,
+  XCircle,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -87,6 +95,35 @@ const STATUS_FILTERS = [
   { value: "inactive", label: "Inactive" },
 ];
 
+// Timing configuration for the schedule modal
+const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; selectedColor: string; label: string }> = {
+  wake_up: { icon: Sunrise, color: "text-orange-400", selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400", label: "Wake" },
+  am: { icon: Sun, color: "text-yellow-400", selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400", label: "AM" },
+  lunch: { icon: Utensils, color: "text-amber-500", selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500", label: "Lunch" },
+  pm: { icon: Sunset, color: "text-orange-500", selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500", label: "PM" },
+  dinner: { icon: Utensils, color: "text-purple-400", selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400", label: "Dinner" },
+  evening: { icon: Moon, color: "text-purple-400", selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400", label: "Evening" },
+  bed: { icon: BedDouble, color: "text-indigo-400", selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400", label: "Bed" },
+};
+
+// Frequency options for the schedule modal (matching EquipmentForm)
+const FREQUENCY_OPTIONS = [
+  { value: "daily", label: "Daily" },
+  { value: "every_other_day", label: "Every Other Day" },
+  { value: "as_needed", label: "As Needed" },
+];
+
+// Day options for custom frequency
+const DAY_OPTIONS = [
+  { value: "sun", label: "S" },
+  { value: "mon", label: "M" },
+  { value: "tue", label: "T" },
+  { value: "wed", label: "W" },
+  { value: "thu", label: "T" },
+  { value: "fri", label: "F" },
+  { value: "sat", label: "S" },
+];
+
 interface ExtractedEquipment {
   name: string;
   brand?: string;
@@ -127,6 +164,27 @@ export default function EquipmentPage() {
   // Duplicates modal state
   const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
 
+  // Schedule modal state (batch editing frequency/timing/duration)
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleEntries, setScheduleEntries] = useState<Record<string, { frequency: string; frequency_days: string[]; timing: string; duration: string }>>({});
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+
+  // Batch AI population modal state
+  const [isBatchAIModalOpen, setIsBatchAIModalOpen] = useState(false);
+  const [batchAIResults, setBatchAIResults] = useState<Record<string, {
+    status: 'pending' | 'fetching' | 'saving' | 'saved' | 'success' | 'error';
+    data?: {
+      brand?: string;
+      category?: string;
+      purpose?: string;
+      usage_protocol?: string;
+      usage_duration?: string;
+    };
+    error?: string;
+    selected?: boolean;
+  }>>({});
+  const [isBatchFetching, setIsBatchFetching] = useState(false);
+
   const { data: equipment, isLoading, error, refetch } = useEquipment({
     category: selectedCategory === "All" ? undefined : selectedCategory.toLowerCase(),
     is_active: statusFilter === "all" ? undefined : statusFilter === "active",
@@ -134,6 +192,7 @@ export default function EquipmentPage() {
 
   const createBulkMutation = useCreateEquipmentBulk();
   const extractMutation = useExtractEquipment();
+  const updateEquipment = useUpdateEquipment();
 
   // Fetch existing duplicates for the equipment list
   const { data: existingDuplicates, refetch: refetchDuplicates } = useEquipmentDuplicates();
@@ -194,8 +253,8 @@ export default function EquipmentPage() {
   }, [equipment, search]);
 
   // Valid options for validation
-  const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed', 'custom'];
-  const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'before_bed'];
+  const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed'];
+  const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'bed', 'evening'];
   const VALID_CATEGORIES = ['lllt', 'microneedling', 'sleep', 'skincare', 'recovery', 'other'];
 
   // Calculate missing field counts across all equipment
@@ -230,25 +289,150 @@ export default function EquipmentPage() {
     };
   }, [equipment]);
 
-  // Handler to open first equipment needing schedule
+  // Handler to open schedule modal for batch editing
   const handleOpenScheduleModal = () => {
     if (missingFieldCounts.equipmentNeedingSchedule.length > 0) {
-      setEditingEquipment(missingFieldCounts.equipmentNeedingSchedule[0]);
-      setFormOpen(true);
+      const entries: Record<string, { frequency: string; frequency_days: string[]; timing: string; duration: string }> = {};
+      missingFieldCounts.equipmentNeedingSchedule.forEach((e) => {
+        entries[e.id] = {
+          frequency: e.usage_frequency || "",
+          frequency_days: (e as any).frequency_days || [],
+          timing: e.usage_timing || "",
+          duration: e.usage_duration || "",
+        };
+      });
+      setScheduleEntries(entries);
+      setIsScheduleModalOpen(true);
     }
   };
 
-  // Handler to open first equipment needing product info and trigger AI
-  const handlePopulateByAI = () => {
-    if (missingFieldCounts.equipmentNeedingProductInfo.length > 0) {
-      const item = missingFieldCounts.equipmentNeedingProductInfo[0];
-      setEditingEquipment(item);
-      setFormOpen(true);
-      setTimeout(() => {
-        const aiButton = document.querySelector('[data-ai-fill-button]') as HTMLButtonElement;
-        if (aiButton) aiButton.click();
-      }, 100);
+  // Save schedule entries
+  const handleSaveSchedule = async () => {
+    setIsSavingSchedule(true);
+    try {
+      let updateCount = 0;
+      for (const [id, data] of Object.entries(scheduleEntries)) {
+        if (data.frequency || data.timing || data.duration) {
+          await updateEquipment.mutateAsync({
+            id,
+            data: {
+              usage_frequency: data.frequency || undefined,
+              usage_timing: data.timing || undefined,
+              usage_duration: data.duration || undefined,
+            },
+          });
+          updateCount++;
+        }
+      }
+
+      if (updateCount > 0) {
+        toast.success(`Updated ${updateCount} equipment items`);
+      }
+
+      setIsScheduleModalOpen(false);
+      refetch();
+    } catch (error) {
+      toast.error("Failed to save");
+    } finally {
+      setIsSavingSchedule(false);
     }
+  };
+
+  // Handler to open batch AI modal
+  const handleOpenBatchAIModal = useCallback(() => {
+    const initialResults: typeof batchAIResults = {};
+    missingFieldCounts.equipmentNeedingProductInfo.forEach((e) => {
+      initialResults[e.id] = { status: 'pending', selected: true };
+    });
+    setBatchAIResults(initialResults);
+    setIsBatchAIModalOpen(true);
+  }, [missingFieldCounts.equipmentNeedingProductInfo]);
+
+  // Handler for warning bar button (uses the batch modal)
+  const handlePopulateByAI = () => {
+    handleOpenBatchAIModal();
+  };
+
+  // Start batch AI fetching for equipment
+  const handleStartBatchAI = async () => {
+    setIsBatchFetching(true);
+
+    const equipmentToFetch = missingFieldCounts.equipmentNeedingProductInfo.filter(
+      (e) => batchAIResults[e.id]?.selected !== false
+    );
+
+    for (const item of equipmentToFetch) {
+      // Update status to fetching
+      setBatchAIResults((prev) => ({
+        ...prev,
+        [item.id]: { ...prev[item.id], status: 'fetching' }
+      }));
+
+      try {
+        // Use the AI extract mutation to get product info
+        const searchQuery = `${item.name} ${item.brand || ""} ${item.model || ""} equipment device. Find: brand, category, purpose, usage protocol, duration.`;
+        const result = await extractMutation.mutateAsync({ text_content: searchQuery });
+
+        if (result.equipment && result.equipment.length > 0) {
+          const extractedData = result.equipment[0];
+          const data = {
+            brand: extractedData.brand,
+            category: extractedData.category,
+            purpose: extractedData.purpose,
+            usage_protocol: extractedData.usage_protocol,
+            usage_duration: extractedData.usage_duration,
+          };
+
+          // Update with found data, then auto-save
+          setBatchAIResults((prev) => ({
+            ...prev,
+            [item.id]: { ...prev[item.id], status: 'saving', data }
+          }));
+
+          // Auto-save
+          const updateData: Record<string, any> = {};
+          if (data.brand) updateData.brand = data.brand;
+          if (data.category) updateData.category = data.category;
+          if (data.purpose) updateData.purpose = data.purpose;
+          if (data.usage_protocol) updateData.usage_protocol = data.usage_protocol;
+          if (data.usage_duration) updateData.usage_duration = data.usage_duration;
+
+          if (Object.keys(updateData).length > 0) {
+            await updateEquipment.mutateAsync({ id: item.id, data: updateData });
+            setBatchAIResults((prev) => ({
+              ...prev,
+              [item.id]: { ...prev[item.id], status: 'saved' }
+            }));
+          } else {
+            setBatchAIResults((prev) => ({
+              ...prev,
+              [item.id]: { ...prev[item.id], status: 'success' }
+            }));
+          }
+        } else {
+          setBatchAIResults((prev) => ({
+            ...prev,
+            [item.id]: { ...prev[item.id], status: 'error', error: 'No data found' }
+          }));
+        }
+      } catch (err: any) {
+        setBatchAIResults((prev) => ({
+          ...prev,
+          [item.id]: { ...prev[item.id], status: 'error', error: err.message || 'Failed' }
+        }));
+      }
+    }
+
+    setIsBatchFetching(false);
+    refetch();
+  };
+
+  // Toggle selection for equipment in batch AI
+  const toggleBatchSelection = (id: string) => {
+    setBatchAIResults((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], selected: !prev[id]?.selected }
+    }));
   };
 
   const handleEdit = (item: Equipment) => {
@@ -511,24 +695,6 @@ export default function EquipmentPage() {
                   )}
                 </div>
 
-                {/* Status Filter */}
-                <div>
-                  <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">STATUS</h3>
-                  <div className="flex flex-col gap-1">
-                    {STATUS_FILTERS.map((filter) => (
-                      <Button
-                        key={filter.value}
-                        variant={statusFilter === filter.value ? "secondary" : "ghost"}
-                        size="sm"
-                        className="justify-start h-7"
-                        onClick={() => setStatusFilter(filter.value)}
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Duplicates Warning */}
                 {totalDuplicates > 0 && (
                   <div>
@@ -628,7 +794,47 @@ export default function EquipmentPage() {
 
               {/* Right Content - Equipment Cards */}
               <div className="flex-1">
-                <h3 className="text-xs font-semibold text-muted-foreground mb-3">ALL EQUIPMENT</h3>
+                <div className="flex items-center gap-3 mb-3">
+                  <h3 className="text-xs font-semibold text-muted-foreground">ALL EQUIPMENT</h3>
+                  {/* Status Toggle Buttons - like biomarkers */}
+                  <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-muted/50 border border-border">
+                    <button
+                      onClick={() => setStatusFilter("inactive")}
+                      className={`p-1 rounded-full transition-colors ${
+                        statusFilter === "inactive"
+                          ? "bg-red-500/20 text-red-400"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      title="Inactive only"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter("all")}
+                      className={`p-1 rounded-full transition-colors ${
+                        statusFilter === "all"
+                          ? "bg-primary/20 text-primary"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      title="All"
+                    >
+                      <div className="w-4 h-4 flex items-center justify-center">
+                        <div className="w-2.5 h-2.5 rounded-full border-2 border-current" />
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setStatusFilter("active")}
+                      className={`p-1 rounded-full transition-colors ${
+                        statusFilter === "active"
+                          ? "bg-green-500/20 text-green-400"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      title="Active only"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
 
                 {isLoading ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -948,6 +1154,350 @@ export default function EquipmentPage() {
           refetchDuplicates();
         }}
       />
+
+      {/* Schedule Modal - Batch editing frequency/timing/duration */}
+      <Dialog open={isScheduleModalOpen} onOpenChange={setIsScheduleModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-500" />
+              Add Schedule
+            </DialogTitle>
+            <DialogDescription>
+              Set when and how often you use each equipment
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto py-2">
+            {/* Equipment Rows */}
+            <div className="space-y-3">
+              {missingFieldCounts.equipmentNeedingSchedule.map((item) => (
+                <div key={item.id} className="border rounded-lg px-3 py-2 space-y-1.5">
+                  {/* Line 1: Equipment name + Duration */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{item.name}</span>
+                    <span className="text-xs text-muted-foreground ml-4">Duration:</span>
+                    <Input
+                      value={scheduleEntries[item.id]?.duration || ""}
+                      onChange={(e) => setScheduleEntries((prev) => ({
+                        ...prev,
+                        [item.id]: { ...prev[item.id], duration: e.target.value },
+                      }))}
+                      placeholder="e.g., 20 min"
+                      className="h-6 text-xs w-28"
+                    />
+                  </div>
+                  {/* Line 2: Timing buttons */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground w-16 shrink-0">When:</span>
+                    {['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].map((time) => {
+                      const config = TIMING_CONFIG[time];
+                      const TimingIcon = config.icon;
+                      const isSelected = scheduleEntries[item.id]?.timing === time;
+                      return (
+                        <button
+                          key={time}
+                          type="button"
+                          onClick={() => {
+                            setScheduleEntries((prev) => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], timing: isSelected ? "" : time },
+                            }));
+                          }}
+                          className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+                            isSelected
+                              ? config.selectedColor
+                              : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <TimingIcon className="w-3.5 h-3.5" />
+                          {config.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Row 2: Frequency + Days */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground w-16 shrink-0">Frequency:</span>
+                    {/* Frequency buttons */}
+                    {FREQUENCY_OPTIONS.map((opt) => {
+                      const isSelected = scheduleEntries[item.id]?.frequency === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setScheduleEntries((prev) => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], frequency: isSelected ? "" : opt.value, frequency_days: [] },
+                            }));
+                          }}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                    {/* Day picker */}
+                    <span className="text-xs text-muted-foreground px-2">or Custom:</span>
+                    {DAY_OPTIONS.map((day) => {
+                      const isSelected = scheduleEntries[item.id]?.frequency_days?.includes(day.value) || false;
+                      return (
+                        <button
+                          key={day.value}
+                          type="button"
+                          onClick={() => {
+                            const currentDays = scheduleEntries[item.id]?.frequency_days || [];
+                            const newDays = isSelected
+                              ? currentDays.filter(d => d !== day.value)
+                              : [...currentDays, day.value];
+                            setScheduleEntries((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                ...prev[item.id],
+                                frequency_days: newDays,
+                                frequency: newDays.length > 0 ? "custom" : prev[item.id]?.frequency || "",
+                              },
+                            }));
+                          }}
+                          className={`w-6 h-6 text-xs rounded-full border transition-colors ${
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="flex-shrink-0">
+            <Button variant="outline" onClick={() => setIsScheduleModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveSchedule}
+              disabled={isSavingSchedule}
+              className="bg-yellow-500 hover:bg-yellow-600 text-black"
+            >
+              {isSavingSchedule ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save All"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch AI Population Modal */}
+      <Dialog open={isBatchAIModalOpen} onOpenChange={setIsBatchAIModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              Populate All Equipment by AI
+            </DialogTitle>
+            <DialogDescription>
+              AI will search for product information and fill in missing fields. Review the results before saving.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto py-2">
+            {/* Controls */}
+            <div className="flex items-center justify-between mb-3 px-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={Object.values(batchAIResults).every((r) => r.selected !== false)}
+                  onCheckedChange={(checked) => {
+                    setBatchAIResults((prev) => {
+                      const updated = { ...prev };
+                      Object.keys(updated).forEach((id) => {
+                        updated[id] = { ...updated[id], selected: !!checked };
+                      });
+                      return updated;
+                    });
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">Select All</span>
+              </div>
+              {!isBatchFetching && Object.values(batchAIResults).every((r) => r.status === 'pending') && (
+                <Button
+                  size="sm"
+                  className="bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-600 hover:to-violet-600 text-white shadow-lg shadow-purple-500/25"
+                  onClick={handleStartBatchAI}
+                >
+                  <Zap className="w-4 h-4 mr-2" />
+                  Fetch All with AI
+                </Button>
+              )}
+              {isBatchFetching && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  <span className="text-sm font-medium text-purple-400">
+                    Processing {Object.values(batchAIResults).filter((r) => r.status === 'saved' || r.status === 'success' || r.status === 'error').length}/{Object.keys(batchAIResults).length}
+                  </span>
+                </div>
+              )}
+              {!isBatchFetching && Object.values(batchAIResults).some((r) => r.status === 'saved' || r.status === 'success') && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm font-medium text-emerald-400">
+                    {Object.values(batchAIResults).filter((r) => r.status === 'saved' || r.status === 'success').length} found
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Table Header */}
+            <div className="grid grid-cols-[40px,1fr,100px,100px,100px,120px,120px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
+              <div></div>
+              <div>Equipment</div>
+              <div>Status</div>
+              <div>Brand</div>
+              <div>Category</div>
+              <div>Purpose</div>
+              <div>Protocol</div>
+            </div>
+
+            {/* Table Rows */}
+            <div className="divide-y">
+              {missingFieldCounts.equipmentNeedingProductInfo.map((item) => {
+                const result = batchAIResults[item.id];
+                return (
+                  <div
+                    key={item.id}
+                    className={`grid grid-cols-[40px,1fr,100px,100px,100px,120px,120px] gap-2 px-2 py-2 items-center text-sm ${
+                      result?.selected === false ? 'opacity-50' : ''
+                    }`}
+                  >
+                    <div>
+                      <Checkbox
+                        checked={result?.selected !== false}
+                        onCheckedChange={() => toggleBatchSelection(item.id)}
+                      />
+                    </div>
+                    <div className="truncate font-medium flex items-center gap-1">
+                      <Cpu className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate">{item.name}</span>
+                    </div>
+                    <div>
+                      {result?.status === 'pending' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-500/20 text-zinc-400 border border-zinc-500/30">
+                          <Clock className="w-3 h-3" />
+                          Waiting
+                        </span>
+                      )}
+                      {result?.status === 'fetching' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 animate-pulse">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Fetching
+                        </span>
+                      )}
+                      {result?.status === 'saving' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Saving
+                        </span>
+                      )}
+                      {result?.status === 'saved' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          <Check className="w-3 h-3" />
+                          Saved
+                        </span>
+                      )}
+                      {result?.status === 'success' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Found
+                        </span>
+                      )}
+                      {result?.status === 'error' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30" title={result.error}>
+                          <XCircle className="w-3 h-3" />
+                          Failed
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs">
+                      {result?.data?.brand ? (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">{result.data.brand}</span>
+                      ) : item.brand ? (
+                        <span className="text-muted-foreground">{item.brand}</span>
+                      ) : (
+                        <span className="text-yellow-500/70 font-medium">?</span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs">
+                      {result?.data?.category ? (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium capitalize">{result.data.category}</span>
+                      ) : item.category ? (
+                        <span className="text-muted-foreground capitalize">{item.category}</span>
+                      ) : (
+                        <span className="text-yellow-500/70 font-medium">?</span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs">
+                      {result?.data?.purpose ? (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium truncate block">{result.data.purpose}</span>
+                      ) : item.purpose ? (
+                        <span className="text-muted-foreground truncate block">{item.purpose}</span>
+                      ) : (
+                        <span className="text-yellow-500/70 font-medium">?</span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs">
+                      {result?.data?.usage_protocol ? (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium truncate block">{result.data.usage_protocol}</span>
+                      ) : item.usage_protocol ? (
+                        <span className="text-muted-foreground truncate block">{item.usage_protocol}</span>
+                      ) : (
+                        <span className="text-yellow-500/70 font-medium">?</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <DialogFooter className="flex-shrink-0 gap-2">
+            <div className="flex-1 text-xs text-muted-foreground">
+              {(() => {
+                const saved = Object.values(batchAIResults).filter((r) => r.status === 'saved').length;
+                const found = Object.values(batchAIResults).filter((r) => r.status === 'success').length;
+                const fetching = Object.values(batchAIResults).filter((r) => r.status === 'fetching' || r.status === 'saving').length;
+                const errors = Object.values(batchAIResults).filter((r) => r.status === 'error').length;
+
+                if (fetching > 0) return `Processing... ${saved} saved`;
+                if (saved > 0 || found > 0 || errors > 0) {
+                  const parts = [];
+                  if (saved > 0) parts.push(`${saved} saved`);
+                  if (found > 0) parts.push(`${found} found (no data)`);
+                  if (errors > 0) parts.push(`${errors} failed`);
+                  return parts.join(', ');
+                }
+                return 'Click "Fetch All with AI" to start';
+              })()}
+            </div>
+            <Button variant="outline" onClick={() => setIsBatchAIModalOpen(false)}>
+              {isBatchFetching ? 'Cancel' : 'Close'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

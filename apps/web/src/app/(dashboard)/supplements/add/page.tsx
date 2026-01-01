@@ -31,13 +31,15 @@ const CATEGORIES = [
   "other",
 ];
 
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_OPTIONS = [
-  { value: "morning", label: "Morning" },
-  { value: "afternoon", label: "Afternoon" },
+  { value: "wake_up", label: "Wake" },
+  { value: "am", label: "AM" },
+  { value: "lunch", label: "Lunch" },
+  { value: "pm", label: "PM" },
+  { value: "dinner", label: "Dinner" },
   { value: "evening", label: "Evening" },
-  { value: "with_meals", label: "With Meals" },
-  { value: "empty_stomach", label: "Empty Stomach" },
-  { value: "before_bed", label: "Before Bed" },
+  { value: "bed", label: "Bed" },
 ];
 
 const FREQUENCY_OPTIONS = [

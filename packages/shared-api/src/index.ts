@@ -117,6 +117,18 @@ export const supplementsApi = {
   delete: (id: string) => getApi().delete(`/supplements/${id}`),
 };
 
+// Facial Products (Skincare)
+export const facialProductsApi = {
+  list: (params?: { category?: string; is_active?: boolean; routine?: string }) =>
+    getApi().get("/facial-products", { params }),
+  get: (id: string) => getApi().get(`/facial-products/${id}`),
+  create: (data: unknown) => getApi().post("/facial-products", data),
+  createBulk: (products: unknown[]) => getApi().post("/facial-products/bulk", { products }),
+  update: (id: string, data: unknown) => getApi().put(`/facial-products/${id}`, data),
+  toggle: (id: string) => getApi().patch(`/facial-products/${id}/toggle`),
+  delete: (id: string) => getApi().delete(`/facial-products/${id}`),
+};
+
 // Equipment
 export const equipmentApi = {
   list: (params?: { category?: string; is_active?: boolean }) =>
@@ -222,6 +234,70 @@ export const aiApi = {
   },
   extractEquipment: (data: { text_content: string }) =>
     getApi().post("/ai/extract-equipment", data),
+  extractFacialProducts: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text"; product_url?: string }) =>
+    getApi().post("/ai/extract-facial-products", data),
+
+  // Streaming facial product extraction for real-time progress
+  extractFacialProductsStream: async (
+    data: { text_content: string; source_type: "image" | "text"; product_url?: string },
+    onProgress: (event: { step: string; message?: string; field?: string; value?: string; confidence?: number; product?: Record<string, unknown>; [key: string]: unknown }) => void,
+    onComplete: (result: unknown) => void,
+    onError: (error: string) => void
+  ) => {
+    const accessToken = await getCurrentAuthToken();
+    const apiUrl = getApiUrl();
+
+    try {
+      const response = await fetch(`${apiUrl}/ai/extract-facial-products/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': accessToken ? `Bearer ${accessToken}` : '',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Stream error: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.step === 'complete') {
+                onComplete(event.data);
+              } else if (event.step === 'error') {
+                onError(event.message);
+                return;
+              } else {
+                onProgress(event);
+              }
+            } catch {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Unknown error');
+    }
+  },
+
   analyzeBiomarkerTrend: (data: {
     biomarkerName: string;
     currentValue: number;

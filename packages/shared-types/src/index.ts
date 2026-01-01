@@ -135,6 +135,137 @@ export interface CreateSupplementRequest {
   goal_ids?: string[]; // IDs of goals to link
 }
 
+// Facial Product (Skincare) types
+export type FacialProductRoutine = 'am' | 'pm';
+
+export type FacialProductCategory =
+  | 'cleanser'
+  | 'toner'
+  | 'essence_serum'
+  | 'moisturizer'
+  | 'sunscreen'
+  | 'eye_care'
+  | 'treatment'
+  | 'mask'
+  | 'other';
+
+export type FacialProductSubcategory =
+  | 'oil_cleanser'
+  | 'water_cleanser'
+  | 'foam_cleanser'
+  | 'micellar'
+  | 'hydrating_toner'
+  | 'exfoliating_toner'
+  | 'essence'
+  | 'serum'
+  | 'ampoule'
+  | 'retinoid'
+  | 'vitamin_c'
+  | 'niacinamide'
+  | 'aha'
+  | 'bha'
+  | 'pha'
+  | 'peptide'
+  | 'hyaluronic_acid'
+  | 'moisturizing_cream'
+  | 'gel_cream'
+  | 'sleeping_mask'
+  | 'sheet_mask'
+  | 'wash_off_mask'
+  | 'eye_cream'
+  | 'eye_serum'
+  | 'lip_care'
+  | 'spot_treatment'
+  | 'other';
+
+export type FacialProductForm =
+  | 'cream'
+  | 'gel'
+  | 'lotion'
+  | 'oil'
+  | 'serum'
+  | 'liquid'
+  | 'spray'
+  | 'mask'
+  | 'balm'
+  | 'foam'
+  | 'powder';
+
+export type FacialProductApplicationArea =
+  | 'full_face'
+  | 'full_face_and_neck'
+  | 'under_eyes'
+  | 't_zone'
+  | 'targeted'
+  | 'lips';
+
+export interface FacialProduct {
+  id: string;
+  user_id: string;
+  name: string;
+  brand?: string;
+
+  // Application details
+  step_order?: number;
+  application_form?: FacialProductForm | string;
+  application_amount?: string;
+  application_area?: FacialProductApplicationArea | string;
+  application_method?: string;
+
+  // Timing (AM/PM routine)
+  routines?: FacialProductRoutine[];
+
+  // Product details
+  size_amount?: number;
+  size_unit?: string;
+  price?: number;
+  purchase_url?: string;
+
+  // Categorization
+  category?: FacialProductCategory | string;
+  subcategory?: FacialProductSubcategory | string;
+
+  // Active ingredients
+  key_ingredients?: string[];
+
+  // SPF for sunscreens
+  spf_rating?: number;
+
+  // Notes and purpose
+  purpose?: string;
+  notes?: string;
+
+  // Status
+  is_active: boolean;
+
+  // Metadata
+  product_data_source?: string;
+  product_updated_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateFacialProductRequest {
+  name: string;
+  brand?: string;
+  step_order?: number;
+  application_form?: FacialProductForm | string;
+  application_amount?: string;
+  application_area?: FacialProductApplicationArea | string;
+  application_method?: string;
+  routines?: FacialProductRoutine[];
+  size_amount?: number;
+  size_unit?: string;
+  price?: number;
+  purchase_url?: string;
+  category?: FacialProductCategory | string;
+  subcategory?: FacialProductSubcategory | string;
+  key_ingredients?: string[];
+  spf_rating?: number;
+  purpose?: string;
+  notes?: string;
+}
+
 // Routine types
 export interface Routine {
   id: string;

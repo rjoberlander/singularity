@@ -1566,6 +1566,341 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
+ * POST /api/v1/ai/extract-facial-products
+ * Extract facial/skincare products from image or text (e.g., product photos, routine descriptions)
+ */
+router.post('/extract-facial-products', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { image_base64, text_content, source_type, product_url } = req.body;
+
+    if (!image_base64 && !text_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either image_base64 or text_content is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Fetch URL content if provided
+    let urlContent = '';
+    if (product_url) {
+      console.log('Fetching URL content:', product_url);
+      const fetchResult = await fetchWebpageContent(product_url);
+      if (fetchResult.success && fetchResult.content) {
+        urlContent = `\n\n--- Product Page Content (from ${product_url}) ---\n${fetchResult.content}\n--- End Product Page ---\n`;
+        console.log('URL fetch successful, content length:', fetchResult.content.length);
+      } else {
+        console.log('URL fetch failed:', fetchResult.error);
+      }
+    }
+
+    // Combine text content with URL content
+    let actualContent = text_content || '';
+    if (urlContent) {
+      actualContent = actualContent + urlContent;
+    }
+
+    const systemPrompt = `You are a precise skincare/facial product extraction assistant. Your job is to extract product information from images, text descriptions, or product URLs.
+
+## CRITICAL - URL/Amazon Page Extraction:
+When product page content is provided, you MUST extract these fields from the page:
+- **price**: Look for "Price:", "$XX.XX", or price patterns in the content
+- **size_amount** and **size_unit**: Look for "Size:", "XX ml", "XX oz", "XX Fl Oz", volume/weight info
+- **brand**: Usually at the start of the product title or in "Brand:" field
+These are ALWAYS present on product pages - extract them!
+
+## Rules:
+1. Extract ALL available data from the source
+2. For Amazon/product URLs, the scraped page content contains price, size, and brand - EXTRACT THEM
+3. Return structured JSON with confidence scores
+4. Parse size values: "6.76 Fl Oz" = size_amount: 6.76, size_unit: "oz"
+
+## Category Values (use exactly these):
+- cleanser: Cleansing oils, foaming cleansers, micellar water
+- toner: Toners, essences, mists
+- serum: Serums, essences, ampoules, treatments
+- moisturizer: Creams, lotions, gels
+- sunscreen: SPF products, UV protection
+- other: Masks, eye care, spot treatments, etc.
+
+## Application Form Values:
+- cream, gel, oil, liquid, foam
+
+## Output Format:
+Return ONLY valid JSON in this exact format:
+{
+  "products": [
+    {
+      "name": "string - full product name",
+      "brand": "string or null - brand name (MUST extract from page)",
+      "application_form": "string or null - cream, gel, oil, liquid, foam",
+      "size_amount": number or null - MUST extract from page (e.g., 200, 6.76),
+      "size_unit": "string or null - ml, oz, g (MUST extract from page)",
+      "price": number or null - MUST extract from page (in dollars, e.g., 24.99),
+      "purchase_url": "string or null - the URL if provided",
+      "category": "string - cleanser, toner, serum, moisturizer, sunscreen, other",
+      "purpose": "string or null - what the product does",
+      "key_ingredients": ["string array - notable ingredients"],
+      "confidence": number between 0 and 1,
+      "field_confidence": {
+        "name": 0.95,
+        "brand": 0.9,
+        "price": 0.95,
+        "size_amount": 0.95
+      }
+    }
+  ],
+  "source_info": {
+    "store_name": "string or null",
+    "total_items": number
+  },
+  "extraction_notes": "string - any important notes"
+}`;
+
+    let userContent: any[];
+
+    if (source_type === 'image' && image_base64) {
+      let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
+      let base64Data = image_base64;
+
+      if (image_base64.startsWith('data:image/png')) {
+        mediaType = 'image/png';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:image/jpeg') || image_base64.startsWith('data:image/jpg')) {
+        mediaType = 'image/jpeg';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:image/webp')) {
+        mediaType = 'image/webp';
+        base64Data = image_base64.split(',')[1];
+      } else if (image_base64.startsWith('data:')) {
+        base64Data = image_base64.split(',')[1];
+      }
+
+      userContent = [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mediaType,
+            data: base64Data
+          }
+        },
+        {
+          type: 'text',
+          text: 'Extract all skincare/facial product information from this image. Return the data as JSON.'
+        }
+      ];
+    } else {
+      userContent = [
+        {
+          type: 'text',
+          text: `Extract all skincare/facial product information from this text. Return the data as JSON.\n\n---\n${actualContent}\n---`
+        }
+      ];
+    }
+
+    // Get user's Anthropic API key
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        error_type: 'NO_API_KEY',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: AI_CONFIG.maxTokens,
+      temperature: AI_CONFIG.temperature,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userContent
+        }
+      ]
+    });
+
+    const responseText = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as any).text)
+      .join('');
+
+    let extractedData: any;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        extractedData = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse AI response',
+        raw_response: responseText,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Add URL to all products if provided
+    if (product_url && extractedData.products) {
+      extractedData.products = extractedData.products.map((p: any) => ({
+        ...p,
+        purchase_url: p.purchase_url || product_url,
+      }));
+    }
+
+    // Store conversation for reference
+    await supabase.from('ai_conversations').insert({
+      user_id: userId,
+      context: 'facial_product_extraction',
+      messages: [
+        { role: 'user', content: text_content?.substring(0, 500) || 'Image upload' },
+        { role: 'assistant', content: responseText }
+      ],
+      extracted_data: extractedData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      data: extractedData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('POST /ai/extract-facial-products error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'AI extraction failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/ai/extract-facial-products/stream
+ * Extract facial products with real-time progress streaming (SSE)
+ */
+router.post('/extract-facial-products/stream', async (req: Request, res: Response): Promise<any> => {
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  const sendProgress = (step: string, data: any) => {
+    res.write(`data: ${JSON.stringify({ step, ...data })}\n\n`);
+  };
+
+  try {
+    const userId = req.user!.id;
+    const { text_content, source_type, product_url } = req.body;
+
+    if (!text_content) {
+      sendProgress('error', { message: 'text_content is required' });
+      res.end();
+      return;
+    }
+
+    const REQUIRED_FIELDS = ['brand', 'price', 'size_amount', 'size_unit', 'application_form', 'category'];
+
+    // Step 1: URL scraping
+    let urlContent = '';
+    if (product_url) {
+      sendProgress('scraping', { message: `Fetching ${product_url}...` });
+      const fetchResult = await fetchWebpageContent(product_url);
+      if (fetchResult.success && fetchResult.content) {
+        urlContent = `\n\n--- Product Page Content ---\n${fetchResult.content}\n--- End ---\n`;
+        sendProgress('scraping_done', { message: 'URL scraped successfully', contentLength: fetchResult.content.length });
+      } else {
+        sendProgress('scraping_failed', { message: fetchResult.error || 'Could not fetch URL' });
+      }
+    }
+
+    // Step 2: AI Analysis
+    sendProgress('analyzing', { message: 'AI analyzing facial product data...', fields: REQUIRED_FIELDS.map(f => ({ key: f, status: 'pending' })) });
+
+    const anthropic = await getAnthropicClient(userId);
+    if (!anthropic) {
+      sendProgress('error', { message: 'No Anthropic API key configured' });
+      res.end();
+      return;
+    }
+
+    const actualContent = (text_content || '') + urlContent;
+    const systemPrompt = `You are a facial/skincare product extraction assistant. Extract: brand, price, size_amount (number), size_unit (ml/oz/g), application_form (cream/gel/oil/liquid/foam), category (cleanser/toner/serum/moisturizer/sunscreen/other). Return JSON with field_confidence for each field (0-1).`;
+
+    const response = await anthropic.messages.create({
+      model: AI_CONFIG.model,
+      max_tokens: 1000,
+      temperature: 0.1,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `Extract facial product info:\n${actualContent}\nReturn JSON with products array including field_confidence object.` }]
+    });
+
+    const responseText = response.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    let extractedData: any = { products: [] };
+    if (jsonMatch) {
+      extractedData = JSON.parse(jsonMatch[0]);
+    }
+
+    // Process results
+    if (extractedData.products && extractedData.products.length > 0) {
+      const product = extractedData.products[0];
+      const baseConfidence = product.confidence || 0.7;
+
+      if (!product.field_confidence) {
+        product.field_confidence = {};
+      }
+
+      // Check each field and stream results
+      const lowConfidenceFields: string[] = [];
+      const fieldStatuses: Array<{ key: string; status: string; confidence?: number }> = [];
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      for (const field of REQUIRED_FIELDS) {
+        const value = product[field];
+        const fieldConf = product.field_confidence[field] || (value ? baseConfidence : 0);
+        product.field_confidence[field] = fieldConf;
+
+        if (!value || fieldConf < 0.8) {
+          lowConfidenceFields.push(field);
+          fieldStatuses.push({ key: field, status: 'missing', confidence: fieldConf });
+          sendProgress('field_not_found', { field, confidence: fieldConf, source: 'ai_analysis' });
+        } else {
+          fieldStatuses.push({ key: field, status: 'found', confidence: fieldConf });
+          sendProgress('field_found', { field, value, confidence: fieldConf, source: 'ai_analysis' });
+        }
+        await delay(200);
+      }
+
+      sendProgress('first_pass_done', {
+        message: 'Initial analysis complete',
+        product: product,
+        fields: fieldStatuses,
+        lowConfidenceFields
+      });
+    }
+
+    // Final complete message
+    sendProgress('complete', { data: extractedData });
+    res.end();
+
+  } catch (error: any) {
+    console.error('POST /ai/extract-facial-products/stream error:', error);
+    sendProgress('error', { message: error.message || 'Extraction failed' });
+    res.end();
+  }
+});
+
+/**
  * POST /api/v1/ai/analyze-biomarker-trend
  * Analyze a biomarker's trend and provide personalized insights
  */

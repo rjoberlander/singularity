@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Supplement, Equipment, RoutineItem } from "@/types";
+import { Supplement, Equipment, RoutineItem, SupplementTiming } from "@/types";
 import {
   Pill, Zap, Clock, ListTodo, GripVertical,
   Sunrise, Sun, Utensils, Sunset, Moon, BedDouble,
@@ -49,7 +49,7 @@ const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: st
   pm: { icon: Sunset, color: "text-orange-500", label: "PM", bgColor: "rgba(249, 115, 22, 0.08)" },
   dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner", bgColor: "rgba(192, 132, 252, 0.08)" },
   evening: { icon: Moon, color: "text-purple-400", label: "Evening", bgColor: "rgba(192, 132, 252, 0.08)" },
-  before_bed: { icon: BedDouble, color: "text-indigo-400", label: "Bed", bgColor: "rgba(129, 140, 248, 0.08)" },
+  bed: { icon: BedDouble, color: "text-indigo-400", label: "Bed", bgColor: "rgba(129, 140, 248, 0.08)" },
 };
 
 // Intake form icons and colors
@@ -68,7 +68,19 @@ const INTAKE_FORM_CONFIG: Record<string, { icon: LucideIcon; color: string }> = 
   softgels: { icon: Pill, color: "text-blue-300" },
 };
 
-// Day abbreviations for display
+// Day config with abbreviations and colors
+const DAY_CONFIG: Record<string, { abbrev: string; color: string; bg: string }> = {
+  sun: { abbrev: "Su", color: "text-red-400", bg: "bg-red-500/20" },
+  mon: { abbrev: "Mo", color: "text-yellow-400", bg: "bg-yellow-500/20" },
+  tue: { abbrev: "Tu", color: "text-pink-400", bg: "bg-pink-500/20" },
+  wed: { abbrev: "We", color: "text-green-400", bg: "bg-green-500/20" },
+  thu: { abbrev: "Th", color: "text-orange-400", bg: "bg-orange-500/20" },
+  fri: { abbrev: "Fr", color: "text-blue-400", bg: "bg-blue-500/20" },
+  sat: { abbrev: "Sa", color: "text-purple-400", bg: "bg-purple-500/20" },
+  prn: { abbrev: "PRN", color: "text-gray-400", bg: "bg-gray-500/20" },
+};
+
+// Day abbreviations for display (legacy - keep for compatibility)
 const DAY_ABBREVS: Record<string, string> = {
   sun: "Su",
   mon: "Mo",
@@ -77,6 +89,7 @@ const DAY_ABBREVS: Record<string, string> = {
   thu: "Th",
   fri: "Fr",
   sat: "Sa",
+  prn: "PRN",
 };
 
 // Time slots - matching the actual timing options used in forms
@@ -87,7 +100,7 @@ const TIME_SLOTS = [
   { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
   { value: "evening", label: "Evening" },
-  { value: "before_bed", label: "Bed" },
+  { value: "bed", label: "Bed" },
 ];
 
 // Normalize timing values to canonical form
@@ -95,7 +108,7 @@ function normalizeTiming(timing: string): string {
   const lowerTiming = timing.toLowerCase();
 
   // Direct matches
-  if (["wake_up", "am", "lunch", "pm", "dinner", "evening", "before_bed"].includes(timing)) {
+  if (["wake_up", "am", "lunch", "pm", "dinner", "evening", "bed"].includes(timing)) {
     return timing;
   }
 
@@ -119,7 +132,7 @@ function normalizeTiming(timing: string): string {
     return "evening";
   }
   if (lowerTiming.includes("bed") || lowerTiming.includes("night") || lowerTiming.includes("sleep")) {
-    return "before_bed";
+    return "bed";
   }
 
   return "am"; // Default
@@ -151,12 +164,13 @@ function isDaily(item: ScheduleItem): boolean {
   // Handle frequency-based display
   const freq = item.frequency?.toLowerCase() || "";
 
-  if (freq.includes("daily") || freq === "") {
+  // Daily or no frequency = daily
+  if (freq === "daily" || freq === "") {
     return true;
   }
 
-  // Weekly, 2x, 3x etc are special
-  if (freq.includes("weekly") || freq.includes("1x") || freq.includes("2x") || freq.includes("twice") || freq.includes("3x") || freq.includes("3-5x")) {
+  // Custom, weekly, every_other_day, as_needed, etc are special
+  if (freq === "custom" || freq.includes("weekly") || freq.includes("1x") || freq.includes("2x") || freq.includes("twice") || freq.includes("3x") || freq.includes("3-5x") || freq === "every_other_day" || freq === "as_needed") {
     return false;
   }
 
@@ -165,11 +179,22 @@ function isDaily(item: ScheduleItem): boolean {
 
 // Get the days an item shows on for display
 function getItemDays(item: ScheduleItem): string[] {
+  // Use actual days if set
   if (item.days && item.days.length > 0) {
     return item.days;
   }
 
   const freq = item.frequency?.toLowerCase() || "";
+
+  // For every_other_day, show alternating days
+  if (freq === "every_other_day") {
+    return ["sun", "tue", "thu", "sat"];
+  }
+
+  // For as_needed, show "PRN" indicator
+  if (freq === "as_needed") {
+    return ["prn"]; // PRN = pro re nata (as needed)
+  }
 
   if (freq.includes("weekly") || freq.includes("1x")) {
     return ["sun"];
@@ -203,20 +228,36 @@ export default function RoutinesPage() {
   const error = routinesError;
 
   // Convert supplements to schedule items
+  // Handle both legacy `timing` field and new `timings` array
   const supplementScheduleItems: ScheduleItem[] = useMemo(() => {
-    return (supplements || [])
-      .filter((s) => s.timing)
-      .map((s) => ({
-        id: `supplement-${s.id}`,
-        type: "supplement" as const,
-        name: s.name,
-        brand: s.brand,
-        timing: s.timing!,
-        timeOfDay: normalizeTiming(s.timing!),
-        frequency: s.frequency,
-        notes: s.timing_reason || s.reason,
-        original: s,
-      }));
+    const items: ScheduleItem[] = [];
+
+    (supplements || []).forEach((s) => {
+      // Get timings from new array field or fallback to legacy timing field
+      const timings = s.timings && s.timings.length > 0
+        ? s.timings
+        : (s.timing ? [s.timing] : []);
+
+      if (timings.length === 0) return;
+
+      // Create a schedule item for each timing (supplement can appear in multiple slots)
+      timings.forEach((timing, idx) => {
+        items.push({
+          id: `supplement-${s.id}${timings.length > 1 ? `-${idx}` : ''}`,
+          type: "supplement" as const,
+          name: s.name,
+          brand: s.brand,
+          timing: timing,
+          timeOfDay: normalizeTiming(timing),
+          frequency: s.frequency,
+          days: s.frequency_days, // Include selected days for Special column
+          notes: s.timing_reason || s.reason,
+          original: s,
+        });
+      });
+    });
+
+    return items;
   }, [supplements]);
 
   // Convert equipment to schedule items
@@ -265,9 +306,9 @@ export default function RoutinesPage() {
   const unscheduledItems = useMemo(() => {
     const items: ScheduleItem[] = [];
 
-    // Supplements without timing
+    // Supplements without timing (check both timings array and legacy timing field)
     (supplements || [])
-      .filter((s) => !s.timing)
+      .filter((s) => (!s.timings || s.timings.length === 0) && !s.timing)
       .forEach((s) => {
         items.push({
           id: `supplement-${s.id}`,
@@ -443,9 +484,28 @@ export default function RoutinesPage() {
     try {
       if (draggedItem.type === "supplement") {
         const supplement = draggedItem.original as Supplement;
+        // Get current timings and update the dragged one
+        const currentTimings = supplement.timings && supplement.timings.length > 0
+          ? [...supplement.timings]
+          : (supplement.timing ? [supplement.timing] : []);
+
+        // Find and replace the timing that was dragged
+        const oldTiming = draggedItem.timing;
+        const timingIndex = currentTimings.indexOf(oldTiming);
+
+        let newTimings: SupplementTiming[];
+        if (timingIndex >= 0) {
+          // Replace the specific timing that was dragged
+          newTimings = [...currentTimings] as SupplementTiming[];
+          newTimings[timingIndex] = newTiming as SupplementTiming;
+        } else {
+          // Fallback: replace all with new timing
+          newTimings = [newTiming as SupplementTiming];
+        }
+
         await updateSupplement.mutateAsync({
           id: supplement.id,
-          data: { timing: newTiming },
+          data: { timings: newTimings, timing: newTiming },
         });
         toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
       } else if (draggedItem.type === "equipment") {
@@ -561,12 +621,13 @@ export default function RoutinesPage() {
                 </div>
               </div>
 
-              {/* Special Column - 1 column */}
+              {/* Special Column - 3 columns like Daily */}
               <div className={`p-2 min-h-[40px] ${isDropTarget ? "ring-2 ring-primary/50 ring-inset" : ""}`}>
-                <div className="flex flex-col gap-1">
+                <div className="grid grid-cols-3 gap-1">
                   {specialForSlot.map((item) => {
                     const dose = getSupplementDose(item);
                     const DoseIcon = dose?.icon;
+                    const itemDays = getItemDays(item);
                     return (
                       <button
                         key={item.id}
@@ -588,7 +649,20 @@ export default function RoutinesPage() {
                               {dose.text}<DoseIcon className="w-2.5 h-2.5" />
                             </span>
                           )}
-                          <span className="text-[9px] opacity-70 flex-shrink-0">{formatDaysDisplay(item)}</span>
+                        </div>
+                        {/* Colored day badges */}
+                        <div className="flex flex-wrap gap-0.5 mt-0.5">
+                          {itemDays.map((day) => {
+                            const dayConfig = DAY_CONFIG[day];
+                            return (
+                              <span
+                                key={day}
+                                className={`text-[8px] px-1 rounded ${dayConfig?.bg || "bg-gray-500/20"} ${dayConfig?.color || "text-gray-400"}`}
+                              >
+                                {dayConfig?.abbrev || day}
+                              </span>
+                            );
+                          })}
                         </div>
                       </button>
                     );

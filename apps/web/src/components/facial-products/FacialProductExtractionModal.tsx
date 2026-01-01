@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { useExtractSupplements } from "@/hooks/useAI";
-import { useCreateSupplementsBulk, useSupplements } from "@/hooks/useSupplements";
+import { useExtractFacialProducts, ExtractedFacialProductData } from "@/hooks/useAI";
+import { useCreateFacialProductsBulk, useFacialProducts } from "@/hooks/useFacialProducts";
 import {
   Dialog,
   DialogContent,
@@ -33,132 +33,75 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-interface FieldConfidence {
-  [key: string]: number; // -1 = not found, 0-1 = confidence level
-}
-
-interface ExtractedSupplement {
+interface ExtractedProduct {
   name: string;
   brand?: string;
-  intake_quantity?: number;
-  intake_form?: string;
-  serving_size?: number;
-  dose_per_serving?: number;
-  dose_unit?: string;
-  servings_per_container?: number;
+  step_order?: number;
+  application_form?: string;
+  routines?: ('am' | 'pm')[];
+  size_amount?: number;
+  size_unit?: string;
   price?: number;
-  price_per_serving?: number;
   purchase_url?: string;
   category?: string;
-  timing?: string;
-  timing_reason?: string;
-  frequency?: string;
-  reason?: string;
-  mechanism?: string;
-  goal_categories?: string[];
+  subcategory?: string;
+  purpose?: string;
+  key_ingredients?: string[];
+  spf_rating?: number;
   confidence: number;
-  field_confidence?: FieldConfidence;
+  field_confidence?: Record<string, number>;
 }
 
-interface ExtractedData {
-  supplements: ExtractedSupplement[];
-  source_info: {
-    store_name?: string;
-    purchase_date?: string;
-    total_items?: number;
-  };
-  extraction_notes?: string;
-}
-
-interface SupplementExtractionModalProps {
+interface FacialProductExtractionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   initialInput?: { text?: string; file?: File; url?: string };
 }
 
-// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
-const TIMING_OPTIONS = [
-  { value: "wake_up", label: "Wake" },
-  { value: "am", label: "AM" },
-  { value: "lunch", label: "Lunch" },
-  { value: "pm", label: "PM" },
-  { value: "dinner", label: "Dinner" },
-  { value: "evening", label: "Evening" },
-  { value: "bed", label: "Bed" },
-];
-
-const FREQUENCY_OPTIONS = [
-  { value: "daily", label: "Daily" },
-  { value: "twice_daily", label: "Twice Daily" },
-  { value: "three_times_daily", label: "3x Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "as_needed", label: "As Needed" },
-];
-
 const CATEGORY_OPTIONS = [
-  "vitamin_mineral",
-  "amino_protein",
-  "herb_botanical",
-  "probiotic",
-  "other",
+  { value: "cleanser", label: "Cleanser" },
+  { value: "toner", label: "Toner" },
+  { value: "serum", label: "Serum" },
+  { value: "moisturizer", label: "Moisturizer" },
+  { value: "sunscreen", label: "Sunscreen" },
+  { value: "other", label: "Other" },
 ];
 
-const INTAKE_FORM_OPTIONS = [
-  { value: "pill", label: "Pill" },
-  { value: "capsule", label: "Capsule" },
-  { value: "softgel", label: "Softgel" },
-  { value: "tablet", label: "Tablet" },
-  { value: "powder", label: "Powder" },
-  { value: "scoop", label: "Scoop" },
-  { value: "dropper", label: "Dropper" },
-  { value: "drop", label: "Drop" },
+const FORM_OPTIONS = [
+  { value: "cream", label: "Cream" },
+  { value: "gel", label: "Gel" },
+  { value: "oil", label: "Oil" },
   { value: "liquid", label: "Liquid" },
-  { value: "spray", label: "Spray" },
-  { value: "gummy", label: "Gummy" },
-  { value: "lozenge", label: "Lozenge" },
-  { value: "chewable", label: "Chewable" },
-  { value: "patch", label: "Patch" },
-  { value: "packet", label: "Packet" },
-  { value: "teaspoon", label: "Teaspoon" },
-  { value: "tablespoon", label: "Tablespoon" },
+  { value: "foam", label: "Foam" },
 ];
 
-const DOSE_UNIT_OPTIONS = [
-  { value: "mg", label: "mg" },
-  { value: "g", label: "g" },
-  { value: "mcg", label: "mcg" },
-  { value: "IU", label: "IU" },
+const SIZE_UNIT_OPTIONS = [
   { value: "ml", label: "ml" },
-  { value: "CFU", label: "CFU" },
-  { value: "%", label: "%" },
+  { value: "oz", label: "oz" },
+  { value: "g", label: "g" },
 ];
 
 // Field definitions for the dense table
 type FieldType = 'text' | 'number' | 'select' | 'url';
 interface FieldDef {
-  key: keyof ExtractedSupplement;
+  key: keyof ExtractedProduct;
   label: string;
   shortLabel: string;
   type: FieldType;
   options?: { value: string; label: string }[];
-  required?: boolean;
   width?: string;
 }
 
 const TABLE_FIELDS: FieldDef[] = [
-  { key: 'name', label: 'Name', shortLabel: 'Name', type: 'text', required: true, width: 'min-w-[120px]' },
+  { key: 'name', label: 'Product Name', shortLabel: 'Name', type: 'text', width: 'min-w-[180px]' },
   { key: 'brand', label: 'Brand', shortLabel: 'Brand', type: 'text', width: 'min-w-[100px]' },
-  { key: 'intake_quantity', label: 'Qty', shortLabel: 'Qty', type: 'number', width: 'w-14' },
-  { key: 'intake_form', label: 'Form', shortLabel: 'Form', type: 'select', options: INTAKE_FORM_OPTIONS, width: 'min-w-[80px]' },
-  { key: 'serving_size', label: 'Srv Size', shortLabel: 'Srv', type: 'number', width: 'w-14' },
-  { key: 'dose_per_serving', label: 'Dose/Srv', shortLabel: 'Dose', type: 'number', width: 'w-16' },
-  { key: 'dose_unit', label: 'Unit', shortLabel: 'Unit', type: 'select', options: DOSE_UNIT_OPTIONS, width: 'w-14' },
-  { key: 'servings_per_container', label: 'Servings', shortLabel: '#Srv', type: 'number', width: 'w-16' },
+  { key: 'category', label: 'Category', shortLabel: 'Cat', type: 'select', options: CATEGORY_OPTIONS, width: 'min-w-[90px]' },
+  { key: 'application_form', label: 'Form', shortLabel: 'Form', type: 'select', options: FORM_OPTIONS, width: 'min-w-[70px]' },
+  { key: 'size_amount', label: 'Size', shortLabel: 'Size', type: 'number', width: 'w-16' },
+  { key: 'size_unit', label: 'Unit', shortLabel: 'Unit', type: 'select', options: SIZE_UNIT_OPTIONS, width: 'w-14' },
   { key: 'price', label: 'Price', shortLabel: '$', type: 'number', width: 'w-16' },
-  { key: 'category', label: 'Category', shortLabel: 'Cat', type: 'select', options: CATEGORY_OPTIONS.map(c => ({ value: c, label: c })), width: 'min-w-[80px]' },
-  { key: 'timing', label: 'Timing', shortLabel: 'Time', type: 'select', options: TIMING_OPTIONS, width: 'min-w-[80px]' },
-  { key: 'purchase_url', label: 'URL', shortLabel: 'URL', type: 'url', width: 'min-w-[60px]' },
+  { key: 'purchase_url', label: 'URL', shortLabel: 'URL', type: 'url', width: 'min-w-[80px]' },
 ];
 
 // Get confidence color classes based on confidence level
@@ -175,46 +118,29 @@ function getConfidenceColor(confidence: number | undefined): { bg: string; text:
   return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/50' };
 }
 
-// Get field confidence from supplement
-function getFieldConfidence(supplement: ExtractedSupplement, field: string): number {
-  if (supplement.field_confidence && field in supplement.field_confidence) {
-    return supplement.field_confidence[field];
+// Get field confidence from product
+function getFieldConfidence(product: ExtractedProduct, field: string): number {
+  if (product.field_confidence && field in product.field_confidence) {
+    return product.field_confidence[field];
   }
-  // Fall back to overall confidence if field-specific not available
-  const value = supplement[field as keyof ExtractedSupplement];
+  const value = product[field as keyof ExtractedProduct];
   if (value === undefined || value === null || value === '') {
-    return -1; // Not found
+    return -1;
   }
-  return supplement.confidence;
-}
-
-// Helper to check if supplement has complete dosage info
-function hasDosageInfo(supplement: ExtractedSupplement): boolean {
-  // Must have either: (intake_form) OR (dose_per_serving + dose_unit)
-  return !!(supplement.intake_form || (supplement.dose_per_serving && supplement.dose_unit));
+  return product.confidence;
 }
 
 // Helper to parse and display URLs smartly
-function parseProductUrl(url: string | undefined): { display: string; isAmazon: boolean; asin?: string } | null {
+function parseProductUrl(url: string | undefined): { display: string; isAmazon: boolean } | null {
   if (!url) return null;
 
   try {
     const urlObj = new URL(url);
-
-    // Amazon URL detection
     if (urlObj.hostname.includes('amazon.')) {
-      // Extract ASIN from various Amazon URL patterns
       const dpMatch = url.match(/\/dp\/([A-Z0-9]{10})/i);
-      const gpMatch = url.match(/\/gp\/product\/([A-Z0-9]{10})/i);
-      const asin = dpMatch?.[1] || gpMatch?.[1];
-
-      if (asin) {
-        return { display: asin, isAmazon: true, asin };
-      }
-      return { display: 'Amazon', isAmazon: true };
+      const asin = dpMatch?.[1];
+      return { display: asin || 'Amazon', isAmazon: true };
     }
-
-    // Other URLs - show simplified hostname
     const hostname = urlObj.hostname.replace('www.', '');
     return { display: hostname, isAmazon: false };
   } catch {
@@ -222,49 +148,32 @@ function parseProductUrl(url: string | undefined): { display: string; isAmazon: 
   }
 }
 
-// Amazon icon SVG component
-function AmazonIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
-      <path d="M13.958 10.09c0 1.232.029 2.256-.591 3.351-.502.891-1.301 1.438-2.186 1.438-1.214 0-1.922-.924-1.922-2.292 0-2.692 2.415-3.182 4.7-3.182v.685zm3.186 7.705c-.209.189-.512.201-.746.074-1.052-.872-1.238-1.276-1.814-2.106-1.734 1.767-2.962 2.297-5.209 2.297-2.66 0-4.731-1.641-4.731-4.925 0-2.565 1.391-4.309 3.37-5.164 1.715-.754 4.11-.891 5.942-1.095v-.41c0-.753.06-1.642-.383-2.294-.385-.579-1.124-.82-1.775-.82-1.205 0-2.277.618-2.54 1.897-.054.285-.261.566-.549.58l-3.061-.333c-.259-.056-.548-.266-.472-.66C6.218 1.044 9.308 0 12.044 0c1.357 0 3.127.36 4.197 1.384 1.357 1.264 1.228 2.953 1.228 4.79v4.337c0 1.304.541 1.876 1.049 2.579.177.252.217.553-.003.74-.548.457-1.523 1.304-2.059 1.779l-.012.011-.001-.001-.001.001z"/>
-      <path d="M21.63 17.727c-2.572 1.897-6.302 2.907-9.516 2.907-4.504 0-8.558-1.665-11.622-4.435-.241-.217-.026-.513.263-.345 3.309 1.926 7.404 3.085 11.632 3.085 2.852 0 5.987-.592 8.87-1.817.436-.185.8.285.373.605z"/>
-      <path d="M22.698 16.452c-.328-.42-2.172-.199-2.999-.1-.252.03-.291-.189-.064-.347 1.468-1.032 3.876-.735 4.158-.389.282.349-.074 2.761-1.451 3.913-.212.177-.414.083-.32-.151.31-.774 1.005-2.505.676-2.926z"/>
-    </svg>
-  );
-}
-
-export function SupplementExtractionModal({
+export function FacialProductExtractionModal({
   open,
   onOpenChange,
   onSuccess,
   initialInput,
-}: SupplementExtractionModalProps) {
+}: FacialProductExtractionModalProps) {
   const [step, setStep] = useState<"extracting" | "review">("extracting");
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [inputText, setInputText] = useState<string | null>(null);
-  const [inputUrl, setInputUrl] = useState<string | null>(null);
-  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
-  const [selectedSupplements, setSelectedSupplements] = useState<Set<number>>(new Set());
+  const [extractedData, setExtractedData] = useState<ExtractedFacialProductData | null>(null);
+  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
   const [editingCell, setEditingCell] = useState<{ row: number; field: string } | null>(null);
   const [extractionStarted, setExtractionStarted] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
-  const [totalInputs, setTotalInputs] = useState(0);
-  const [processedInputs, setProcessedInputs] = useState<string[]>([]);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const extractSupplements = useExtractSupplements();
-  const createSupplementsBulk = useCreateSupplementsBulk();
-  const { data: existingSupplements } = useSupplements();
+  const extractFacialProducts = useExtractFacialProducts();
+  const createProductsBulk = useCreateFacialProductsBulk();
+  const { data: existingProducts } = useFacialProducts({});
 
   // Detect duplicates - same name + same brand
   const duplicates = useMemo(() => {
-    if (!extractedData || !existingSupplements) return new Set<number>();
+    if (!extractedData || !existingProducts) return new Set<number>();
 
     const dupes = new Set<number>();
-
-    extractedData.supplements.forEach((extracted, index) => {
-      const isDuplicate = existingSupplements.some((existing) => {
+    extractedData.products.forEach((extracted, index) => {
+      const isDuplicate = existingProducts.some((existing) => {
         const sameName = existing.name.toLowerCase() === extracted.name.toLowerCase();
         const sameBrand = (!existing.brand && !extracted.brand) ||
           (existing.brand?.toLowerCase() === extracted.brand?.toLowerCase());
@@ -277,12 +186,12 @@ export function SupplementExtractionModal({
     });
 
     return dupes;
-  }, [extractedData, existingSupplements]);
+  }, [extractedData, existingProducts]);
 
   // Auto-deselect duplicates when detected
   useEffect(() => {
     if (duplicates.size > 0 && extractedData) {
-      setSelectedSupplements((prev) => {
+      setSelectedProducts((prev) => {
         const newSelected = new Set(prev);
         duplicates.forEach((index) => newSelected.delete(index));
         return newSelected;
@@ -332,17 +241,12 @@ export function SupplementExtractionModal({
 
   const resetState = useCallback(() => {
     setStep("extracting");
-    setAttachedFile(null);
-    setInputText(null);
-    setInputUrl(null);
     setExtractedData(null);
-    setSelectedSupplements(new Set());
+    setSelectedProducts(new Set());
     setEditingCell(null);
     setExtractionStarted(false);
     setProgress(0);
     setProgressStage("preparing");
-    setTotalInputs(0);
-    setProcessedInputs([]);
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -371,66 +275,55 @@ export function SupplementExtractionModal({
     setStep("extracting");
     setExtractionStarted(true);
 
-    // Track inputs
-    const inputCount = (file ? 1 : 0) + (text ? 1 : 0) + (url ? 1 : 0);
-    setTotalInputs(inputCount);
-    setProcessedInputs([]);
-
     try {
       let result;
 
       if (file) {
-        setProcessedInputs(prev => [...prev, file.name]);
         const base64 = await processFileForAI(file);
         if (!base64) {
           throw new Error("Failed to read file");
         }
-        result = await extractSupplements.mutateAsync({
+        result = await extractFacialProducts.mutateAsync({
           image_base64: base64,
           source_type: "image",
         });
       } else if (url) {
-        setProcessedInputs(prev => [...prev, "URL"]);
-        // For URL, we send it as text content with a special marker
-        result = await extractSupplements.mutateAsync({
+        result = await extractFacialProducts.mutateAsync({
           text_content: `[URL]: ${url}`,
           source_type: "text",
+          product_url: url,
         });
       } else if (text) {
-        setProcessedInputs(prev => [...prev, "Text input"]);
-        result = await extractSupplements.mutateAsync({
+        result = await extractFacialProducts.mutateAsync({
           text_content: text,
           source_type: "text",
         });
       }
 
       if (result) {
-        // Add URL to all supplements if provided
-        if (url) {
-          result.supplements = result.supplements.map((s: any) => ({
-            ...s,
-            purchase_url: url,
+        // Add URL to all products if provided
+        if (url && result.products) {
+          result.products = result.products.map((p) => ({
+            ...p,
+            purchase_url: p.purchase_url || url,
           }));
         }
         setExtractedData(result);
-        setSelectedSupplements(new Set(result.supplements.map((_: any, i: number) => i)));
+        setSelectedProducts(new Set(result.products.map((_, i) => i)));
         setStep("review");
-        toast.success(`Extracted ${result.supplements.length} supplements`);
+        toast.success(`Extracted ${result.products.length} products`);
       }
     } catch (error: any) {
       console.error("Extraction failed:", error);
-      const errorMessage = error?.response?.data?.error || "Failed to extract supplements";
+      const errorMessage = error?.response?.data?.error || "Failed to extract products";
       toast.error(errorMessage);
       handleClose();
     }
-  }, [extractSupplements, handleClose]);
+  }, [extractFacialProducts, handleClose]);
 
   // Auto-start extraction when modal opens with initial input
   useEffect(() => {
     if (open && initialInput && !extractionStarted) {
-      setAttachedFile(initialInput.file || null);
-      setInputText(initialInput.text || null);
-      setInputUrl(initialInput.url || null);
       handleExtract(initialInput.file, initialInput.text, initialInput.url);
     }
   }, [open, initialInput, extractionStarted, handleExtract]);
@@ -438,98 +331,76 @@ export function SupplementExtractionModal({
   const handleSave = async () => {
     if (!extractedData) return;
 
-    // Check for missing dosage in selected supplements
-    const selectedWithData = extractedData.supplements
-      .map((s, i) => ({ supplement: s, index: i }))
-      .filter(({ index }) => selectedSupplements.has(index));
-
-    const missingDosage = selectedWithData.filter(
-      ({ supplement }) => !hasDosageInfo(supplement)
-    );
-
-    if (missingDosage.length > 0) {
-      const names = missingDosage.map(({ supplement }) => supplement.name).join(', ');
-      toast.error(`Please add dosage info for: ${names}`, {
-        description: 'Click the edit button on each supplement to add dosage.',
-        duration: 5000,
-      });
-      return;
-    }
-
-    const selectedData = selectedWithData.map(({ supplement: s }) => ({
-      name: s.name,
-      brand: s.brand,
-      intake_quantity: s.intake_quantity || 1,
-      intake_form: s.intake_form,
-      serving_size: s.serving_size,
-      dose_per_serving: s.dose_per_serving,
-      dose_unit: s.dose_unit,
-      servings_per_container: s.servings_per_container,
-      price: s.price,
-      price_per_serving: s.price_per_serving,
-      purchase_url: s.purchase_url,
-      category: s.category,
-      timing: s.timing as any, // Cast to any since API returns string but type expects union
-      timing_reason: s.timing_reason,
-      frequency: s.frequency || "daily",
-      reason: s.reason,
-      mechanism: s.mechanism,
-      product_data_source: 'ai' as const,
-      product_updated_at: new Date().toISOString(),
-      // Note: goal_categories would need to be linked after creation via supplement_goals table
-    }));
+    const selectedData = extractedData.products
+      .map((p, i) => ({ product: p, index: i }))
+      .filter(({ index }) => selectedProducts.has(index))
+      .map(({ product: p }) => ({
+        name: p.name,
+        brand: p.brand,
+        step_order: p.step_order,
+        application_form: p.application_form,
+        routines: p.routines,
+        size_amount: p.size_amount,
+        size_unit: p.size_unit,
+        price: p.price,
+        purchase_url: p.purchase_url,
+        category: p.category,
+        subcategory: p.subcategory,
+        purpose: p.purpose,
+        key_ingredients: p.key_ingredients,
+        spf_rating: p.spf_rating,
+      }));
 
     try {
-      await createSupplementsBulk.mutateAsync(selectedData as any);
-      toast.success(`Saved ${selectedData.length} supplements`);
+      await createProductsBulk.mutateAsync(selectedData as any);
+      toast.success(`Saved ${selectedData.length} products`);
       handleClose();
       onSuccess?.();
     } catch (error) {
-      console.error("Failed to save supplements:", error);
-      toast.error("Failed to save supplements");
+      console.error("Failed to save products:", error);
+      toast.error("Failed to save products");
     }
   };
 
-  const toggleSupplementSelection = (index: number) => {
-    const newSelected = new Set(selectedSupplements);
+  const toggleProductSelection = (index: number) => {
+    const newSelected = new Set(selectedProducts);
     if (newSelected.has(index)) {
       newSelected.delete(index);
     } else {
       newSelected.add(index);
     }
-    setSelectedSupplements(newSelected);
+    setSelectedProducts(newSelected);
   };
 
   // Update a single cell value
   const updateCellValue = (rowIndex: number, field: string, value: any) => {
     if (!extractedData) return;
 
-    const updatedSupplements = [...extractedData.supplements];
-    updatedSupplements[rowIndex] = {
-      ...updatedSupplements[rowIndex],
+    const updatedProducts = [...extractedData.products];
+    updatedProducts[rowIndex] = {
+      ...updatedProducts[rowIndex],
       [field]: value,
     };
 
-    // Update field confidence to 1.0 when user edits
-    if (updatedSupplements[rowIndex].field_confidence) {
-      updatedSupplements[rowIndex].field_confidence = {
-        ...updatedSupplements[rowIndex].field_confidence,
+    if (updatedProducts[rowIndex].field_confidence) {
+      updatedProducts[rowIndex].field_confidence = {
+        ...updatedProducts[rowIndex].field_confidence,
         [field]: 1.0,
       };
     }
 
     setExtractedData({
       ...extractedData,
-      supplements: updatedSupplements,
+      products: updatedProducts,
     });
     setEditingCell(null);
   };
 
   // Render cell value (display or edit mode)
-  const renderCell = (supplement: ExtractedSupplement, rowIndex: number, field: FieldDef) => {
+  const renderCell = (product: ExtractedProduct, rowIndex: number, field: FieldDef) => {
     const isEditing = editingCell?.row === rowIndex && editingCell?.field === field.key;
-    const value = supplement[field.key as keyof ExtractedSupplement];
-    const confidence = getFieldConfidence(supplement, field.key);
+    const value = product[field.key as keyof ExtractedProduct];
+    const confidence = getFieldConfidence(product, field.key);
     const colors = getConfidenceColor(confidence);
     const isDuplicate = duplicates.has(rowIndex);
 
@@ -538,7 +409,6 @@ export function SupplementExtractionModal({
       if (value === undefined || value === null || value === '') {
         return <span className="text-muted-foreground/50">-</span>;
       }
-      // Handle objects/arrays - convert to string
       if (typeof value === 'object') {
         if (Array.isArray(value)) {
           return value.join(', ') || '-';
@@ -556,11 +426,7 @@ export function SupplementExtractionModal({
               onClick={(e) => e.stopPropagation()}
               className="flex items-center gap-0.5 text-blue-400 hover:text-blue-300"
             >
-              {urlInfo.isAmazon ? (
-                <AmazonIcon className="w-3 h-3" />
-              ) : (
-                <ExternalLink className="w-3 h-3" />
-              )}
+              <ExternalLink className="w-3 h-3" />
               <span className="truncate max-w-[60px]">{urlInfo.display}</span>
             </a>
           );
@@ -644,16 +510,16 @@ export function SupplementExtractionModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-[95vw] max-w-[80vw] sm:max-w-[85vw] lg:max-w-[80vw] max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-[95vw] max-w-[85vw] sm:max-w-[90vw] lg:max-w-[85vw] max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" />
-            {step === "extracting" && "Extracting Supplements..."}
-            {step === "review" && "Review Extracted Supplements"}
+            {step === "extracting" && "Extracting Skincare Products..."}
+            {step === "review" && "Review Extracted Products"}
           </DialogTitle>
           <DialogDescription>
-            {step === "extracting" && "AI is analyzing your supplement information"}
-            {step === "review" && "Select the supplements you want to save"}
+            {step === "extracting" && "AI is analyzing your skincare routine"}
+            {step === "review" && "Select the products you want to save"}
           </DialogDescription>
         </DialogHeader>
 
@@ -684,87 +550,19 @@ export function SupplementExtractionModal({
               </div>
             </div>
 
-            {/* Progress bars container */}
-            <div className="w-full max-w-md space-y-4 mb-4">
-              {/* Input progress bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground flex items-center gap-1.5">
-                    <FileSearch className="w-3.5 h-3.5" />
-                    Input Read
-                  </span>
-                  <span className="font-semibold text-primary">
-                    {processedInputs.length} / {totalInputs || 1}
-                  </span>
-                </div>
-                <div className="relative">
-                  <Progress
-                    value={totalInputs > 0 ? (processedInputs.length / totalInputs) * 100 : (progressStage === "preparing" ? 50 : 100)}
-                    className="h-3 bg-muted/50"
-                  />
-                  {/* Input dots overlay */}
-                  {totalInputs > 0 && (
-                    <div className="absolute inset-0 flex items-center justify-around px-1">
-                      {Array.from({ length: totalInputs }).map((_, idx) => (
-                        <div
-                          key={idx}
-                          className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                            idx < processedInputs.length
-                              ? "bg-white shadow-sm"
-                              : "bg-muted-foreground/30"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Overall progress bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground flex items-center gap-1.5">
-                    <Brain className="w-3.5 h-3.5" />
-                    AI Processing
-                  </span>
-                  <span className="font-medium">{Math.round(progress)}%</span>
-                </div>
-                <Progress value={progress} className="h-3" />
-              </div>
+            {/* Progress bar */}
+            <div className="w-full max-w-md mb-4">
+              <Progress value={progress} className="h-2" />
             </div>
 
             <p className="text-sm text-muted-foreground">
               {progressStage === "preparing" && "Reading input..."}
-              {progressStage === "analyzing" && "AI is analyzing supplement information..."}
-              {progressStage === "extracting" && "Extracting supplement details..."}
+              {progressStage === "analyzing" && "AI is analyzing skincare products..."}
+              {progressStage === "extracting" && "Extracting product details..."}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {Math.round(progress)}% complete
             </p>
-
-            {/* Input list - show processed inputs */}
-            {processedInputs.length > 0 && (
-              <div className="mt-4 w-full max-w-md">
-                <div className="text-xs text-muted-foreground mb-2">Input:</div>
-                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
-                  {processedInputs.map((inputName, idx) => (
-                    <div
-                      key={idx}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 text-green-600 text-xs"
-                    >
-                      <Check className="w-3 h-3" />
-                      <span className="truncate max-w-[120px]">{inputName}</span>
-                    </div>
-                  ))}
-                  {processedInputs.length < totalInputs && (
-                    <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary text-xs animate-pulse">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Processing...</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -818,9 +616,9 @@ export function SupplementExtractionModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {extractedData.supplements.map((supplement, rowIndex) => {
+                  {extractedData.products.map((product, rowIndex) => {
                     const isDuplicate = duplicates.has(rowIndex);
-                    const isSelected = selectedSupplements.has(rowIndex);
+                    const isSelected = selectedProducts.has(rowIndex);
 
                     return (
                       <tr
@@ -843,7 +641,7 @@ export function SupplementExtractionModal({
                                 ? 'bg-primary border-primary'
                                 : 'border-muted-foreground/50 hover:border-primary'
                             }`}
-                            onClick={() => !isDuplicate && toggleSupplementSelection(rowIndex)}
+                            onClick={() => !isDuplicate && toggleProductSelection(rowIndex)}
                           >
                             {isDuplicate ? (
                               <AlertTriangle className="w-2.5 h-2.5 text-orange-500" />
@@ -855,7 +653,7 @@ export function SupplementExtractionModal({
                         {/* Field cells */}
                         {TABLE_FIELDS.map((field) => (
                           <td key={field.key} className={`p-0.5 border-r ${field.width || ''}`}>
-                            {renderCell(supplement, rowIndex, field)}
+                            {renderCell(product, rowIndex, field)}
                           </td>
                         ))}
                         {/* Overall confidence cell */}
@@ -866,10 +664,10 @@ export function SupplementExtractionModal({
                             </Badge>
                           ) : (
                             <span className={`font-medium ${
-                              supplement.confidence >= 0.8 ? 'text-green-400' :
-                              supplement.confidence >= 0.6 ? 'text-orange-400' : 'text-red-400'
+                              product.confidence >= 0.8 ? 'text-green-400' :
+                              product.confidence >= 0.6 ? 'text-orange-400' : 'text-red-400'
                             }`}>
-                              {Math.round(supplement.confidence * 100)}%
+                              {Math.round(product.confidence * 100)}%
                             </span>
                           )}
                         </td>
@@ -883,25 +681,12 @@ export function SupplementExtractionModal({
             {/* Footer */}
             <div className="pt-3 border-t mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
               <div className="text-xs sm:text-sm text-muted-foreground">
-                {selectedSupplements.size} of {extractedData.supplements.length} selected
+                {selectedProducts.size} of {extractedData.products.length} selected
                 {duplicates.size > 0 && (
                   <span className="text-orange-500 ml-2">
                     ({duplicates.size} duplicate{duplicates.size > 1 ? 's' : ''})
                   </span>
                 )}
-                {(() => {
-                  const missingCount = extractedData.supplements
-                    .filter((_, i) => selectedSupplements.has(i))
-                    .filter(s => !hasDosageInfo(s)).length;
-                  if (missingCount > 0) {
-                    return (
-                      <span className="text-orange-500 ml-2">
-                        ({missingCount} missing dosage)
-                      </span>
-                    );
-                  }
-                  return null;
-                })()}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleClose}>
@@ -910,12 +695,12 @@ export function SupplementExtractionModal({
                 <Button
                   size="sm"
                   onClick={handleSave}
-                  disabled={selectedSupplements.size === 0 || createSupplementsBulk.isPending}
+                  disabled={selectedProducts.size === 0 || createProductsBulk.isPending}
                 >
-                  {createSupplementsBulk.isPending && (
+                  {createProductsBulk.isPending && (
                     <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                   )}
-                  Save {selectedSupplements.size} Supplements
+                  Save {selectedProducts.size} Products
                 </Button>
               </div>
             </div>

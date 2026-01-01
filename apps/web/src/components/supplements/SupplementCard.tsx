@@ -4,7 +4,7 @@ import { Supplement } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useToggleSupplement } from "@/hooks/useSupplements";
-import { Pill, DollarSign, ExternalLink, AlertTriangle, Atom, Leaf, Bug, MoreHorizontal, LucideIcon, Calendar, Package, Sunrise, Sun, Utensils, Sunset, Moon, FlaskConical, Droplet, Wind, Candy, Square } from "lucide-react";
+import { Pill, DollarSign, ExternalLink, AlertTriangle, Atom, Leaf, Bug, MoreHorizontal, LucideIcon, Calendar, Package, Sunrise, Sun, Utensils, Sunset, Moon, BedDouble, FlaskConical, Droplet, Wind, Candy, Square } from "lucide-react";
 import { toast } from "sonner";
 
 // Category icons
@@ -62,19 +62,19 @@ const CATEGORY_ICON_COLORS: Record<string, string> = {
 };
 
 // Timing icons, colors, and card background colors
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: string; bgColor: string; iconBg: string }> = {
   wake_up: { icon: Sunrise, color: "text-orange-400", label: "Wake", bgColor: "rgba(251, 146, 60, 0.08)", iconBg: "rgba(251, 146, 60, 0.15)" },
-  morning: { icon: Sunrise, color: "text-orange-400", label: "Morning", bgColor: "rgba(251, 146, 60, 0.08)", iconBg: "rgba(251, 146, 60, 0.15)" },
+  morning: { icon: Sunrise, color: "text-orange-400", label: "Morning", bgColor: "rgba(251, 146, 60, 0.08)", iconBg: "rgba(251, 146, 60, 0.15)" }, // legacy alias
   am: { icon: Sun, color: "text-yellow-400", label: "AM", bgColor: "rgba(250, 204, 21, 0.08)", iconBg: "rgba(250, 204, 21, 0.15)" },
   lunch: { icon: Utensils, color: "text-amber-500", label: "Lunch", bgColor: "rgba(245, 158, 11, 0.08)", iconBg: "rgba(245, 158, 11, 0.15)" },
-  with_meals: { icon: Utensils, color: "text-amber-500", label: "With Meals", bgColor: "rgba(245, 158, 11, 0.08)", iconBg: "rgba(245, 158, 11, 0.15)" },
-  afternoon: { icon: Sun, color: "text-amber-400", label: "Afternoon", bgColor: "rgba(251, 191, 36, 0.08)", iconBg: "rgba(251, 191, 36, 0.15)" },
+  with_meals: { icon: Utensils, color: "text-amber-500", label: "With Meals", bgColor: "rgba(245, 158, 11, 0.08)", iconBg: "rgba(245, 158, 11, 0.15)" }, // legacy
+  afternoon: { icon: Sun, color: "text-amber-400", label: "Afternoon", bgColor: "rgba(251, 191, 36, 0.08)", iconBg: "rgba(251, 191, 36, 0.15)" }, // legacy alias for pm
   pm: { icon: Sunset, color: "text-orange-500", label: "PM", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
-  evening: { icon: Sunset, color: "text-orange-500", label: "Evening", bgColor: "rgba(249, 115, 22, 0.08)", iconBg: "rgba(249, 115, 22, 0.15)" },
   dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner", bgColor: "rgba(192, 132, 252, 0.08)", iconBg: "rgba(192, 132, 252, 0.15)" },
-  before_bed: { icon: Moon, color: "text-indigo-400", label: "Before Bed", bgColor: "rgba(129, 140, 248, 0.08)", iconBg: "rgba(129, 140, 248, 0.15)" },
-  bed: { icon: Moon, color: "text-violet-400", label: "Bed", bgColor: "rgba(139, 92, 246, 0.08)", iconBg: "rgba(139, 92, 246, 0.15)" },
-  empty_stomach: { icon: Pill, color: "text-gray-400", label: "Empty Stomach", bgColor: "rgba(156, 163, 175, 0.08)", iconBg: "rgba(156, 163, 175, 0.15)" },
+  evening: { icon: Moon, color: "text-purple-400", label: "Evening", bgColor: "rgba(192, 132, 252, 0.08)", iconBg: "rgba(192, 132, 252, 0.15)" },
+  bed: { icon: BedDouble, color: "text-indigo-400", label: "Bed", bgColor: "rgba(129, 140, 248, 0.08)", iconBg: "rgba(129, 140, 248, 0.15)" },
+  empty_stomach: { icon: Pill, color: "text-gray-400", label: "Empty Stomach", bgColor: "rgba(156, 163, 175, 0.08)", iconBg: "rgba(156, 163, 175, 0.15)" }, // legacy
 };
 
 // Intake form icons and colors
@@ -133,18 +133,19 @@ export function SupplementCard({ supplement, onEdit }: SupplementCardProps) {
     }
   };
 
+  // Timing display labels - Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
   const timingMap: Record<string, string> = {
-    morning: "Morning",
-    afternoon: "Afternoon",
-    evening: "Evening",
-    with_meals: "With Meals",
-    empty_stomach: "Empty Stomach",
-    before_bed: "Bed",
     wake_up: "Wake",
+    morning: "Morning", // legacy alias
     am: "AM",
     lunch: "Lunch",
+    with_meals: "With Meals", // legacy
+    afternoon: "Afternoon", // legacy alias
     pm: "PM",
     dinner: "Dinner",
+    evening: "Evening",
+    bed: "Bed",
+    empty_stomach: "Empty Stomach", // legacy
   };
 
   const formatTiming = (timing?: string) => {

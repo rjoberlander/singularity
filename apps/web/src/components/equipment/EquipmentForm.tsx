@@ -24,6 +24,7 @@ import {
   Utensils,
   Sunset,
   Moon,
+  BedDouble,
   LucideIcon,
   Zap,
   Scissors,
@@ -44,18 +45,20 @@ const CATEGORIES = [
   { value: "other", label: "Other", icon: MoreHorizontal, color: "text-gray-400" },
 ];
 
+// Order: Wake, AM, Lunch, PM, Dinner, Evening, Bed
 const TIMING_OPTIONS: { value: string; label: string; icon: LucideIcon; selectedColor: string }[] = [
   { value: "wake_up", label: "Wake", icon: Sunrise, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400" },
   { value: "am", label: "AM", icon: Sun, selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400" },
   { value: "lunch", label: "Lunch", icon: Utensils, selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500" },
   { value: "pm", label: "PM", icon: Sunset, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500" },
   { value: "dinner", label: "Dinner", icon: Utensils, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
-  { value: "before_bed", label: "Bed", icon: Moon, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
+  { value: "evening", label: "Evening", icon: Moon, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
+  { value: "bed", label: "Bed", icon: BedDouble, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
 ];
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Daily" },
-  { value: "every_other_day", label: "Every Other" },
+  { value: "every_other_day", label: "Every Other Day" },
   { value: "as_needed", label: "As Needed" },
 ];
 
@@ -134,10 +137,10 @@ export function EquipmentForm({ equipment, open, onOpenChange }: EquipmentFormPr
         name: equipment.name,
         brand: equipment.brand || "",
         model: equipment.model || "",
-        category: equipment.category || "",
+        category: equipment.category?.toLowerCase() || "",
         purpose: equipment.purpose || "",
-        usage_frequency: equipment.usage_frequency || "",
-        usage_timing: equipment.usage_timing || "",
+        usage_frequency: equipment.usage_frequency?.toLowerCase() || "",
+        usage_timing: equipment.usage_timing?.toLowerCase() || "",
         usage_duration: equipment.usage_duration || "",
         usage_duration_minutes: durationMinutes,
         usage_protocol: equipment.usage_protocol || "",

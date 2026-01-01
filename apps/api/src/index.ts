@@ -15,6 +15,7 @@ import biomarkerRoutes from './routes/biomarkers';
 import biomarkerStarsRoutes from './routes/biomarkerStars';
 import biomarkerNotesRoutes from './routes/biomarkerNotes';
 import supplementRoutes from './routes/supplements';
+import facialProductRoutes from './routes/facialProducts';
 import equipmentRoutes from './routes/equipment';
 import routineRoutes from './routes/routines';
 import goalRoutes from './routes/goals';
@@ -108,6 +109,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
       auth: '/api/v1/auth',
       biomarkers: '/api/v1/biomarkers',
       supplements: '/api/v1/supplements',
+      facialProducts: '/api/v1/facial-products',
       equipment: '/api/v1/equipment',
       routines: '/api/v1/routines',
       goals: '/api/v1/goals',
@@ -132,6 +134,7 @@ app.use('/api/v1/biomarkers/stars', authenticateUser, biomarkerStarsRoutes);
 app.use('/api/v1/biomarkers/notes', authenticateUser, biomarkerNotesRoutes);
 app.use('/api/v1/biomarkers', authenticateUser, biomarkerRoutes);
 app.use('/api/v1/supplements', authenticateUser, supplementRoutes);
+app.use('/api/v1/facial-products', authenticateUser, facialProductRoutes);
 app.use('/api/v1/equipment', authenticateUser, equipmentRoutes);
 app.use('/api/v1/routines', authenticateUser, routineRoutes);
 app.use('/api/v1/goals', authenticateUser, goalRoutes);
