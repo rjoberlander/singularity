@@ -880,97 +880,77 @@ export default function SupplementsPage() {
 
             {/* Missing Data Warning Bar */}
             {missingFieldCounts.total > 0 && (
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
                 {/* Warning Icon */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <AlertTriangle className="w-8 h-8 text-yellow-500" />
-                  <span className="text-lg font-bold text-yellow-500">Warning:</span>
+                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500" />
+                  <span className="text-sm sm:text-base font-bold text-yellow-500">Missing Data</span>
                 </div>
 
-                {/* User Input Fields - Orange */}
-                {(missingFieldCounts.fields.timing || missingFieldCounts.fields.frequency) && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-orange-400">
-                      <span className="font-semibold">{supplementsNeedingUserInput.length}</span> need frequency/timing
-                    </span>
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 flex-1">
+                  {/* User Input Fields - Orange */}
+                  {(missingFieldCounts.fields.timing || missingFieldCounts.fields.frequency) && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400"
+                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400 justify-start"
                       onClick={handleOpenUserInputModal}
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Schedule
-                      <span className="ml-1 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
+                      <span className="hidden sm:inline">Add </span>Schedule
+                      <span className="ml-auto sm:ml-2 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
                         {supplementsNeedingUserInput.length}
                       </span>
                     </Button>
-                  </div>
-                )}
+                  )}
 
-                {/* AI-Populatable Fields - Purple Box */}
-                {(() => {
-                  const hasAiFields = ['price', 'servings', 'form', 'dose', 'unit', 'category', 'brand'].some(
-                    (field) => missingFieldCounts.fields[field] > 0
-                  );
-                  // Count supplements with missing AI-fillable fields
-                  const supplementsWithAiFields = allSupplements?.filter((s) =>
-                    !s.brand || !s.price || !s.dose_per_serving || !s.dose_unit ||
-                    !s.category || !s.servings_per_container || !s.intake_form
-                  ).length || 0;
+                  {/* AI-Populatable Fields - Purple */}
+                  {(() => {
+                    const hasAiFields = ['price', 'servings', 'form', 'dose', 'unit', 'category', 'brand'].some(
+                      (field) => missingFieldCounts.fields[field] > 0
+                    );
 
-                  if (hasAiFields) {
-                    return (
-                      <div className="flex items-center gap-3">
-                        <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
-                        <span className="text-sm text-purple-400">
-                          <span className="font-semibold">{supplementsWithAiFields}</span> Supplements missing product info: AI can search & fill
-                        </span>
+                    if (hasAiFields) {
+                      return (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 ml-auto"
+                          className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 justify-start"
                           onClick={handleOpenBatchAIModal}
                         >
                           <Sparkles className="w-4 h-4 mr-2" />
-                          Populate by AI
-                          <span className="ml-1 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
+                          <span className="hidden sm:inline">Populate by </span>AI
+                          <span className="ml-auto sm:ml-2 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
                             {missingFieldCounts.total}
                           </span>
                         </Button>
-                      </div>
-                    );
-                  } else if (missingFieldCounts.needsUrl.length > 0) {
-                    return (
-                      <div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/10">
-                        <Link2 className="w-4 h-4 text-blue-400 shrink-0" />
-                        <span className="text-sm text-blue-400">
-                          Add product URLs to power AI population
-                        </span>
+                      );
+                    } else if (missingFieldCounts.needsUrl.length > 0) {
+                      return (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="bg-blue-500/20 border-blue-500/40 hover:bg-blue-500/30 text-blue-400 ml-auto"
+                          className="bg-blue-500/20 border-blue-500/40 hover:bg-blue-500/30 text-blue-400 justify-start"
                           onClick={handleOpenUrlModal}
                         >
                           <Link2 className="w-4 h-4 mr-2" />
                           Add URLs
-                          <span className="ml-1 text-xs bg-blue-500/30 px-1.5 py-0.5 rounded">
+                          <span className="ml-auto sm:ml-2 text-xs bg-blue-500/30 px-1.5 py-0.5 rounded">
                             {missingFieldCounts.needsUrl.length}
                           </span>
                         </Button>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
               </div>
             )}
 
-            {/* Main Content - Two Column Layout */}
-            <div className="flex gap-4">
-              {/* Left Sidebar */}
-              <div className="w-52 flex-shrink-0 space-y-4">
+            {/* Main Content - Two Column Layout (stacked on mobile) */}
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Left Sidebar - Full width on mobile, fixed width on desktop */}
+              <div className="w-full md:w-52 md:flex-shrink-0 space-y-4">
                 {/* Search */}
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">SEARCH SUPPLEMENTS</h3>
@@ -1251,17 +1231,19 @@ export default function SupplementsPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-auto py-2">
-            {/* Table Header */}
-            <div className="grid grid-cols-[1fr,140px,200px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
-              <div>Supplement</div>
-              <div>Frequency</div>
-              <div>Timing</div>
-            </div>
+            {/* Scrollable Table Container */}
+            <div className="overflow-x-auto -mx-2 px-2">
+              {/* Table Header */}
+              <div className="grid grid-cols-[minmax(100px,1fr),140px,minmax(200px,auto)] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background min-w-[480px]">
+                <div>Supplement</div>
+                <div>Frequency</div>
+                <div>Timing</div>
+              </div>
 
-            {/* Table Rows */}
-            <div className="divide-y">
-              {supplementsNeedingUserInput.map((supplement) => (
-                <div key={supplement.id} className="grid grid-cols-[1fr,140px,200px] gap-2 px-2 py-2 items-center">
+              {/* Table Rows */}
+              <div className="divide-y min-w-[480px]">
+                {supplementsNeedingUserInput.map((supplement) => (
+                  <div key={supplement.id} className="grid grid-cols-[minmax(100px,1fr),140px,minmax(200px,auto)] gap-2 px-2 py-2 items-center">
                   <div className="truncate text-sm font-medium">{supplement.name}</div>
                   <select
                     value={userInputEntries[supplement.id]?.frequency || ""}
@@ -1307,8 +1289,9 @@ export default function SupplementsPage() {
                       );
                     })}
                   </div>
-                </div>
-              ))}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1348,25 +1331,27 @@ export default function SupplementsPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-auto py-2">
-            {/* Table Header */}
-            <div className="grid grid-cols-[1fr,80px,80px,80px,120px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
-              <div>Supplement</div>
-              <div>Price</div>
-              <div>Servings</div>
-              <div>Dose</div>
-              <div>Product URL</div>
-            </div>
+            {/* Scrollable Table Container */}
+            <div className="overflow-x-auto -mx-2 px-2">
+              {/* Table Header */}
+              <div className="grid grid-cols-[minmax(100px,1fr),80px,80px,80px,100px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background min-w-[500px]">
+                <div>Supplement</div>
+                <div>Price</div>
+                <div>Servings</div>
+                <div>Dose</div>
+                <div>URL</div>
+              </div>
 
-            {/* Table Rows */}
-            <div className="divide-y">
-              {supplementsMissingCostData.map((supplement) => {
-                const missingPrice = !supplement.price;
-                const missingServings = !supplement.servings_per_container;
-                const missingDose = !supplement.dose_per_serving;
-                const missingUrl = !supplement.purchase_url;
+              {/* Table Rows */}
+              <div className="divide-y min-w-[500px]">
+                {supplementsMissingCostData.map((supplement) => {
+                  const missingPrice = !supplement.price;
+                  const missingServings = !supplement.servings_per_container;
+                  const missingDose = !supplement.dose_per_serving;
+                  const missingUrl = !supplement.purchase_url;
 
-                return (
-                  <div key={supplement.id} className="grid grid-cols-[1fr,80px,80px,80px,120px] gap-2 px-2 py-2 items-center text-sm">
+                  return (
+                    <div key={supplement.id} className="grid grid-cols-[minmax(100px,1fr),80px,80px,80px,100px] gap-2 px-2 py-2 items-center text-sm">
                     <div className="truncate font-medium">{supplement.name}</div>
                     <div>
                       {missingPrice ? (
@@ -1396,9 +1381,10 @@ export default function SupplementsPage() {
                         <span className="text-xs text-green-400">has URL</span>
                       )}
                     </div>
-                  </div>
-                );
-              })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -1446,7 +1432,7 @@ export default function SupplementsPage() {
 
           <div className="flex-1 overflow-auto py-2">
             {/* Controls */}
-            <div className="flex items-center justify-between mb-3 px-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-3 px-2">
               <div className="flex items-center gap-2">
                 <Checkbox
                   checked={Object.values(batchAIResults).every((r) => r.selected !== false)}
@@ -1482,28 +1468,30 @@ export default function SupplementsPage() {
               )}
             </div>
 
-            {/* Table Header */}
-            <div className="grid grid-cols-[40px,1fr,100px,80px,80px,100px,80px,80px,100px,80px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
-              <div></div>
-              <div>Supplement</div>
-              <div>Status</div>
-              <div>Brand</div>
-              <div>Price</div>
-              <div>Servings</div>
-              <div>Form</div>
-              <div>Dose</div>
-              <div>Unit</div>
-              <div>Category</div>
-            </div>
+            {/* Scrollable Table Container */}
+            <div className="overflow-x-auto -mx-2 px-2">
+              {/* Table Header */}
+              <div className="grid grid-cols-[40px,minmax(120px,1fr),100px,80px,80px,100px,80px,80px,100px,80px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background min-w-[900px]">
+                <div></div>
+                <div>Supplement</div>
+                <div>Status</div>
+                <div>Brand</div>
+                <div>Price</div>
+                <div>Servings</div>
+                <div>Form</div>
+                <div>Dose</div>
+                <div>Unit</div>
+                <div>Category</div>
+              </div>
 
             {/* Table Rows */}
-            <div className="divide-y">
+            <div className="divide-y min-w-[900px]">
               {supplementsWithMissingData.map((supplement) => {
                 const result = batchAIResults[supplement.id];
                 return (
                   <div
                     key={supplement.id}
-                    className={`grid grid-cols-[40px,1fr,100px,80px,80px,100px,80px,80px,100px,80px] gap-2 px-2 py-2 items-center text-sm ${
+                    className={`grid grid-cols-[40px,minmax(120px,1fr),100px,80px,80px,100px,80px,80px,100px,80px] gap-2 px-2 py-2 items-center text-sm ${
                       result?.selected === false ? 'opacity-50' : ''
                     }`}
                   >
@@ -1854,6 +1842,7 @@ export default function SupplementsPage() {
                 );
               })}
             </div>
+            </div>
           </div>
 
           <DialogFooter className="flex-shrink-0 gap-2">
@@ -1896,21 +1885,23 @@ export default function SupplementsPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-auto py-2">
-            {/* Table Header */}
-            <div className="grid grid-cols-[1fr,100px,100px] gap-2 px-3 py-2 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
-              <div>Supplement</div>
-              <div className="text-right">Monthly</div>
-              <div className="text-right">Running Total</div>
-            </div>
+            {/* Scrollable Table Container */}
+            <div className="overflow-x-auto -mx-2 px-2">
+              {/* Table Header */}
+              <div className="grid grid-cols-[minmax(100px,1fr),80px,100px] gap-2 px-3 py-2 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background min-w-[320px]">
+                <div>Supplement</div>
+                <div className="text-right">Monthly</div>
+                <div className="text-right">Total</div>
+              </div>
 
-            {/* Table Rows */}
-            <div className="divide-y">
-              {(() => {
-                let runningTotal = 0;
-                return supplementsSortedByCost.map((supplement) => {
-                  runningTotal += supplement.monthlyCost;
-                  return (
-                    <div key={supplement.id} className="grid grid-cols-[1fr,100px,100px] gap-2 px-3 py-2.5 items-center hover:bg-muted/30 transition-colors">
+              {/* Table Rows */}
+              <div className="divide-y min-w-[320px]">
+                {(() => {
+                  let runningTotal = 0;
+                  return supplementsSortedByCost.map((supplement) => {
+                    runningTotal += supplement.monthlyCost;
+                    return (
+                      <div key={supplement.id} className="grid grid-cols-[minmax(100px,1fr),80px,100px] gap-2 px-3 py-2.5 items-center hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-medium text-sm truncate">{supplement.name}</span>
                         {supplement.purchase_url ? (
@@ -1935,15 +1926,16 @@ export default function SupplementsPage() {
                       <div className="text-right">
                         <span className="text-sm text-muted-foreground">${runningTotal.toFixed(2)}</span>
                       </div>
-                    </div>
-                  );
-                });
-              })()}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             </div>
           </div>
 
-          <DialogFooter className="flex-shrink-0 border-t pt-3">
-            <div className="flex-1 flex items-center gap-4 text-sm">
+          <DialogFooter className="flex-shrink-0 border-t pt-3 flex-col sm:flex-row gap-2">
+            <div className="flex-1 flex flex-wrap items-center gap-2 sm:gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Daily:</span>
                 <span className="font-medium">${costs.daily.toFixed(2)}</span>
@@ -1953,7 +1945,7 @@ export default function SupplementsPage() {
                 <span className="font-medium">${costs.yearly.toFixed(2)}</span>
               </div>
             </div>
-            <Button variant="outline" onClick={() => setIsCostBreakdownModalOpen(false)}>
+            <Button variant="outline" onClick={() => setIsCostBreakdownModalOpen(false)} className="w-full sm:w-auto">
               Close
             </Button>
           </DialogFooter>

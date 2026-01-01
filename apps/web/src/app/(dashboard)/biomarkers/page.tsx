@@ -490,10 +490,10 @@ export default function BiomarkersPage() {
 
             </div>
 
-            {/* Main Content */}
-            <div className="flex gap-4">
-              {/* Left Sidebar - Summary */}
-              <div className="w-52 flex-shrink-0 space-y-4">
+            {/* Main Content - Two Column Layout (stacked on mobile) */}
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Left Sidebar - Full width on mobile */}
+              <div className="w-full md:w-52 md:flex-shrink-0 space-y-4">
                 {/* Search Bar */}
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">SEARCH BIOMARKERS</h3>

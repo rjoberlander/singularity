@@ -25,7 +25,7 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   // Check for AI API key
-  const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
+  const { hasKey: hasAIKey, isLoading: isCheckingKey, error: keyError } = useHasActiveAIKey();
 
   const handleSubmit = useCallback(() => {
     if (!text.trim() && !attachedFile) return;
@@ -134,8 +134,8 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
         </div>
       ) : (
         <>
-          {/* API Key Warning */}
-          {!isCheckingKey && !hasAIKey && (
+          {/* API Key Warning - only show when explicitly confirmed no key (not on error) */}
+          {!isCheckingKey && !hasAIKey && !keyError && (
             <Alert variant="destructive" className="mb-2 py-2">
               <AlertTriangle className="h-3 w-3" />
               <AlertDescription className="text-xs">
@@ -204,7 +204,7 @@ export function SupplementChatInput({ onSubmit, isProcessing }: SupplementChatIn
               size="sm"
               className="w-full h-8 text-xs"
               onClick={handleSubmit}
-              disabled={isProcessing || (!text.trim() && !attachedFile) || !hasAIKey || text.length > MAX_TEXT_LENGTH}
+              disabled={isProcessing || (!text.trim() && !attachedFile) || (!hasAIKey && !keyError) || text.length > MAX_TEXT_LENGTH}
             >
               <Send className="w-3 h-3 mr-1.5" />
               Extract Supplements

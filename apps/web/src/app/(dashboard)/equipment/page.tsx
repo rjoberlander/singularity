@@ -144,7 +144,7 @@ export default function EquipmentPage() {
   }, [existingDuplicates]);
 
   // Check for AI API key
-  const { hasKey: hasAIKey, isLoading: isCheckingKey } = useHasActiveAIKey();
+  const { hasKey: hasAIKey, isLoading: isCheckingKey, error: keyError } = useHasActiveAIKey();
 
   // Detect duplicates - same name + same brand
   const duplicates = useMemo(() => {
@@ -438,62 +438,53 @@ export default function EquipmentPage() {
 
             {/* Missing Data Warning Bar */}
             {missingFieldCounts.total > 0 && (
-              <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
                 {/* Warning Icon */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <AlertTriangle className="w-8 h-8 text-yellow-500" />
-                  <span className="text-lg font-bold text-yellow-500">Warning:</span>
+                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500" />
+                  <span className="text-sm sm:text-base font-bold text-yellow-500">Missing Data</span>
                 </div>
 
-                {/* Schedule Missing - Orange */}
-                {missingFieldCounts.needsSchedule > 0 && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-orange-400">
-                      <span className="font-semibold">{missingFieldCounts.needsSchedule}</span> need frequency/timing/duration
-                    </span>
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 flex-1">
+                  {/* Schedule Missing - Orange */}
+                  {missingFieldCounts.needsSchedule > 0 && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400"
+                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400 justify-start"
                       onClick={handleOpenScheduleModal}
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Schedule
-                      <span className="ml-1 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
+                      <span className="hidden sm:inline">Add </span>Schedule
+                      <span className="ml-auto sm:ml-2 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
                         {missingFieldCounts.needsSchedule}
                       </span>
                     </Button>
-                  </div>
-                )}
+                  )}
 
-                {/* Product Info Missing - Purple */}
-                {missingFieldCounts.needsProductInfo > 0 && hasAIKey && (
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
-                    <span className="text-sm text-purple-400">
-                      <span className="font-semibold">{missingFieldCounts.needsProductInfo}</span> Equipment missing product info: AI can search & fill
-                    </span>
+                  {/* Product Info Missing - Purple */}
+                  {missingFieldCounts.needsProductInfo > 0 && (hasAIKey || keyError) && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400"
+                      className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 justify-start"
                       onClick={handlePopulateByAI}
                     >
                       <Sparkles className="w-4 h-4 mr-2" />
-                      Populate by AI
-                      <span className="ml-1 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
+                      <span className="hidden sm:inline">Populate by </span>AI
+                      <span className="ml-auto sm:ml-2 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
                         {missingFieldCounts.needsProductInfo}
                       </span>
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
-            {/* Main Content - Two Column Layout */}
-            <div className="flex gap-4">
-              {/* Left Sidebar */}
-              <div className="w-52 flex-shrink-0 space-y-4">
+            {/* Main Content - Two Column Layout (stacked on mobile) */}
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Left Sidebar - Full width on mobile */}
+              <div className="w-full md:w-52 md:flex-shrink-0 space-y-4">
                 {/* Equipment Summary */}
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">EQUIPMENT SUMMARY</h3>
@@ -561,8 +552,8 @@ export default function EquipmentPage() {
                 <div>
                   <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">AI EXTRACT</h3>
                   <div className="border rounded-lg p-2 space-y-2">
-                    {/* API Key Warning */}
-                    {!isCheckingKey && !hasAIKey && (
+                    {/* API Key Warning - only show when explicitly confirmed no key (not on error) */}
+                    {!isCheckingKey && !hasAIKey && !keyError && (
                       <Alert variant="destructive" className="py-2">
                         <AlertTriangle className="h-3 w-3" />
                         <AlertDescription className="text-xs">
@@ -600,7 +591,7 @@ export default function EquipmentPage() {
                       size="sm"
                       className="w-full"
                       onClick={handleAIExtract}
-                      disabled={!aiInput.trim() || isExtracting || !hasAIKey || aiInput.length > MAX_TEXT_LENGTH}
+                      disabled={!aiInput.trim() || isExtracting || (!hasAIKey && !keyError) || aiInput.length > MAX_TEXT_LENGTH}
                     >
                       {isExtracting ? (
                         <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />

@@ -23,9 +23,10 @@ export function useAIApiKeys() {
 }
 
 export function useHasActiveAIKey() {
-  const { data: keys, isLoading } = useAIApiKeys();
+  const { data: keys, isLoading, error } = useAIApiKeys();
   const hasKey = keys && keys.length > 0 && keys.some((k) => k.is_active);
-  return { hasKey, isLoading };
+  // Return error state so components can handle API failures appropriately
+  return { hasKey, isLoading, error };
 }
 
 export function useExtractBiomarkers() {
