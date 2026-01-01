@@ -13,7 +13,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert
+  Alert,
+  StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -165,52 +166,49 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-900">
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
+        style={styles.flex1}
       >
         {/* Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <View style={styles.header}>
           <TouchableOpacity onPress={() => setShowSidebar(!showSidebar)}>
-            <Ionicons name="menu" size={24} color="#9333ea" />
+            <Ionicons name="menu" size={24} color="#10b981" />
           </TouchableOpacity>
-          <Text className="text-lg font-semibold text-gray-900 dark:text-white">
-            Health Assistant
-          </Text>
+          <Text style={styles.headerTitle}>Health Assistant</Text>
           <TouchableOpacity onPress={startNewChat}>
-            <Ionicons name="add-circle-outline" size={24} color="#9333ea" />
+            <Ionicons name="add-circle-outline" size={24} color="#10b981" />
           </TouchableOpacity>
         </View>
 
         {/* Sidebar */}
         {showSidebar && (
-          <View className="absolute top-12 left-0 bottom-0 w-72 bg-white dark:bg-gray-800 z-10 border-r border-gray-200 dark:border-gray-700">
-            <View className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <Text className="text-lg font-semibold text-gray-900 dark:text-white">Conversations</Text>
+          <View style={styles.sidebar}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarTitle}>Conversations</Text>
             </View>
-            <ScrollView className="flex-1">
+            <ScrollView style={styles.flex1}>
               {sessions.map(session => (
                 <TouchableOpacity
                   key={session.id}
                   onPress={() => loadSession(session.id)}
                   onLongPress={() => handleDeleteSession(session)}
-                  className={`p-4 border-b border-gray-100 dark:border-gray-700 ${
-                    currentSession?.id === session.id ? 'bg-purple-50 dark:bg-purple-900/20' : ''
-                  }`}
+                  style={[
+                    styles.sessionItem,
+                    currentSession?.id === session.id && styles.sessionItemActive
+                  ]}
                 >
-                  <Text className="text-gray-900 dark:text-white font-medium" numberOfLines={1}>
+                  <Text style={styles.sessionTitle} numberOfLines={1}>
                     {session.title || 'New conversation'}
                   </Text>
-                  <Text className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                  <Text style={styles.sessionDate}>
                     {new Date(session.updated_at).toLocaleDateString()}
                   </Text>
                 </TouchableOpacity>
               ))}
               {sessions.length === 0 && (
-                <Text className="text-gray-500 dark:text-gray-400 text-center py-8">
-                  No conversations yet
-                </Text>
+                <Text style={styles.noSessions}>No conversations yet</Text>
               )}
             </ScrollView>
           </View>
@@ -219,19 +217,19 @@ export default function ChatScreen() {
         {/* Messages */}
         <ScrollView
           ref={scrollViewRef}
-          className="flex-1 px-4 py-2"
-          contentContainerStyle={{ paddingBottom: 20 }}
+          style={styles.messagesContainer}
+          contentContainerStyle={styles.messagesContent}
           onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
         >
           {loading ? (
-            <ActivityIndicator size="large" color="#9333ea" className="mt-10" />
+            <ActivityIndicator size="large" color="#10b981" style={styles.loader} />
           ) : messages.length === 0 ? (
-            <View className="flex-1 items-center justify-center py-20">
-              <Ionicons name="chatbubbles-outline" size={64} color="#9ca3af" />
-              <Text className="text-gray-500 dark:text-gray-400 text-lg mt-4 text-center">
+            <View style={styles.emptyState}>
+              <Ionicons name="chatbubbles-outline" size={64} color="#6b7280" />
+              <Text style={styles.emptyStateText}>
                 Ask me anything about your{'\n'}health data and protocols
               </Text>
-              <View className="mt-6 space-y-2">
+              <View style={styles.suggestions}>
                 {[
                   'How are my vitamin D levels?',
                   'What supplements should I take with food?',
@@ -239,12 +237,10 @@ export default function ChatScreen() {
                 ].map((suggestion, idx) => (
                   <TouchableOpacity
                     key={idx}
-                    onPress={() => {
-                      setInputText(suggestion);
-                    }}
-                    className="bg-purple-100 dark:bg-purple-900/30 px-4 py-2 rounded-full"
+                    onPress={() => setInputText(suggestion)}
+                    style={styles.suggestionButton}
                   >
-                    <Text className="text-purple-700 dark:text-purple-300">{suggestion}</Text>
+                    <Text style={styles.suggestionText}>{suggestion}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -253,17 +249,19 @@ export default function ChatScreen() {
             messages.map((message) => (
               <View
                 key={message.id}
-                className={`mb-3 ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+                style={[
+                  styles.messageRow,
+                  message.role === 'user' ? styles.messageRowUser : styles.messageRowAssistant
+                ]}
               >
                 <View
-                  className={`max-w-[85%] p-3 rounded-2xl ${
-                    message.role === 'user'
-                      ? 'bg-purple-600 rounded-br-md'
-                      : 'bg-white dark:bg-gray-800 rounded-bl-md border border-gray-200 dark:border-gray-700'
-                  }`}
+                  style={[
+                    styles.messageBubble,
+                    message.role === 'user' ? styles.userBubble : styles.assistantBubble
+                  ]}
                 >
                   <Text
-                    className={message.role === 'user' ? 'text-white' : 'text-gray-900 dark:text-white'}
+                    style={message.role === 'user' ? styles.userText : styles.assistantText}
                   >
                     {message.content}
                   </Text>
@@ -271,23 +269,23 @@ export default function ChatScreen() {
 
                 {/* Feedback buttons for assistant messages */}
                 {message.role === 'assistant' && !message.user_feedback && (
-                  <View className="flex-row mt-1">
+                  <View style={styles.feedbackRow}>
                     <TouchableOpacity
                       onPress={() => handleFeedback(message, 'helpful')}
-                      className="p-1 mr-2"
+                      style={styles.feedbackButton}
                     >
-                      <Ionicons name="thumbs-up-outline" size={16} color="#9ca3af" />
+                      <Ionicons name="thumbs-up-outline" size={16} color="#6b7280" />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleFeedback(message, 'not_helpful')}
-                      className="p-1"
+                      style={styles.feedbackButton}
                     >
-                      <Ionicons name="thumbs-down-outline" size={16} color="#9ca3af" />
+                      <Ionicons name="thumbs-down-outline" size={16} color="#6b7280" />
                     </TouchableOpacity>
                   </View>
                 )}
                 {message.user_feedback && (
-                  <Text className="text-xs text-gray-400 mt-1">
+                  <Text style={styles.feedbackText}>
                     {message.user_feedback === 'helpful' ? '👍 Helpful' : '👎 Not helpful'}
                   </Text>
                 )}
@@ -295,33 +293,34 @@ export default function ChatScreen() {
             ))
           )}
           {sending && (
-            <View className="items-start mb-3">
-              <View className="bg-white dark:bg-gray-800 p-3 rounded-2xl rounded-bl-md border border-gray-200 dark:border-gray-700">
-                <ActivityIndicator size="small" color="#9333ea" />
+            <View style={[styles.messageRow, styles.messageRowAssistant]}>
+              <View style={[styles.messageBubble, styles.assistantBubble]}>
+                <ActivityIndicator size="small" color="#10b981" />
               </View>
             </View>
           )}
         </ScrollView>
 
         {/* Input */}
-        <View className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-          <View className="flex-row items-center">
+        <View style={styles.inputContainer}>
+          <View style={styles.inputRow}>
             <TextInput
               value={inputText}
               onChangeText={setInputText}
               placeholder="Ask about your health data..."
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor="#6b7280"
               multiline
               maxLength={2000}
-              className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-2xl px-4 py-2 mr-2 text-gray-900 dark:text-white max-h-24"
+              style={styles.textInput}
               onSubmitEditing={handleSend}
             />
             <TouchableOpacity
               onPress={handleSend}
               disabled={!inputText.trim() || sending}
-              className={`p-3 rounded-full ${
-                inputText.trim() && !sending ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
-              }`}
+              style={[
+                styles.sendButton,
+                inputText.trim() && !sending ? styles.sendButtonActive : styles.sendButtonDisabled
+              ]}
             >
               <Ionicons name="send" size={20} color="white" />
             </TouchableOpacity>
@@ -331,3 +330,188 @@ export default function ChatScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  flex1: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f1f',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  sidebar: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    bottom: 0,
+    width: 288,
+    backgroundColor: '#111111',
+    zIndex: 10,
+    borderRightWidth: 1,
+    borderRightColor: '#1f1f1f',
+  },
+  sidebarHeader: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f1f',
+  },
+  sidebarTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  sessionItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f1f',
+  },
+  sessionItemActive: {
+    backgroundColor: '#10b98120',
+  },
+  sessionTitle: {
+    color: '#fff',
+    fontWeight: '500',
+    fontSize: 15,
+  },
+  sessionDate: {
+    color: '#6b7280',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  noSessions: {
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingVertical: 32,
+  },
+  messagesContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  messagesContent: {
+    paddingBottom: 20,
+  },
+  loader: {
+    marginTop: 40,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+  emptyStateText: {
+    color: '#6b7280',
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  suggestions: {
+    marginTop: 24,
+    gap: 8,
+  },
+  suggestionButton: {
+    backgroundColor: '#10b98120',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  suggestionText: {
+    color: '#10b981',
+    fontSize: 14,
+  },
+  messageRow: {
+    marginBottom: 12,
+  },
+  messageRowUser: {
+    alignItems: 'flex-end',
+  },
+  messageRowAssistant: {
+    alignItems: 'flex-start',
+  },
+  messageBubble: {
+    maxWidth: '85%',
+    padding: 12,
+    borderRadius: 16,
+  },
+  userBubble: {
+    backgroundColor: '#10b981',
+    borderBottomRightRadius: 4,
+  },
+  assistantBubble: {
+    backgroundColor: '#111111',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  userText: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  assistantText: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  feedbackButton: {
+    padding: 4,
+    marginRight: 8,
+  },
+  feedbackText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  inputContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#1f1f1f',
+    backgroundColor: '#111111',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  textInput: {
+    flex: 1,
+    backgroundColor: '#1f1f1f',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    color: '#fff',
+    maxHeight: 96,
+    fontSize: 15,
+  },
+  sendButton: {
+    padding: 12,
+    borderRadius: 24,
+  },
+  sendButtonActive: {
+    backgroundColor: '#10b981',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#374151',
+  },
+});

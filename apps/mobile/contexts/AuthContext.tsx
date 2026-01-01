@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import type { Session, AuthError } from '@supabase/supabase-js'
+import type { Session, AuthError, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
 // Database user type that extends Supabase user
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       console.log('Initial session:', session ? 'exists' : 'none')
       setSession(session)
 
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (event: AuthChangeEvent, session: Session | null) => {
         console.log('Auth state change:', event)
         setSession(session)
 

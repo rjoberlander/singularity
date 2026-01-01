@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 export interface SupplementCorrelation {
@@ -69,17 +69,17 @@ export function CorrelationCard({ correlation, compact = false }: CorrelationCar
 
   if (compact) {
     return (
-      <View className="bg-gray-800 rounded-lg p-3 mb-2">
-        <View className="flex-row items-center justify-between">
-          <View className="flex-1">
-            <Text className="text-white font-medium">{supplement_name}</Text>
+      <View style={styles.compactCard}>
+        <View style={styles.compactRow}>
+          <View style={styles.flex1}>
+            <Text style={styles.supplementName}>{supplement_name}</Text>
             {supplement_brand && (
-              <Text className="text-gray-400 text-xs">{supplement_brand}</Text>
+              <Text style={styles.supplementBrandSmall}>{supplement_brand}</Text>
             )}
           </View>
-          <View className="flex-row items-center">
+          <View style={styles.compactMetric}>
             <Ionicons name={impactIcon as any} size={16} color={impactColor} />
-            <Text className="ml-1 font-semibold" style={{ color: impactColor }}>
+            <Text style={[styles.compactDiff, { color: impactColor }]}>
               {sleep_score_diff !== null
                 ? `${sleep_score_diff > 0 ? '+' : ''}${sleep_score_diff.toFixed(0)}`
                 : '--'}
@@ -91,76 +91,78 @@ export function CorrelationCard({ correlation, compact = false }: CorrelationCar
   }
 
   return (
-    <View className="bg-gray-800 rounded-xl p-4 mb-3">
+    <View style={styles.card}>
       {/* Header */}
-      <View className="flex-row items-start justify-between mb-3">
-        <View className="flex-1">
-          <Text className="text-white font-semibold text-lg">{supplement_name}</Text>
+      <View style={styles.header}>
+        <View style={styles.flex1}>
+          <Text style={styles.title}>{supplement_name}</Text>
           {supplement_brand && (
-            <Text className="text-gray-400 text-sm">{supplement_brand}</Text>
+            <Text style={styles.supplementBrand}>{supplement_brand}</Text>
           )}
         </View>
-        <View className="items-end">
-          <View
-            className="px-2 py-1 rounded-full"
-            style={{ backgroundColor: impactColor + '20' }}
-          >
-            <Text style={{ color: impactColor }} className="text-sm font-medium capitalize">
+        <View style={styles.impactContainer}>
+          <View style={[styles.impactBadge, { backgroundColor: impactColor + '20' }]}>
+            <Text style={[styles.impactText, { color: impactColor }]}>
               {impact}
             </Text>
           </View>
-          <Text className="text-gray-500 text-xs mt-1">{confidenceLabel}</Text>
+          <Text style={styles.confidenceText}>{confidenceLabel}</Text>
         </View>
       </View>
 
       {/* Sample size */}
-      <View className="flex-row mb-3">
-        <View className="bg-gray-700 rounded-lg px-3 py-1 mr-2">
-          <Text className="text-gray-300 text-xs">
+      <View style={styles.sampleSizeRow}>
+        <View style={styles.sampleBadge}>
+          <Text style={styles.sampleText}>
             {nights_taken} nights with
           </Text>
         </View>
-        <View className="bg-gray-700 rounded-lg px-3 py-1">
-          <Text className="text-gray-300 text-xs">
+        <View style={styles.sampleBadge}>
+          <Text style={styles.sampleText}>
             {nights_not_taken} nights without
           </Text>
         </View>
       </View>
 
       {/* Comparison bars */}
-      <View className="mb-3">
-        <Text className="text-gray-400 text-xs mb-2">Sleep Score Comparison</Text>
-        <View className="flex-row items-center">
+      <View style={styles.comparisonSection}>
+        <Text style={styles.comparisonLabel}>Sleep Score Comparison</Text>
+        <View style={styles.comparisonRow}>
           {/* With supplement */}
-          <View className="flex-1 mr-2">
-            <View className="flex-row items-center mb-1">
-              <Text className="text-gray-400 text-xs flex-1">With</Text>
-              <Text className="text-white font-semibold">
+          <View style={styles.comparisonCol}>
+            <View style={styles.comparisonHeader}>
+              <Text style={styles.comparisonHeaderLabel}>With</Text>
+              <Text style={styles.comparisonValue}>
                 {avg_sleep_score_with?.toFixed(0) ?? '--'}
               </Text>
             </View>
-            <View className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <View style={styles.barBackground}>
               <View
-                className="h-full rounded-full"
-                style={{
-                  width: `${avg_sleep_score_with ?? 0}%`,
-                  backgroundColor: impactColor,
-                }}
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${avg_sleep_score_with ?? 0}%`,
+                    backgroundColor: impactColor,
+                  },
+                ]}
               />
             </View>
           </View>
           {/* Without supplement */}
-          <View className="flex-1">
-            <View className="flex-row items-center mb-1">
-              <Text className="text-gray-400 text-xs flex-1">Without</Text>
-              <Text className="text-white font-semibold">
+          <View style={[styles.comparisonCol, { marginLeft: 8 }]}>
+            <View style={styles.comparisonHeader}>
+              <Text style={styles.comparisonHeaderLabel}>Without</Text>
+              <Text style={styles.comparisonValue}>
                 {avg_sleep_score_without?.toFixed(0) ?? '--'}
               </Text>
             </View>
-            <View className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <View style={styles.barBackground}>
               <View
-                className="h-full bg-gray-500 rounded-full"
-                style={{ width: `${avg_sleep_score_without ?? 0}%` }}
+                style={[
+                  styles.barFill,
+                  styles.barFillGray,
+                  { width: `${avg_sleep_score_without ?? 0}%` },
+                ]}
               />
             </View>
           </View>
@@ -168,7 +170,7 @@ export function CorrelationCard({ correlation, compact = false }: CorrelationCar
       </View>
 
       {/* Metrics grid */}
-      <View className="flex-row flex-wrap">
+      <View style={styles.metricsGrid}>
         <MetricDiff
           label="Sleep Score"
           diff={sleep_score_diff}
@@ -209,9 +211,9 @@ function MetricDiff({ label, diff, suffix, inverted = false }: MetricDiffProps) 
   const displayDiff = inverted && diff !== null ? -diff : diff;
 
   return (
-    <View className="w-1/2 mb-2">
-      <Text className="text-gray-400 text-xs">{label}</Text>
-      <Text style={{ color }} className="font-semibold">
+    <View style={styles.metricItem}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={[styles.metricValue, { color }]}>
         {displayDiff !== null
           ? `${displayDiff > 0 ? '+' : ''}${displayDiff.toFixed(0)}${suffix}`
           : '--'}
@@ -219,5 +221,158 @@ function MetricDiff({ label, diff, suffix, inverted = false }: MetricDiffProps) 
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  // Compact card styles
+  compactCard: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  compactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  compactMetric: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  compactDiff: {
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  supplementBrandSmall: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+
+  // Full card styles
+  card: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  flex1: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  title: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 18,
+  },
+  supplementName: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  supplementBrand: {
+    color: '#9ca3af',
+    fontSize: 14,
+  },
+  impactContainer: {
+    alignItems: 'flex-end',
+  },
+  impactBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  impactText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  confidenceText: {
+    color: '#6b7280',
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  // Sample size
+  sampleSizeRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  sampleBadge: {
+    backgroundColor: '#374151',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginRight: 8,
+  },
+  sampleText: {
+    color: '#d1d5db',
+    fontSize: 12,
+  },
+
+  // Comparison section
+  comparisonSection: {
+    marginBottom: 12,
+  },
+  comparisonLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  comparisonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  comparisonCol: {
+    flex: 1,
+  },
+  comparisonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  comparisonHeaderLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+    flex: 1,
+  },
+  comparisonValue: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  barBackground: {
+    height: 8,
+    backgroundColor: '#374151',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  barFillGray: {
+    backgroundColor: '#6b7280',
+  },
+
+  // Metrics grid
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  metricItem: {
+    width: '50%',
+    marginBottom: 8,
+  },
+  metricLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+  metricValue: {
+    fontWeight: '600',
+  },
+});
 
 export default CorrelationCard;

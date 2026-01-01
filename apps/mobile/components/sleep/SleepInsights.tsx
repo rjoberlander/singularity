@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CorrelationCard, SupplementCorrelation } from './CorrelationCard';
 import { SleepTrendChart } from './SleepTrendChart';
@@ -74,9 +74,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center py-12">
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#10b981" />
-        <Text className="text-gray-400 mt-4">Analyzing your sleep data...</Text>
+        <Text style={styles.loadingText}>Analyzing your sleep data...</Text>
       </View>
     );
   }
@@ -88,13 +88,19 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
     { key: 'time_slept_hours' as const, label: 'Hours' },
   ];
 
+  const getImpactColor = (impact: string) => {
+    if (impact === 'positive') return '#22c55e';
+    if (impact === 'negative') return '#ef4444';
+    return '#6b7280';
+  };
+
   return (
-    <ScrollView className="flex-1">
+    <ScrollView style={styles.container}>
       {/* Header with close button */}
       {onClose && (
-        <View className="flex-row items-center justify-between mb-4">
-          <Text className="text-xl font-bold text-white">Sleep Insights</Text>
-          <TouchableOpacity onPress={onClose} className="p-2">
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Sleep Insights</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Ionicons name="close" size={24} color="#9ca3af" />
           </TouchableOpacity>
         </View>
@@ -102,9 +108,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
 
       {/* Summary stats */}
       {summary && (
-        <View className="bg-gray-800 rounded-xl p-4 mb-4">
-          <Text className="text-gray-400 text-sm mb-2">Analysis Period</Text>
-          <Text className="text-white text-lg font-semibold">
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Analysis Period</Text>
+          <Text style={styles.summaryValue}>
             {summary.total_nights_analyzed} nights analyzed over {summary.period_days} days
           </Text>
         </View>
@@ -112,13 +118,13 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
 
       {/* Recommendations */}
       {summary && summary.recommendations.length > 0 && (
-        <View className="bg-emerald-900/30 rounded-xl p-4 mb-4">
-          <View className="flex-row items-center mb-2">
+        <View style={styles.recommendationsCard}>
+          <View style={styles.recommendationsHeader}>
             <Ionicons name="bulb" size={20} color="#10b981" />
-            <Text className="text-emerald-400 font-semibold ml-2">Insights</Text>
+            <Text style={styles.recommendationsTitle}>Insights</Text>
           </View>
           {summary.recommendations.map((rec, index) => (
-            <Text key={index} className="text-gray-300 text-sm mb-2">
+            <Text key={index} style={styles.recommendationText}>
               {rec}
             </Text>
           ))}
@@ -126,7 +132,7 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
       )}
 
       {/* Tab selector */}
-      <View className="flex-row bg-gray-800 rounded-lg p-1 mb-4">
+      <View style={styles.tabContainer}>
         {[
           { key: 'trends', label: 'Trends' },
           { key: 'supplements', label: 'Supplements' },
@@ -135,15 +141,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
           <TouchableOpacity
             key={tab.key}
             onPress={() => setActiveTab(tab.key as any)}
-            className={`flex-1 py-2 rounded-md ${
-              activeTab === tab.key ? 'bg-gray-700' : ''
-            }`}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
           >
-            <Text
-              className={`text-center ${
-                activeTab === tab.key ? 'text-white font-medium' : 'text-gray-400'
-              }`}
-            >
+            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -154,20 +154,14 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
       {activeTab === 'trends' && (
         <View>
           {/* Metric selector */}
-          <View className="flex-row mb-4">
+          <View style={styles.metricSelector}>
             {metrics.map((m) => (
               <TouchableOpacity
                 key={m.key}
                 onPress={() => setSelectedMetric(m.key)}
-                className={`flex-1 py-2 mr-1 rounded-lg ${
-                  selectedMetric === m.key ? 'bg-emerald-600' : 'bg-gray-800'
-                }`}
+                style={[styles.metricButton, selectedMetric === m.key && styles.metricButtonActive]}
               >
-                <Text
-                  className={`text-center text-sm ${
-                    selectedMetric === m.key ? 'text-white font-medium' : 'text-gray-400'
-                  }`}
-                >
+                <Text style={[styles.metricButtonText, selectedMetric === m.key && styles.metricButtonTextActive]}>
                   {m.label}
                 </Text>
               </TouchableOpacity>
@@ -175,7 +169,7 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
           </View>
 
           {/* Chart */}
-          <View className="bg-gray-800 rounded-xl p-4 mb-4">
+          <View style={styles.chartCard}>
             <SleepTrendChart
               trends={trends}
               metric={selectedMetric}
@@ -186,9 +180,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
 
           {/* 30-day stats */}
           {trends.length > 0 && (
-            <View className="bg-gray-800 rounded-xl p-4">
-              <Text className="text-white font-semibold mb-3">30-Day Overview</Text>
-              <View className="flex-row flex-wrap">
+            <View style={styles.statsCard}>
+              <Text style={styles.statsTitle}>30-Day Overview</Text>
+              <View style={styles.statsGrid}>
                 <StatBox
                   label="Best Score"
                   value={Math.max(...trends.map((t) => t.sleep_score || 0))}
@@ -226,11 +220,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
         <View>
           {summary?.top_positive_supplements && summary.top_positive_supplements.length > 0 && (
             <>
-              <View className="flex-row items-center mb-2">
+              <View style={styles.sectionHeader}>
                 <Ionicons name="trending-up" size={16} color="#22c55e" />
-                <Text className="text-emerald-400 font-semibold ml-2">
-                  Positive Impact
-                </Text>
+                <Text style={styles.sectionTitlePositive}>Positive Impact</Text>
               </View>
               {summary.top_positive_supplements.map((corr) => (
                 <CorrelationCard key={corr.supplement_id} correlation={corr} />
@@ -240,11 +232,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
 
           {summary?.top_negative_supplements && summary.top_negative_supplements.length > 0 && (
             <>
-              <View className="flex-row items-center mb-2 mt-4">
+              <View style={[styles.sectionHeader, { marginTop: 16 }]}>
                 <Ionicons name="trending-down" size={16} color="#ef4444" />
-                <Text className="text-red-400 font-semibold ml-2">
-                  Negative Impact
-                </Text>
+                <Text style={styles.sectionTitleNegative}>Negative Impact</Text>
               </View>
               {summary.top_negative_supplements.map((corr) => (
                 <CorrelationCard key={corr.supplement_id} correlation={corr} />
@@ -253,9 +243,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
           )}
 
           {(!summary?.top_positive_supplements?.length && !summary?.top_negative_supplements?.length) && (
-            <View className="items-center py-8">
+            <View style={styles.emptyState}>
               <Ionicons name="flask-outline" size={48} color="#6b7280" />
-              <Text className="text-gray-400 mt-4 text-center">
+              <Text style={styles.emptyStateText}>
                 Not enough data yet to analyze supplement correlations.
                 {'\n'}Keep tracking for insights!
               </Text>
@@ -269,63 +259,38 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
         <View>
           {summary?.daily_factors && summary.daily_factors.length > 0 ? (
             summary.daily_factors.map((factor) => (
-              <View key={factor.factor} className="bg-gray-800 rounded-xl p-4 mb-3">
-                <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-white font-semibold">{factor.factor}</Text>
-                  <View
-                    className="px-2 py-1 rounded-full"
-                    style={{
-                      backgroundColor:
-                        factor.impact === 'positive'
-                          ? '#22c55e20'
-                          : factor.impact === 'negative'
-                          ? '#ef444420'
-                          : '#6b728020',
-                    }}
-                  >
-                    <Text
-                      className="text-sm capitalize"
-                      style={{
-                        color:
-                          factor.impact === 'positive'
-                            ? '#22c55e'
-                            : factor.impact === 'negative'
-                            ? '#ef4444'
-                            : '#6b7280',
-                      }}
-                    >
+              <View key={factor.factor} style={styles.factorCard}>
+                <View style={styles.factorHeader}>
+                  <Text style={styles.factorName}>{factor.factor}</Text>
+                  <View style={[styles.factorBadge, { backgroundColor: getImpactColor(factor.impact) + '20' }]}>
+                    <Text style={[styles.factorBadgeText, { color: getImpactColor(factor.impact) }]}>
                       {factor.impact}
                     </Text>
                   </View>
                 </View>
 
-                <View className="flex-row">
-                  <View className="flex-1 mr-4">
-                    <Text className="text-gray-400 text-xs">With factor</Text>
-                    <Text className="text-white font-semibold">
+                <View style={styles.factorStats}>
+                  <View style={styles.factorStatCol}>
+                    <Text style={styles.factorStatLabel}>With factor</Text>
+                    <Text style={styles.factorStatValue}>
                       {factor.avg_score_with?.toFixed(0) ?? '--'} score
                     </Text>
-                    <Text className="text-gray-500 text-xs">{factor.nights_with} nights</Text>
+                    <Text style={styles.factorStatNights}>{factor.nights_with} nights</Text>
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-gray-400 text-xs">Without factor</Text>
-                    <Text className="text-white font-semibold">
+                  <View style={styles.factorStatCol}>
+                    <Text style={styles.factorStatLabel}>Without factor</Text>
+                    <Text style={styles.factorStatValue}>
                       {factor.avg_score_without?.toFixed(0) ?? '--'} score
                     </Text>
-                    <Text className="text-gray-500 text-xs">{factor.nights_without} nights</Text>
+                    <Text style={styles.factorStatNights}>{factor.nights_without} nights</Text>
                   </View>
-                  <View className="items-end">
-                    <Text className="text-gray-400 text-xs">Difference</Text>
+                  <View style={styles.factorDiffCol}>
+                    <Text style={styles.factorStatLabel}>Difference</Text>
                     <Text
-                      className="font-bold text-lg"
-                      style={{
-                        color:
-                          (factor.score_diff ?? 0) > 0
-                            ? '#22c55e'
-                            : (factor.score_diff ?? 0) < 0
-                            ? '#ef4444'
-                            : '#6b7280',
-                      }}
+                      style={[
+                        styles.factorDiffValue,
+                        { color: getImpactColor((factor.score_diff ?? 0) > 0 ? 'positive' : (factor.score_diff ?? 0) < 0 ? 'negative' : 'neutral') },
+                      ]}
                     >
                       {factor.score_diff !== null
                         ? `${factor.score_diff > 0 ? '+' : ''}${factor.score_diff.toFixed(0)}`
@@ -336,9 +301,9 @@ export function SleepInsights({ onClose }: SleepInsightsProps) {
               </View>
             ))
           ) : (
-            <View className="items-center py-8">
+            <View style={styles.emptyState}>
               <Ionicons name="analytics-outline" size={48} color="#6b7280" />
-              <Text className="text-gray-400 mt-4 text-center">
+              <Text style={styles.emptyStateText}>
                 Mark daily factors (alcohol, caffeine, exercise, stress)
                 {'\n'}in your sleep notes to see correlations here.
               </Text>
@@ -358,13 +323,234 @@ interface StatBoxProps {
 
 function StatBox({ label, value, suffix }: StatBoxProps) {
   return (
-    <View className="w-1/2 mb-3">
-      <Text className="text-gray-400 text-xs">{label}</Text>
-      <Text className="text-white font-semibold text-lg">
+    <View style={styles.statBox}>
+      <Text style={styles.statBoxLabel}>{label}</Text>
+      <Text style={styles.statBoxValue}>
         {isNaN(value) ? '--' : value.toFixed(0)}{suffix}
       </Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  loadingText: {
+    color: '#9ca3af',
+    marginTop: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  summaryCard: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  summaryLabel: {
+    color: '#9ca3af',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  summaryValue: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  recommendationsCard: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  recommendationsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  recommendationsTitle: {
+    color: '#10b981',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  recommendationText: {
+    color: '#d1d5db',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#1f1f1f',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  tabActive: {
+    backgroundColor: '#374151',
+  },
+  tabText: {
+    textAlign: 'center',
+    color: '#9ca3af',
+  },
+  tabTextActive: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  metricSelector: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  metricButton: {
+    flex: 1,
+    paddingVertical: 8,
+    marginRight: 4,
+    borderRadius: 8,
+    backgroundColor: '#1f1f1f',
+  },
+  metricButtonActive: {
+    backgroundColor: '#10b981',
+  },
+  metricButtonText: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#9ca3af',
+  },
+  metricButtonTextActive: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  chartCard: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  statsCard: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 16,
+  },
+  statsTitle: {
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  statBox: {
+    width: '50%',
+    marginBottom: 12,
+  },
+  statBoxLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+  statBoxValue: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 18,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sectionTitlePositive: {
+    color: '#10b981',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  sectionTitleNegative: {
+    color: '#ef4444',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyStateText: {
+    color: '#9ca3af',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  factorCard: {
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  factorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  factorName: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  factorBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  factorBadgeText: {
+    fontSize: 14,
+    textTransform: 'capitalize',
+  },
+  factorStats: {
+    flexDirection: 'row',
+  },
+  factorStatCol: {
+    flex: 1,
+    marginRight: 16,
+  },
+  factorDiffCol: {
+    alignItems: 'flex-end',
+  },
+  factorStatLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+  factorStatValue: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  factorStatNights: {
+    color: '#6b7280',
+    fontSize: 12,
+  },
+  factorDiffValue: {
+    fontWeight: '700',
+    fontSize: 18,
+  },
+});
 
 export default SleepInsights;

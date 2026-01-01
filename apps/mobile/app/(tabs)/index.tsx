@@ -146,7 +146,7 @@ export default function Dashboard() {
       {/* Welcome Section */}
       <View style={styles.welcomeSection}>
         <Text style={styles.welcomeText}>Welcome back,</Text>
-        <Text style={styles.userName}>{user?.name || user?.email?.split('@')[0] || 'User'}</Text>
+        <Text style={styles.userName}>{user?.full_name || user?.email?.split('@')[0] || 'User'}</Text>
       </View>
 
       {/* Stats Grid */}
