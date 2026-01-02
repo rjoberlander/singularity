@@ -170,85 +170,38 @@ export const aiApi = {
     getApi().post("/ai/extract-biomarkers", data),
   extractSupplements: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text"; product_url?: string }) =>
     getApi().post("/ai/extract-supplements", data),
-
-  // Streaming supplement extraction for real-time progress
-  extractSupplementsStream: async (
-    data: { text_content: string; source_type: "image" | "text"; product_url?: string },
-    onProgress: (event: { step: string; message?: string; field?: string; value?: string; confidence?: number; fields?: Array<{ key: string; status: string; confidence?: number }>; [key: string]: unknown }) => void,
-    onComplete: (result: unknown) => void,
-    onError: (error: string) => void
-  ) => {
-    const accessToken = await getCurrentAuthToken();
-    const apiUrl = getApiUrl();
-
-    try {
-      const response = await fetch(`${apiUrl}/ai/extract-supplements/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': accessToken ? `Bearer ${accessToken}` : '',
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Stream error: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No reader available');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const event = JSON.parse(line.slice(6));
-              if (event.step === 'complete') {
-                onComplete(event.data);
-              } else if (event.step === 'error') {
-                onError(event.message);
-                return;
-              } else {
-                onProgress(event);
-              }
-            } catch {
-              // Skip invalid JSON
-            }
-          }
-        }
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Stream failed';
-      onError(errorMessage);
-    }
-  },
   extractEquipment: (data: { text_content: string }) =>
     getApi().post("/ai/extract-equipment", data),
   extractFacialProducts: (data: { image_base64?: string; text_content?: string; source_type: "image" | "text"; product_url?: string }) =>
     getApi().post("/ai/extract-facial-products", data),
 
-  // Streaming facial product extraction for real-time progress
-  extractFacialProductsStream: async (
-    data: { text_content: string; source_type: "image" | "text"; product_url?: string },
-    onProgress: (event: { step: string; message?: string; field?: string; value?: string; confidence?: number; product?: Record<string, unknown>; [key: string]: unknown }) => void,
-    onComplete: (result: unknown) => void,
+  // Universal product enrichment - works for supplements, facial_products, equipment
+  enrichProductStream: async (
+    data: {
+      product_name: string;
+      brand?: string;
+      product_url?: string;
+      product_type: 'supplement' | 'facial_product' | 'equipment';
+      existing_data?: Record<string, unknown>;
+    },
+    onProgress: (event: {
+      step: string;
+      message?: string;
+      field?: string;
+      value?: unknown;
+      confidence?: number;
+      product?: Record<string, unknown>;
+      fields?: Array<{ key: string; status: string; confidence?: number }>;
+      [key: string]: unknown
+    }) => void,
+    onComplete: (result: { data: Record<string, unknown>; field_confidence: Record<string, number> }) => void,
     onError: (error: string) => void
   ) => {
     const accessToken = await getCurrentAuthToken();
     const apiUrl = getApiUrl();
 
     try {
-      const response = await fetch(`${apiUrl}/ai/extract-facial-products/stream`, {
+      const response = await fetch(`${apiUrl}/ai/enrich-product/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -280,7 +233,7 @@ export const aiApi = {
             try {
               const event = JSON.parse(line.slice(6));
               if (event.step === 'complete') {
-                onComplete(event.data);
+                onComplete({ data: event.data, field_confidence: event.field_confidence || {} });
               } else if (event.step === 'error') {
                 onError(event.message);
                 return;

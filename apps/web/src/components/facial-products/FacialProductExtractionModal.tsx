@@ -30,8 +30,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { aiApi } from "@/lib/api";
 
 interface ExtractedProduct {
   name: string;
@@ -71,7 +73,6 @@ const CATEGORY_OPTIONS = [
 const FORM_OPTIONS = [
   { value: "cream", label: "Cream" },
   { value: "gel", label: "Gel" },
-  { value: "oil", label: "Oil" },
   { value: "liquid", label: "Liquid" },
   { value: "foam", label: "Foam" },
 ];
@@ -163,6 +164,11 @@ export function FacialProductExtractionModal({
   const [progressStage, setProgressStage] = useState<"preparing" | "analyzing" | "extracting">("preparing");
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // AI Population state
+  const [isPopulating, setIsPopulating] = useState(false);
+  const [populatingIndex, setPopulatingIndex] = useState<number | null>(null);
+  const [populationProgress, setPopulationProgress] = useState<Record<number, 'pending' | 'fetching' | 'done' | 'error'>>({});
+
   const extractFacialProducts = useExtractFacialProducts();
   const createProductsBulk = useCreateFacialProductsBulk();
   const { data: existingProducts } = useFacialProducts({});
@@ -247,6 +253,9 @@ export function FacialProductExtractionModal({
     setExtractionStarted(false);
     setProgress(0);
     setProgressStage("preparing");
+    setIsPopulating(false);
+    setPopulatingIndex(null);
+    setPopulationProgress({});
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -320,6 +329,167 @@ export function FacialProductExtractionModal({
       handleClose();
     }
   }, [extractFacialProducts, handleClose]);
+
+  // Populate missing fields with AI for all selected products
+  const handlePopulateByAI = useCallback(async () => {
+    if (!extractedData) return;
+
+    setIsPopulating(true);
+    const selectedIndices = Array.from(selectedProducts);
+
+    // Initialize progress tracking
+    const initialProgress: Record<number, 'pending' | 'fetching' | 'done' | 'error'> = {};
+    selectedIndices.forEach((i) => {
+      initialProgress[i] = 'pending';
+    });
+    setPopulationProgress(initialProgress);
+
+    // Process each selected product
+    for (const index of selectedIndices) {
+      const product = extractedData.products[index];
+
+      // Check if product needs population (missing fields)
+      const needsPopulation = !product.brand || !product.price || !product.size_amount ||
+        !product.application_form || !product.category || !product.purchase_url;
+
+      if (!needsPopulation) {
+        setPopulationProgress((prev) => ({ ...prev, [index]: 'done' }));
+        continue;
+      }
+
+      setPopulatingIndex(index);
+      setPopulationProgress((prev) => ({ ...prev, [index]: 'fetching' }));
+
+      try {
+        const result = await new Promise<Record<string, any>>((resolve, reject) => {
+          const fetchedData: Record<string, any> = {};
+          const normalizeValue = (val: string | undefined) => val?.toLowerCase().replace(/\s+/g, '_');
+
+          aiApi.enrichProductStream(
+            {
+              product_name: product.name,
+              brand: product.brand || undefined,
+              product_url: product.purchase_url || undefined,
+              product_type: 'facial_product',
+            },
+            // onProgress
+            (event) => {
+              if (event.step === 'field_found' && event.field && event.value !== undefined) {
+                const fieldKey = event.field as string;
+                let fieldValue: any = event.value;
+
+                if (fieldKey === 'application_form' || fieldKey === 'category') {
+                  fieldValue = normalizeValue(fieldValue as string);
+                } else if (fieldKey === 'price' || fieldKey === 'size_amount') {
+                  fieldValue = parseFloat(fieldValue as string) || fieldValue;
+                }
+
+                fetchedData[fieldKey] = fieldValue;
+
+                // Update the product in real-time
+                setExtractedData((prev) => {
+                  if (!prev) return prev;
+                  const updated = [...prev.products];
+                  if (!updated[index][fieldKey as keyof ExtractedProduct]) {
+                    updated[index] = { ...updated[index], [fieldKey]: fieldValue };
+                  }
+                  return { ...prev, products: updated };
+                });
+              }
+
+              if (event.step === 'first_pass_done' && event.product) {
+                const productData = event.product as Record<string, any>;
+                for (const fieldKey of ['brand', 'price', 'size_amount', 'size_unit', 'application_form', 'category', 'purchase_url']) {
+                  let fieldValue = productData[fieldKey];
+                  if (fieldValue !== undefined && fieldValue !== null) {
+                    if (fieldKey === 'application_form' || fieldKey === 'category') {
+                      fieldValue = normalizeValue(fieldValue as string);
+                    }
+                    fetchedData[fieldKey] = fieldValue;
+                  }
+                }
+
+                // Update the product with first pass data
+                setExtractedData((prev) => {
+                  if (!prev) return prev;
+                  const updated = [...prev.products];
+                  const currentProduct = updated[index];
+                  updated[index] = {
+                    ...currentProduct,
+                    brand: currentProduct.brand || fetchedData.brand,
+                    price: currentProduct.price || fetchedData.price,
+                    size_amount: currentProduct.size_amount || fetchedData.size_amount,
+                    size_unit: currentProduct.size_unit || fetchedData.size_unit,
+                    application_form: currentProduct.application_form || fetchedData.application_form,
+                    category: currentProduct.category || fetchedData.category,
+                    purchase_url: currentProduct.purchase_url || fetchedData.purchase_url,
+                  };
+                  return { ...prev, products: updated };
+                });
+              }
+            },
+            // onComplete
+            (completeResult) => {
+              if (completeResult?.data) {
+                const p = completeResult.data;
+                resolve({
+                  brand: p.brand,
+                  price: p.price,
+                  size_amount: p.size_amount,
+                  size_unit: p.size_unit,
+                  application_form: normalizeValue(p.application_form as string),
+                  category: normalizeValue(p.category as string),
+                  purchase_url: p.purchase_url,
+                });
+              } else {
+                resolve(fetchedData);
+              }
+            },
+            // onError
+            (error) => {
+              reject(new Error(error));
+            }
+          );
+        });
+
+        // Final update with complete result
+        setExtractedData((prev) => {
+          if (!prev) return prev;
+          const updated = [...prev.products];
+          const currentProduct = updated[index];
+          updated[index] = {
+            ...currentProduct,
+            brand: currentProduct.brand || result.brand,
+            price: currentProduct.price || result.price,
+            size_amount: currentProduct.size_amount || result.size_amount,
+            size_unit: currentProduct.size_unit || result.size_unit || 'ml',
+            application_form: currentProduct.application_form || result.application_form,
+            category: currentProduct.category || result.category,
+            purchase_url: currentProduct.purchase_url || result.purchase_url,
+            field_confidence: {
+              ...currentProduct.field_confidence,
+              ...(result.brand ? { brand: 0.9 } : {}),
+              ...(result.price ? { price: 0.9 } : {}),
+              ...(result.size_amount ? { size_amount: 0.9 } : {}),
+              ...(result.application_form ? { application_form: 0.9 } : {}),
+              ...(result.category ? { category: 0.9 } : {}),
+              ...(result.purchase_url ? { purchase_url: 0.9 } : {}),
+            },
+          };
+          return { ...prev, products: updated };
+        });
+
+        setPopulationProgress((prev) => ({ ...prev, [index]: 'done' }));
+      } catch (error) {
+        console.error(`Failed to populate product ${index}:`, error);
+        setPopulationProgress((prev) => ({ ...prev, [index]: 'error' }));
+      }
+    }
+
+    setIsPopulating(false);
+    setPopulatingIndex(null);
+    toast.success('AI population complete');
+  }, [extractedData, selectedProducts]);
 
   // Auto-start extraction when modal opens with initial input
   useEffect(() => {
@@ -569,22 +739,45 @@ export function FacialProductExtractionModal({
         {/* Review Step - Dense Table Layout */}
         {step === "review" && extractedData && (
           <>
-            {/* Legend */}
-            <div className="flex items-center gap-4 text-[10px] mb-2">
-              <span className="text-muted-foreground">Confidence:</span>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-green-500/20 border border-green-500/50" />
-                <span className="text-green-400">&gt;80%</span>
+            {/* Legend + Populate by AI Button */}
+            <div className="flex items-center justify-between gap-4 text-[10px] mb-2">
+              <div className="flex items-center gap-4">
+                <span className="text-muted-foreground">Confidence:</span>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded bg-green-500/20 border border-green-500/50" />
+                  <span className="text-green-400">&gt;80%</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded bg-orange-500/20 border border-orange-500/50" />
+                  <span className="text-orange-400">60-80%</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded bg-red-500/20 border border-red-500/50" />
+                  <span className="text-red-400">&lt;60%</span>
+                </div>
+                <span className="text-muted-foreground ml-2">Click cell to edit</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-orange-500/20 border border-orange-500/50" />
-                <span className="text-orange-400">60-80%</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 rounded bg-red-500/20 border border-red-500/50" />
-                <span className="text-red-400">&lt;60%</span>
-              </div>
-              <span className="text-muted-foreground ml-2">Click cell to edit</span>
+
+              {/* Populate by AI Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 text-xs h-7"
+                onClick={handlePopulateByAI}
+                disabled={isPopulating || selectedProducts.size === 0}
+              >
+                {isPopulating ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                    Populating {populatingIndex !== null ? `(${populatingIndex + 1}/${selectedProducts.size})` : '...'}
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3 mr-1.5" />
+                    Populate by AI
+                  </>
+                )}
+              </Button>
             </div>
 
             {/* Dense Table */}
@@ -619,12 +812,16 @@ export function FacialProductExtractionModal({
                   {extractedData.products.map((product, rowIndex) => {
                     const isDuplicate = duplicates.has(rowIndex);
                     const isSelected = selectedProducts.has(rowIndex);
+                    const isPopulatingRow = populatingIndex === rowIndex;
+                    const rowStatus = populationProgress[rowIndex];
 
                     return (
                       <tr
                         key={rowIndex}
                         className={`border-b last:border-b-0 transition-colors ${
-                          isDuplicate
+                          isPopulatingRow
+                            ? 'bg-purple-500/10 animate-pulse'
+                            : isDuplicate
                             ? 'bg-orange-500/5 opacity-60'
                             : isSelected
                             ? 'bg-primary/5'
@@ -656,9 +853,15 @@ export function FacialProductExtractionModal({
                             {renderCell(product, rowIndex, field)}
                           </td>
                         ))}
-                        {/* Overall confidence cell */}
+                        {/* Overall confidence / status cell */}
                         <td className="p-1 text-center">
-                          {isDuplicate ? (
+                          {isPopulatingRow ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-purple-400 mx-auto" />
+                          ) : rowStatus === 'done' ? (
+                            <Check className="w-3 h-3 text-green-400 mx-auto" />
+                          ) : rowStatus === 'error' ? (
+                            <AlertTriangle className="w-3 h-3 text-red-400 mx-auto" />
+                          ) : isDuplicate ? (
                             <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500 text-orange-500">
                               Dupe
                             </Badge>

@@ -77,9 +77,36 @@ export function useToggleSupplement() {
       const response = await supplementsApi.toggle(id);
       return response.data.data as Supplement;
     },
-    onSuccess: (_, id) => {
+    onMutate: async (id: string) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["supplements"] });
+
+      // Get all cached queries and update them optimistically
+      const queryCache = queryClient.getQueryCache();
+      const queries = queryCache.findAll({ queryKey: ["supplements"] });
+
+      const previousData: { queryKey: unknown[]; data: Supplement[] }[] = [];
+
+      queries.forEach((query) => {
+        const data = query.state.data as Supplement[] | undefined;
+        if (data && Array.isArray(data)) {
+          previousData.push({ queryKey: query.queryKey, data });
+          queryClient.setQueryData<Supplement[]>(query.queryKey,
+            data.map(s => s.id === id ? { ...s, is_active: !s.is_active } : s)
+          );
+        }
+      });
+
+      return { previousData };
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      context?.previousData?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["supplements"] });
-      queryClient.invalidateQueries({ queryKey: ["supplements", id] });
     },
   });
 }

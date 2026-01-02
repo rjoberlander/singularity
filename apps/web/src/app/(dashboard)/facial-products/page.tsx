@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { useFacialProducts, useFacialProductCosts, useUpdateFacialProduct } from "@/hooks/useFacialProducts";
+import { useFacialProducts, useFacialProductCosts, useUpdateFacialProduct, useToggleFacialProduct } from "@/hooks/useFacialProducts";
 import { FacialProductCard } from "@/components/facial-products/FacialProductCard";
 import { FacialProductForm } from "@/components/facial-products/FacialProductForm";
 import { FacialProductChatInput } from "@/components/facial-products/FacialProductChatInput";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,12 @@ import {
   CheckCircle2,
   XCircle,
   Zap,
+  Sunrise,
+  Sun,
+  Utensils,
+  Sunset,
+  Moon,
+  BedDouble,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -125,16 +132,47 @@ const dbValueToCategory: Record<string, string> = {
 const FORM_CONFIG: Record<string, { label: string }> = {
   cream: { label: "Cream" },
   gel: { label: "Gel" },
-  oil: { label: "Oil" },
   liquid: { label: "Liquid" },
   foam: { label: "Foam" },
 };
+
+// Valid frequencies (custom without days is not valid)
+const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed'];
+
+// Valid timings
+const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'];
+
+// Timing options with icons and colors for the modal
+const TIMING_OPTIONS: { value: string; label: string; icon: LucideIcon; selectedColor: string }[] = [
+  { value: "wake_up", label: "Wake", icon: Sunrise, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-400" },
+  { value: "am", label: "AM", icon: Sun, selectedColor: "bg-yellow-500/30 border-yellow-500/50 text-yellow-400" },
+  { value: "lunch", label: "Lunch", icon: Utensils, selectedColor: "bg-amber-500/30 border-amber-500/50 text-amber-500" },
+  { value: "pm", label: "PM", icon: Sunset, selectedColor: "bg-orange-500/30 border-orange-500/50 text-orange-500" },
+  { value: "dinner", label: "Dinner", icon: Utensils, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
+  { value: "evening", label: "Evening", icon: Moon, selectedColor: "bg-purple-500/30 border-purple-500/50 text-purple-400" },
+  { value: "bed", label: "Bed", icon: BedDouble, selectedColor: "bg-indigo-500/30 border-indigo-500/50 text-indigo-400" },
+];
+
+// Check if product has valid frequency
+function hasValidFrequency(product: FacialProduct): boolean {
+  const usageFrequency = (product as any).usage_frequency?.toLowerCase() || '';
+  const frequencyDays = (product as any).frequency_days || [];
+  return VALID_FREQUENCIES.includes(usageFrequency) ||
+    (usageFrequency === 'custom' && frequencyDays.length > 0);
+}
+
+// Check if product has valid timing
+function hasValidTiming(product: FacialProduct): boolean {
+  const usageTiming = (product as any).usage_timing?.toLowerCase() || '';
+  return VALID_TIMINGS.includes(usageTiming);
+}
 
 // Get products with missing data
 function getProductsWithMissingData(products: FacialProduct[] | undefined): FacialProduct[] {
   if (!products) return [];
   return products.filter((p) => {
-    return !p.brand || !p.price || !p.category || !p.application_form || !p.size_amount;
+    return !p.brand || !p.price || !p.category || !p.application_form || !p.size_amount ||
+      !hasValidFrequency(p) || !hasValidTiming(p);
   });
 }
 
@@ -151,6 +189,12 @@ export default function FacialProductsPage() {
   const [editingProduct, setEditingProduct] = useState<FacialProduct | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
 
+  // Schedule modal state (frequency/timing)
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleEntries, setScheduleEntries] = useState<Record<string, { frequency: string; timing: string; days: string[] }>>({});
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({});
+
   // Batch AI population state
   const [isBatchAIModalOpen, setIsBatchAIModalOpen] = useState(false);
   const [batchAIResults, setBatchAIResults] = useState<Record<string, {
@@ -162,13 +206,17 @@ export default function FacialProductsPage() {
       size_unit?: string;
       application_form?: string;
       category?: string;
+      usage_amount?: number;
+      usage_unit?: string;
     };
     error?: string;
     selected?: boolean;
   }>>({});
   const [isBatchFetching, setIsBatchFetching] = useState(false);
+  const [isCostWarningModalOpen, setIsCostWarningModalOpen] = useState(false);
 
   const updateProduct = useUpdateFacialProduct();
+  const toggleProduct = useToggleFacialProduct();
 
   // Get all products for counting (no filters)
   const { data: allProducts, isLoading, error, refetch } = useFacialProducts({});
@@ -216,21 +264,27 @@ export default function FacialProductsPage() {
     return { categories, active, inactive, all: allProducts.length };
   }, [allProducts]);
 
-  // Calculate missing field counts
+  // Calculate missing field counts (only for active products)
   const missingFieldCounts = useMemo(() => {
     if (!allProducts) return { total: 0, fields: {} as Record<string, number> };
 
     const fields: Record<string, number> = {};
     let productsWithMissing = 0;
 
-    allProducts.forEach((p) => {
+    allProducts.filter(p => p.is_active).forEach((p) => {
       let hasMissing = false;
 
+      // Schedule fields
+      if (!hasValidFrequency(p)) { fields.frequency = (fields.frequency || 0) + 1; hasMissing = true; }
+      if (!hasValidTiming(p)) { fields.timing = (fields.timing || 0) + 1; hasMissing = true; }
+
+      // Product info fields
       if (!p.brand) { fields.brand = (fields.brand || 0) + 1; hasMissing = true; }
       if (!p.price) { fields.price = (fields.price || 0) + 1; hasMissing = true; }
       if (!p.category) { fields.category = (fields.category || 0) + 1; hasMissing = true; }
       if (!p.application_form) { fields.form = (fields.form || 0) + 1; hasMissing = true; }
       if (!p.size_amount) { fields.size = (fields.size || 0) + 1; hasMissing = true; }
+      if (!p.usage_amount) { fields.usage = (fields.usage || 0) + 1; hasMissing = true; }
       if (!p.purchase_url) { fields.url = (fields.url || 0) + 1; hasMissing = true; }
 
       if (hasMissing) productsWithMissing++;
@@ -240,6 +294,23 @@ export default function FacialProductsPage() {
   }, [allProducts]);
 
   const costs = useFacialProductCosts(products);
+
+  // Get active products missing cost-related data (price, size, usage info, frequency, timing)
+  const productsMissingCostData = useMemo(() => {
+    if (!allProducts) return [];
+    return allProducts.filter((p) => {
+      if (!p.is_active) return false;
+      // Missing price or size makes cost estimate impossible
+      if (!p.price || !p.size_amount) return true;
+      // Missing usage amount or frequency/timing makes accurate estimate impossible
+      const usageFrequency = (p as any).usage_frequency?.toLowerCase() || '';
+      const usageTiming = (p as any).usage_timing?.toLowerCase() || '';
+      const usageAmount = p.usage_amount;
+      const hasFrequency = ['daily', 'every_other_day', 'as_needed'].includes(usageFrequency);
+      const hasTiming = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].includes(usageTiming);
+      return !usageAmount || !hasFrequency || !hasTiming;
+    });
+  }, [allProducts]);
 
   const filteredProducts = useMemo(() => {
     let result = products?.filter((p) =>
@@ -271,6 +342,65 @@ export default function FacialProductsPage() {
     return result;
   }, [products, search, sortBy]);
 
+  // Get active products missing frequency or timing (schedule)
+  const productsNeedingSchedule = useMemo(() => {
+    if (!allProducts) return [];
+    return allProducts.filter((p) => p.is_active && (!hasValidFrequency(p) || !hasValidTiming(p)));
+  }, [allProducts]);
+
+  // Get active products missing AI-fillable product info (including usage_amount)
+  const productsWithMissingProductInfo = useMemo(() => {
+    if (!allProducts) return [];
+    return allProducts.filter((p) =>
+      p.is_active && (!p.brand || !p.price || !p.category || !p.application_form || !p.size_amount || !p.usage_amount)
+    );
+  }, [allProducts]);
+
+  // Schedule modal handlers
+  const handleOpenScheduleModal = () => {
+    const entries: Record<string, { frequency: string; timing: string; days: string[] }> = {};
+    productsNeedingSchedule.forEach((p) => {
+      entries[p.id] = {
+        frequency: (p as any).usage_frequency?.toLowerCase() || "",
+        timing: (p as any).usage_timing?.toLowerCase() || "",
+        days: (p as any).frequency_days || [],
+      };
+    });
+    setScheduleEntries(entries);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleSaveSchedule = async () => {
+    setIsSavingSchedule(true);
+    try {
+      let updateCount = 0;
+      for (const [id, data] of Object.entries(scheduleEntries)) {
+        if (data.frequency || data.timing || data.days?.length > 0) {
+          await updateProduct.mutateAsync({
+            id,
+            data: {
+              usage_frequency: data.frequency || undefined,
+              usage_timing: data.timing || undefined,
+              frequency_days: data.days?.length > 0 ? data.days : undefined,
+            } as any,
+          });
+          updateCount++;
+        }
+      }
+
+      if (updateCount > 0) {
+        toast.success(`Updated ${updateCount} products`);
+      }
+
+      setIsScheduleModalOpen(false);
+      refetch();
+    } catch (error) {
+      toast.error("Failed to save");
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
   const handleEdit = (product: FacialProduct) => {
     setEditingProduct(product);
     setFormOpen(true);
@@ -290,19 +420,18 @@ export default function FacialProductsPage() {
   // Open batch AI modal and initialize results
   const handleOpenBatchAIModal = useCallback(() => {
     const initialResults: typeof batchAIResults = {};
-    productsWithMissingData.forEach((p) => {
+    productsWithMissingProductInfo.forEach((p) => {
       initialResults[p.id] = { status: 'pending', selected: true };
     });
     setBatchAIResults(initialResults);
     setIsBatchAIModalOpen(true);
-  }, [productsWithMissingData]);
+  }, [productsWithMissingProductInfo]);
 
   // Fetch AI data for a single product
   const fetchAIForProduct = async (productId: string, product: FacialProduct): Promise<{
     data?: typeof batchAIResults[string]['data'];
     error?: string;
   }> => {
-    const searchQuery = `${product.name} ${product.brand || ""} skincare product. Find: brand, price, size, form (cream/gel/oil/liquid/foam), category (cleanser/toner/serum/moisturizer/sunscreen/other).`;
     const normalizeValue = (val: string | undefined) => val?.toLowerCase().replace(/\s+/g, '_');
 
     return new Promise((resolve) => {
@@ -310,11 +439,12 @@ export default function FacialProductsPage() {
       let hasError = false;
       const streamedData: Record<string, any> = {};
 
-      aiApi.extractFacialProductsStream(
+      aiApi.enrichProductStream(
         {
-          text_content: searchQuery,
-          source_type: "text",
+          product_name: product.name,
+          brand: product.brand || undefined,
           product_url: product.purchase_url || undefined,
+          product_type: 'facial_product',
         },
         // onProgress
         (event) => {
@@ -322,9 +452,9 @@ export default function FacialProductsPage() {
             const fieldKey = event.field as string;
             let fieldValue: any = event.value;
 
-            if (fieldKey === 'application_form' || fieldKey === 'category') {
+            if (fieldKey === 'application_form' || fieldKey === 'category' || fieldKey === 'usage_unit') {
               fieldValue = normalizeValue(fieldValue as string);
-            } else if (fieldKey === 'price' || fieldKey === 'size_amount') {
+            } else if (fieldKey === 'price' || fieldKey === 'size_amount' || fieldKey === 'usage_amount') {
               fieldValue = parseFloat(fieldValue as string) || fieldValue;
             }
 
@@ -346,11 +476,13 @@ export default function FacialProductsPage() {
             const productData = event.product as Record<string, any>;
             const fieldsToUpdate: Record<string, any> = {};
 
-            for (const fieldKey of ['brand', 'price', 'size_amount', 'size_unit', 'application_form', 'category']) {
+            for (const fieldKey of ['brand', 'price', 'size_amount', 'size_unit', 'application_form', 'category', 'usage_amount', 'usage_unit']) {
               let fieldValue = productData[fieldKey];
               if (fieldValue !== undefined && fieldValue !== null) {
-                if (fieldKey === 'application_form' || fieldKey === 'category') {
+                if (fieldKey === 'application_form' || fieldKey === 'category' || fieldKey === 'usage_unit') {
                   fieldValue = normalizeValue(fieldValue as string);
+                } else if (fieldKey === 'usage_amount') {
+                  fieldValue = parseFloat(fieldValue as string) || fieldValue;
                 }
                 fieldsToUpdate[fieldKey] = fieldValue;
                 streamedData[fieldKey] = fieldValue;
@@ -369,8 +501,8 @@ export default function FacialProductsPage() {
             }));
           }
         },
-        (data) => {
-          result = data;
+        (completeResult) => {
+          result = completeResult;
         },
         (error) => {
           hasError = true;
@@ -379,8 +511,8 @@ export default function FacialProductsPage() {
       ).then(() => {
         if (hasError) return;
 
-        if (result?.products?.[0]) {
-          const p = result.products[0];
+        if (result?.data) {
+          const p = result.data;
           const finalData = {
             brand: p.brand ?? undefined,
             price: p.price ?? undefined,
@@ -388,9 +520,18 @@ export default function FacialProductsPage() {
             size_unit: p.size_unit ?? undefined,
             application_form: normalizeValue(p.application_form) ?? undefined,
             category: normalizeValue(p.category) ?? undefined,
+            usage_amount: p.usage_amount ?? undefined,
+            usage_unit: p.usage_unit ? normalizeValue(p.usage_unit) : undefined,
           };
+          // Merge: streamedData first, then finalData, but don't overwrite non-null with null
+          const merged = { ...streamedData };
+          for (const [key, value] of Object.entries(finalData)) {
+            if (value !== undefined) {
+              merged[key] = value;
+            }
+          }
           resolve({
-            data: { ...streamedData, ...finalData }
+            data: merged
           });
         } else if (Object.keys(streamedData).length > 0) {
           resolve({ data: streamedData });
@@ -407,7 +548,7 @@ export default function FacialProductsPage() {
   const handleStartBatchAI = async () => {
     setIsBatchFetching(true);
 
-    const productsToFetch = productsWithMissingData.filter(
+    const productsToFetch = productsWithMissingProductInfo.filter(
       (p) => batchAIResults[p.id]?.selected !== false
     );
 
@@ -453,6 +594,8 @@ export default function FacialProductsPage() {
           if (currentData.size_unit) updateData.size_unit = currentData.size_unit;
           if (currentData.application_form) updateData.application_form = currentData.application_form;
           if (currentData.category) updateData.category = currentData.category;
+          if (currentData.usage_amount != null) updateData.usage_amount = currentData.usage_amount;
+          if (currentData.usage_unit) updateData.usage_unit = currentData.usage_unit;
 
           if (Object.keys(updateData).length > 2) {
             await updateProduct.mutateAsync({ id: product.id, data: updateData });
@@ -575,25 +718,48 @@ export default function FacialProductsPage() {
                   <span className="text-lg font-bold text-yellow-500">Warning:</span>
                 </div>
 
-                {/* AI-Populatable Fields */}
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
-                  <span className="text-sm text-purple-400">
-                    <span className="font-semibold">{productsWithMissingData.length}</span> Products missing info: AI can search & fill
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 ml-auto"
-                    onClick={handleOpenBatchAIModal}
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    Populate by AI
-                    <span className="ml-1 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
-                      {productsWithMissingData.length}
+                {/* Schedule Fields - Orange */}
+                {productsNeedingSchedule.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-orange-400">
+                      <span className="font-semibold">{productsNeedingSchedule.length}</span> need frequency/timing
                     </span>
-                  </Button>
-                </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-orange-500/20 border-orange-500/40 hover:bg-orange-500/30 text-orange-400"
+                      onClick={handleOpenScheduleModal}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Schedule
+                      <span className="ml-1 text-xs bg-orange-500/30 px-1.5 py-0.5 rounded">
+                        {productsNeedingSchedule.length}
+                      </span>
+                    </Button>
+                  </div>
+                )}
+
+                {/* AI-Populatable Fields - Purple */}
+                {productsWithMissingProductInfo.length > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                    <span className="text-sm text-purple-400">
+                      <span className="font-semibold">{productsWithMissingProductInfo.length}</span> Products missing product info: AI can search & fill
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-purple-500/20 border-purple-500/40 hover:bg-purple-500/30 text-purple-400 ml-auto"
+                      onClick={handleOpenBatchAIModal}
+                    >
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Populate by AI
+                      <span className="ml-1 text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">
+                        {productsWithMissingProductInfo.length}
+                      </span>
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -658,6 +824,21 @@ export default function FacialProductsPage() {
                           <span className="text-sm font-medium text-muted-foreground">${costs.yearly.toFixed(2)}</span>
                         </div>
                       </div>
+                      {/* Cost Warning */}
+                      {productsMissingCostData.length > 0 && (
+                        <div
+                          className="mt-3 p-2 rounded border border-red-500/30 bg-red-500/10 cursor-pointer hover:bg-red-500/20 transition-colors"
+                          onClick={() => setIsCostWarningModalOpen(true)}
+                        >
+                          <div className="flex items-center gap-1.5 text-red-400">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span className="text-[10px] font-medium">Cost may be inaccurate</span>
+                          </div>
+                          <p className="text-[10px] text-red-400/80 mt-0.5">
+                            {productsMissingCostData.length} missing usage amount
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
@@ -842,7 +1023,7 @@ export default function FacialProductsPage() {
             </div>
 
             {/* Table Header */}
-            <div className="grid grid-cols-[40px,1fr,100px,80px,80px,80px,80px,80px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
+            <div className="grid grid-cols-[40px,1fr,100px,80px,80px,80px,80px,80px,80px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
               <div></div>
               <div>Product</div>
               <div>Status</div>
@@ -851,16 +1032,17 @@ export default function FacialProductsPage() {
               <div>Size</div>
               <div>Form</div>
               <div>Category</div>
+              <div>Usage</div>
             </div>
 
             {/* Table Rows */}
             <div className="divide-y">
-              {productsWithMissingData.map((product) => {
+              {productsWithMissingProductInfo.map((product) => {
                 const result = batchAIResults[product.id];
                 return (
                   <div
                     key={product.id}
-                    className={`grid grid-cols-[40px,1fr,100px,80px,80px,80px,80px,80px] gap-2 px-2 py-2 items-center text-sm ${
+                    className={`grid grid-cols-[40px,1fr,100px,80px,80px,80px,80px,80px,80px] gap-2 px-2 py-2 items-center text-sm ${
                       result?.selected === false ? 'opacity-50' : ''
                     }`}
                   >
@@ -938,53 +1120,206 @@ export default function FacialProductsPage() {
                     </div>
                     <div className="text-xs">
                       {result?.data?.price ? (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">${result.data.price}</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={result.data.price}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [product.id]: {
+                                ...prev[product.id],
+                                data: { ...prev[product.id]?.data, price: val }
+                              }
+                            }));
+                          }}
+                          className="w-16 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       ) : product.price ? (
                         <span className="text-muted-foreground">${product.price}</span>
                       ) : (
-                        <span className="text-yellow-500/70 font-medium">?</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  status: prev[product.id]?.status === 'pending' ? 'success' : prev[product.id]?.status || 'success',
+                                  data: { ...prev[product.id]?.data, price: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-16 h-6 px-1.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       )}
                     </div>
                     <div className="text-xs">
                       {result?.data?.size_amount ? (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">
-                          {result.data.size_amount}{result.data.size_unit || 'ml'}
-                        </span>
+                        <input
+                          type="number"
+                          step="1"
+                          value={result.data.size_amount}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [product.id]: {
+                                ...prev[product.id],
+                                data: { ...prev[product.id]?.data, size_amount: val }
+                              }
+                            }));
+                          }}
+                          className="w-16 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       ) : product.size_amount ? (
                         <span className="text-muted-foreground">{product.size_amount}{product.size_unit || 'ml'}</span>
                       ) : (
-                        <span className="text-yellow-500/70 font-medium">?</span>
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  status: prev[product.id]?.status === 'pending' ? 'success' : prev[product.id]?.status || 'success',
+                                  data: { ...prev[product.id]?.data, size_amount: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-16 h-6 px-1.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                       )}
                     </div>
                     <div className="text-xs">
                       {(() => {
                         const formValue = result?.data?.application_form || product.application_form;
                         const isNew = !!result?.data?.application_form;
-                        if (formValue) {
-                          const config = FORM_CONFIG[formValue];
+                        const needsInput = !formValue;
+                        if (needsInput || isNew) {
                           return (
-                            <span className={`px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 text-emerald-400' : 'bg-muted/50 text-muted-foreground'} font-medium`}>
-                              {config?.label || formValue}
-                            </span>
+                            <select
+                              value={result?.data?.application_form || ""}
+                              onChange={(e) => {
+                                setBatchAIResults((prev) => ({
+                                  ...prev,
+                                  [product.id]: {
+                                    ...prev[product.id],
+                                    status: prev[product.id]?.status === 'pending' ? 'success' : prev[product.id]?.status || 'success',
+                                    data: { ...prev[product.id]?.data, application_form: e.target.value || undefined }
+                                  }
+                                }));
+                              }}
+                              className={`h-6 px-1 rounded border text-xs ${isNew ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30'}`}
+                            >
+                              <option value="">?</option>
+                              <option value="cream">Cream</option>
+                              <option value="gel">Gel</option>
+                              <option value="liquid">Liquid</option>
+                              <option value="foam">Foam</option>
+                            </select>
                           );
                         }
-                        return <span className="text-yellow-500/70 font-medium">?</span>;
+                        const config = FORM_CONFIG[formValue];
+                        return (
+                          <span className="px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground font-medium">
+                            {config?.label || formValue}
+                          </span>
+                        );
                       })()}
                     </div>
                     <div className="text-xs">
                       {(() => {
                         const catValue = result?.data?.category || product.category;
                         const isNew = !!result?.data?.category;
-                        if (catValue) {
-                          const displayCat = dbValueToCategory[catValue] || catValue;
+                        const needsInput = !catValue;
+                        if (needsInput || isNew) {
                           return (
-                            <span className={`px-1.5 py-0.5 rounded ${isNew ? 'bg-emerald-500/10 text-emerald-400' : 'bg-muted/50 text-muted-foreground'} font-medium`}>
-                              {displayCat}
-                            </span>
+                            <select
+                              value={result?.data?.category || ""}
+                              onChange={(e) => {
+                                setBatchAIResults((prev) => ({
+                                  ...prev,
+                                  [product.id]: {
+                                    ...prev[product.id],
+                                    status: prev[product.id]?.status === 'pending' ? 'success' : prev[product.id]?.status || 'success',
+                                    data: { ...prev[product.id]?.data, category: e.target.value || undefined }
+                                  }
+                                }));
+                              }}
+                              className={`h-6 px-1 rounded border text-xs ${isNew ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30'}`}
+                            >
+                              <option value="">?</option>
+                              <option value="cleanser">Cleanser</option>
+                              <option value="toner">Toner</option>
+                              <option value="serum">Serum</option>
+                              <option value="moisturizer">Moisturizer</option>
+                              <option value="sunscreen">Sunscreen</option>
+                              <option value="other">Other</option>
+                            </select>
                           );
                         }
-                        return <span className="text-yellow-500/70 font-medium">?</span>;
+                        const displayCat = dbValueToCategory[catValue] || catValue;
+                        return (
+                          <span className="px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground font-medium">
+                            {displayCat}
+                          </span>
+                        );
                       })()}
+                    </div>
+                    {/* Usage Amount Column */}
+                    <div className="text-xs">
+                      {result?.data?.usage_amount ? (
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={result.data.usage_amount}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            setBatchAIResults((prev) => ({
+                              ...prev,
+                              [product.id]: {
+                                ...prev[product.id],
+                                data: { ...prev[product.id]?.data, usage_amount: val }
+                              }
+                            }));
+                          }}
+                          className="w-12 h-6 px-1.5 rounded bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/30 text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      ) : product.usage_amount ? (
+                        <span className="text-muted-foreground">{product.usage_amount}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.5"
+                          placeholder="?"
+                          onChange={(e) => {
+                            const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                            if (val) {
+                              setBatchAIResults((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  status: prev[product.id]?.status === 'pending' ? 'success' : prev[product.id]?.status || 'success',
+                                  data: { ...prev[product.id]?.data, usage_amount: val }
+                                }
+                              }));
+                            }
+                          }}
+                          className="w-12 h-6 px-1.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 text-xs placeholder:text-yellow-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      )}
                     </div>
                   </div>
                 );
@@ -1013,6 +1348,239 @@ export default function FacialProductsPage() {
             </div>
             <Button variant="outline" onClick={() => setIsBatchAIModalOpen(false)}>
               {isBatchFetching ? 'Cancel' : 'Close'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule Modal - Frequency & Timing */}
+      <Dialog open={isScheduleModalOpen} onOpenChange={setIsScheduleModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-500" />
+              Add Frequency & Timing
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Set when and how often you use each product
+            </p>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto py-2">
+            {/* Product Rows - Stacked layout like Equipment */}
+            <div className="divide-y">
+              {productsNeedingSchedule.map((product) => (
+                <div key={product.id} className="px-4 py-4 space-y-2">
+                  {/* Line 1: Product Name + Toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">{product.name}</span>
+                    {(() => {
+                      const isActive = pendingToggles[product.id] ?? product.is_active;
+                      return (
+                        <>
+                          <Switch
+                            checked={isActive}
+                            onCheckedChange={() => {
+                              setPendingToggles(prev => ({ ...prev, [product.id]: !isActive }));
+                              toggleProduct.mutate(product.id);
+                            }}
+                            className="data-[state=checked]:bg-green-500 scale-75"
+                          />
+                          <span className={`text-xs ${isActive ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Line 2: When */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground w-20">When:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {TIMING_OPTIONS.map((opt) => {
+                        const isSelected = scheduleEntries[product.id]?.timing === opt.value;
+                        const TimingIcon = opt.icon;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setScheduleEntries((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  timing: isSelected ? "" : opt.value,
+                                },
+                              }));
+                            }}
+                            className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+                              isSelected
+                                ? opt.selectedColor
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            <TimingIcon className="w-3.5 h-3.5" />
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Line 3: Frequency */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground w-20">Frequency:</span>
+                    <div className="flex gap-1">
+                      {[
+                        { value: "daily", label: "Daily" },
+                        { value: "every_other_day", label: "Every Other Day" },
+                        { value: "as_needed", label: "As Needed" },
+                      ].map((opt) => {
+                        const isSelected = scheduleEntries[product.id]?.frequency === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setScheduleEntries((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  frequency: isSelected ? "" : opt.value,
+                                  days: [], // Clear days when selecting preset
+                                },
+                              }));
+                            }}
+                            className={`px-3 py-1 text-xs rounded border transition-colors ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <span className="text-sm text-muted-foreground">or Custom:</span>
+                    <div className="flex gap-1">
+                      {["S", "M", "T", "W", "T", "F", "S"].map((day, idx) => {
+                        const dayValues = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+                        const dayValue = dayValues[idx];
+                        const isSelected = scheduleEntries[product.id]?.days?.includes(dayValue);
+                        return (
+                          <button
+                            key={`${day}-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              const currentDays = scheduleEntries[product.id]?.days || [];
+                              const newDays = isSelected
+                                ? currentDays.filter((d) => d !== dayValue)
+                                : [...currentDays, dayValue];
+                              setScheduleEntries((prev) => ({
+                                ...prev,
+                                [product.id]: {
+                                  ...prev[product.id],
+                                  frequency: newDays.length > 0 ? "custom" : prev[product.id]?.frequency || "",
+                                  days: newDays,
+                                },
+                              }));
+                            }}
+                            className={`w-7 h-7 text-xs rounded-full border transition-colors ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="flex-shrink-0">
+            <Button variant="outline" onClick={() => setIsScheduleModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveSchedule}
+              disabled={isSavingSchedule}
+              className="bg-yellow-500 hover:bg-yellow-600 text-black"
+            >
+              {isSavingSchedule ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>Save All</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cost Warning Modal */}
+      <Dialog open={isCostWarningModalOpen} onOpenChange={setIsCostWarningModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <AlertTriangle className="w-5 h-5" />
+              Incomplete Cost Data
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground mb-3">
+              These products are missing price or usage info needed to calculate accurate costs:
+            </p>
+            <div className="max-h-[300px] overflow-y-auto space-y-2">
+              {productsMissingCostData.map((product) => {
+                const missing: string[] = [];
+                if (!product.price) missing.push('Price');
+                if (!product.size_amount) missing.push('Size');
+                if (!product.usage_amount) missing.push('Usage amount');
+                const usageFrequency = (product as any).usage_frequency?.toLowerCase() || '';
+                const usageTiming = (product as any).usage_timing?.toLowerCase() || '';
+                if (!['daily', 'every_other_day', 'as_needed'].includes(usageFrequency)) missing.push('Frequency');
+                if (!['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].includes(usageTiming)) missing.push('When');
+
+                return (
+                  <div
+                    key={product.id}
+                    className="p-2 rounded border border-muted-foreground/20 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => {
+                      setIsCostWarningModalOpen(false);
+                      handleEdit(product);
+                    }}
+                  >
+                    <div className="font-medium text-sm truncate">{product.name}</div>
+                    <div className="text-[10px] text-red-400 mt-0.5">
+                      Missing: {missing.join(', ')}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCostWarningModalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                setIsCostWarningModalOpen(false);
+                if (productsMissingCostData.length > 0) {
+                  handleEdit(productsMissingCostData[0]);
+                }
+              }}
+            >
+              Edit First Product
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useUpdateSupplement } from "@/hooks/useSupplements";
+import { useUpdateSupplement, useToggleSupplement } from "@/hooks/useSupplements";
 import { Supplement, SupplementTiming } from "@/types";
 import { aiApi } from "@/lib/api";
 import {
@@ -195,8 +196,9 @@ export default function SupplementsPage() {
   const [urlEntries, setUrlEntries] = useState<Record<string, string>>({});
   const [isSavingUrls, setIsSavingUrls] = useState(false);
   const [isUserInputModalOpen, setIsUserInputModalOpen] = useState(false);
-  const [userInputEntries, setUserInputEntries] = useState<Record<string, { frequency: string; timings: string[] }>>({});
+  const [userInputEntries, setUserInputEntries] = useState<Record<string, { frequency: string; timings: string[]; days: string[] }>>({});
   const [isSavingUserInput, setIsSavingUserInput] = useState(false);
+  const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({});
   const [isCostWarningModalOpen, setIsCostWarningModalOpen] = useState(false);
   const [isCostBreakdownModalOpen, setIsCostBreakdownModalOpen] = useState(false);
 
@@ -221,6 +223,7 @@ export default function SupplementsPage() {
   const [isSavingBatch, setIsSavingBatch] = useState(false);
 
   const updateSupplement = useUpdateSupplement();
+  const toggleSupplement = useToggleSupplement();
 
   // Get all supplements for counting (no filters)
   const { data: allSupplements, isLoading, error, refetch } = useSupplements({});
@@ -470,11 +473,12 @@ export default function SupplementsPage() {
   }, [allSupplements]);
 
   const handleOpenUserInputModal = () => {
-    const entries: Record<string, { frequency: string; timings: string[] }> = {};
+    const entries: Record<string, { frequency: string; timings: string[]; days: string[] }> = {};
     supplementsNeedingUserInput.forEach((s) => {
       entries[s.id] = {
-        frequency: s.frequency || "",
+        frequency: s.frequency?.toLowerCase() || "",
         timings: s.timings || (s.timing ? [s.timing] : []),
+        days: (s as any).frequency_days || [],
       };
     });
     setUserInputEntries(entries);
@@ -486,13 +490,14 @@ export default function SupplementsPage() {
     try {
       let updateCount = 0;
       for (const [id, data] of Object.entries(userInputEntries)) {
-        if (data.frequency || data.timings.length > 0) {
+        if (data.frequency || data.timings.length > 0 || data.days?.length > 0) {
           await updateSupplement.mutateAsync({
             id,
             data: {
               frequency: data.frequency || undefined,
               timings: data.timings.length > 0 ? data.timings as SupplementTiming[] : undefined,
-            },
+              frequency_days: data.days?.length > 0 ? data.days : undefined,
+            } as any,
           });
           updateCount++;
         }
@@ -526,7 +531,6 @@ export default function SupplementsPage() {
     data?: typeof batchAIResults[string]['data'];
     error?: string;
   }> => {
-    const searchQuery = `${supplement.name} ${supplement.brand || ""} supplement. Find: brand, price, servings, form, dose, unit, category.`;
     const normalizeValue = (val: string | undefined) => val?.toLowerCase().replace(/\s+/g, '_');
 
     return new Promise((resolve) => {
@@ -535,15 +539,16 @@ export default function SupplementsPage() {
       // Track streamed data internally (not relying on React state batching)
       const streamedData: Record<string, any> = {};
 
-      aiApi.extractSupplementsStream(
+      aiApi.enrichProductStream(
         {
-          text_content: searchQuery,
-          source_type: "text",
+          product_name: supplement.name,
+          brand: supplement.brand || undefined,
           product_url: supplement.purchase_url || undefined,
+          product_type: 'supplement',
         },
         // onProgress - update fields in real-time as they're found
         (event) => {
-          // Handle per-field updates from web search
+          // Handle per-field updates
           if (event.step === 'field_found' && event.field && event.value !== undefined) {
             const fieldKey = event.field as string;
             let fieldValue: any = event.value;
@@ -574,19 +579,17 @@ export default function SupplementsPage() {
           }
 
           // Handle first_pass_done as fallback (fields already streamed via field_found)
-          // This ensures we have all data even if some field_found events were missed
-          if (event.step === 'first_pass_done' && event.supplement) {
-            const supplementData = event.supplement as Record<string, any>;
+          if (event.step === 'first_pass_done' && event.product) {
+            const productData = event.product as Record<string, any>;
             const fieldsToUpdate: Record<string, any> = {};
 
             for (const fieldKey of ['brand', 'price', 'servings_per_container', 'serving_size', 'intake_form', 'dose_per_serving', 'dose_unit', 'category']) {
-              let fieldValue = supplementData[fieldKey];
+              let fieldValue = productData[fieldKey];
               if (fieldValue !== undefined && fieldValue !== null) {
                 if (fieldKey === 'intake_form' || fieldKey === 'category') {
                   fieldValue = normalizeValue(fieldValue as string);
                 }
                 fieldsToUpdate[fieldKey] = fieldValue;
-                // Track locally for auto-save
                 streamedData[fieldKey] = fieldValue;
               }
             }
@@ -603,8 +606,8 @@ export default function SupplementsPage() {
             }));
           }
         },
-        (data) => {
-          result = data;
+        (completeResult) => {
+          result = completeResult;
         },
         (error) => {
           hasError = true;
@@ -613,10 +616,9 @@ export default function SupplementsPage() {
       ).then(() => {
         if (hasError) return;
 
-        if (result?.supplements?.[0]) {
-          const s = result.supplements[0];
+        if (result?.data) {
+          const s = result.data;
           // Return final complete data merged with streamed data
-          // (use ?? to preserve 0 values, filter only null/undefined)
           const finalData = {
             brand: s.brand ?? undefined,
             price: s.price ?? undefined,
@@ -627,12 +629,10 @@ export default function SupplementsPage() {
             dose_unit: s.dose_unit ?? undefined,
             category: normalizeValue(s.category) ?? undefined,
           };
-          // Merge: streamed data first, then final data overwrites
           resolve({
             data: { ...streamedData, ...finalData }
           });
         } else if (Object.keys(streamedData).length > 0) {
-          // No final result, but we have streamed data - use it
           resolve({ data: streamedData });
         } else {
           resolve({ error: 'No data found' });
@@ -1254,61 +1254,139 @@ export default function SupplementsPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-auto py-2">
-            {/* Table Header */}
-            <div className="grid grid-cols-[1fr,140px,200px] gap-2 px-2 py-1 text-xs font-medium text-muted-foreground border-b sticky top-0 bg-background">
-              <div>Supplement</div>
-              <div>Frequency</div>
-              <div>Timing</div>
-            </div>
-
-            {/* Table Rows */}
+            {/* Supplement Rows - Stacked layout like Equipment */}
             <div className="divide-y">
               {supplementsNeedingUserInput.map((supplement) => (
-                <div key={supplement.id} className="grid grid-cols-[1fr,140px,200px] gap-2 px-2 py-2 items-center">
-                  <div className="truncate text-sm font-medium">{supplement.name}</div>
-                  <select
-                    value={userInputEntries[supplement.id]?.frequency || ""}
-                    onChange={(e) => setUserInputEntries((prev) => ({
-                      ...prev,
-                      [supplement.id]: { ...prev[supplement.id], frequency: e.target.value },
-                    }))}
-                    className="h-7 text-xs rounded border bg-background px-2"
-                  >
-                    <option value="">Select...</option>
-                    <option value="daily">Daily</option>
-                    <option value="every_other_day">Every Other Day</option>
-                    <option value="as_needed">As Needed</option>
-                  </select>
-                  <div className="flex flex-wrap gap-1">
-                    {['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].map((time) => {
-                      const config = TIMING_CONFIG[time];
-                      const TimingIcon = config.icon;
-                      const isSelected = userInputEntries[supplement.id]?.timings?.includes(time);
+                <div key={supplement.id} className="px-4 py-4 space-y-2">
+                  {/* Line 1: Supplement Name + Toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">{supplement.name}</span>
+                    {(() => {
+                      const isActive = pendingToggles[supplement.id] ?? supplement.is_active;
                       return (
-                        <button
-                          key={time}
-                          type="button"
-                          onClick={() => {
-                            const current = userInputEntries[supplement.id]?.timings || [];
-                            const newTimings = isSelected
-                              ? current.filter((t) => t !== time)
-                              : [...current, time];
-                            setUserInputEntries((prev) => ({
-                              ...prev,
-                              [supplement.id]: { ...prev[supplement.id], timings: newTimings },
-                            }));
-                          }}
-                          className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors ${
-                            isSelected
-                              ? config.selectedColor
-                              : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          <TimingIcon className="w-3 h-3" />
-                          {config.label}
-                        </button>
+                        <>
+                          <Switch
+                            checked={isActive}
+                            onCheckedChange={() => {
+                              setPendingToggles(prev => ({ ...prev, [supplement.id]: !isActive }));
+                              toggleSupplement.mutate(supplement.id);
+                            }}
+                            className="data-[state=checked]:bg-green-500 scale-75"
+                          />
+                          <span className={`text-xs ${isActive ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </>
                       );
-                    })}
+                    })()}
+                  </div>
+
+                  {/* Line 2: When */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground w-20">When:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'].map((time) => {
+                        const config = TIMING_CONFIG[time];
+                        const TimingIcon = config.icon;
+                        const isSelected = userInputEntries[supplement.id]?.timings?.includes(time);
+                        return (
+                          <button
+                            key={time}
+                            type="button"
+                            onClick={() => {
+                              const current = userInputEntries[supplement.id]?.timings || [];
+                              const newTimings = isSelected
+                                ? current.filter((t) => t !== time)
+                                : [...current, time];
+                              setUserInputEntries((prev) => ({
+                                ...prev,
+                                [supplement.id]: { ...prev[supplement.id], timings: newTimings },
+                              }));
+                            }}
+                            className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+                              isSelected
+                                ? config.selectedColor
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            <TimingIcon className="w-3.5 h-3.5" />
+                            {config.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Line 3: Frequency */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground w-20">Frequency:</span>
+                    <div className="flex gap-1">
+                      {[
+                        { value: "daily", label: "Daily" },
+                        { value: "every_other_day", label: "Every Other Day" },
+                        { value: "as_needed", label: "As Needed" },
+                      ].map((opt) => {
+                        const isSelected = userInputEntries[supplement.id]?.frequency === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setUserInputEntries((prev) => ({
+                                ...prev,
+                                [supplement.id]: {
+                                  ...prev[supplement.id],
+                                  frequency: isSelected ? "" : opt.value,
+                                  days: [], // Clear days when selecting preset
+                                },
+                              }));
+                            }}
+                            className={`px-3 py-1 text-xs rounded border transition-colors ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <span className="text-sm text-muted-foreground">or Custom:</span>
+                    <div className="flex gap-1">
+                      {["S", "M", "T", "W", "T", "F", "S"].map((day, idx) => {
+                        const dayValues = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+                        const dayValue = dayValues[idx];
+                        const isSelected = userInputEntries[supplement.id]?.days?.includes(dayValue);
+                        return (
+                          <button
+                            key={`${day}-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              const currentDays = userInputEntries[supplement.id]?.days || [];
+                              const newDays = isSelected
+                                ? currentDays.filter((d) => d !== dayValue)
+                                : [...currentDays, dayValue];
+                              setUserInputEntries((prev) => ({
+                                ...prev,
+                                [supplement.id]: {
+                                  ...prev[supplement.id],
+                                  frequency: newDays.length > 0 ? "custom" : prev[supplement.id]?.frequency || "",
+                                  days: newDays,
+                                },
+                              }));
+                            }}
+                            className={`w-7 h-7 text-xs rounded-full border transition-colors ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted/50 border-muted-foreground/20 hover:bg-muted"
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               ))}

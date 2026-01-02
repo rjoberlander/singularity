@@ -6,7 +6,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToggleFacialProduct } from "@/hooks/useFacialProducts";
 import {
   Droplet, DollarSign, ExternalLink, AlertTriangle, LucideIcon,
-  Shield, FlaskConical, MoreHorizontal, Layers, Package
+  Shield, FlaskConical, MoreHorizontal, Layers, Package, Calendar,
+  Sunrise, Sun, Utensils, Sunset, Moon, BedDouble
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,23 +55,63 @@ const CATEGORY_LABELS: Record<string, string> = {
 const FORM_LABELS: Record<string, string> = {
   cream: "Cream",
   gel: "Gel",
-  oil: "Oil",
   liquid: "Liquid",
   foam: "Foam",
 };
 
+// Timing config
+const TIMING_CONFIG: Record<string, { icon: LucideIcon; color: string; label: string }> = {
+  wake_up: { icon: Sunrise, color: "text-orange-400", label: "Wake" },
+  am: { icon: Sun, color: "text-yellow-400", label: "AM" },
+  lunch: { icon: Utensils, color: "text-amber-500", label: "Lunch" },
+  pm: { icon: Sunset, color: "text-orange-500", label: "PM" },
+  dinner: { icon: Utensils, color: "text-purple-400", label: "Dinner" },
+  evening: { icon: Moon, color: "text-purple-400", label: "Evening" },
+  bed: { icon: BedDouble, color: "text-indigo-400", label: "Bed" },
+};
+
+// Frequency labels
+const FREQUENCY_LABELS: Record<string, string> = {
+  daily: "Daily",
+  every_other_day: "Every Other Day",
+  as_needed: "As Needed",
+  custom: "Custom",
+};
+
+// Valid frequencies (custom without days is not valid)
+const VALID_FREQUENCIES = ['daily', 'every_other_day', 'as_needed'];
+
+// Valid timings
+const VALID_TIMINGS = ['wake_up', 'am', 'lunch', 'pm', 'dinner', 'evening', 'bed'];
+
+// Helper to check empty value
+const isEmpty = (val: any) => val === null || val === undefined || val === '' || val === 0;
+
 // Check which important fields are missing
-function getMissingFieldsGrouped(product: FacialProduct): {
+function getMissingFields(product: FacialProduct): {
+  frequency: boolean;
+  timing: boolean;
   productInfo: boolean;
   productUrl: boolean;
 } {
+  // Frequency check - must be a valid frequency OR custom with days selected
+  const usageFrequency = (product as any).usage_frequency?.toLowerCase() || '';
+  const frequencyDays = (product as any).frequency_days || [];
+  const hasValidFrequency = VALID_FREQUENCIES.includes(usageFrequency) ||
+    (usageFrequency === 'custom' && frequencyDays.length > 0);
+  const frequency = !hasValidFrequency;
+
+  // Timing check
+  const usageTiming = (product as any).usage_timing?.toLowerCase() || '';
+  const timing = !VALID_TIMINGS.includes(usageTiming);
+
   // Product info: brand, price, category, form, size
   const productInfo = !product.brand || !product.price || !product.category ||
     !product.application_form || !product.size_amount;
 
   const productUrl = !product.purchase_url;
 
-  return { productInfo, productUrl };
+  return { frequency, timing, productInfo, productUrl };
 }
 
 interface FacialProductCardProps {
@@ -80,8 +121,8 @@ interface FacialProductCardProps {
 
 export function FacialProductCard({ product, onEdit }: FacialProductCardProps) {
   const toggleProduct = useToggleFacialProduct();
-  const missingGroups = getMissingFieldsGrouped(product);
-  const hasMissingFields = missingGroups.productInfo || missingGroups.productUrl;
+  const missingFields = getMissingFields(product);
+  const hasMissingFields = missingFields.frequency || missingFields.timing || missingFields.productInfo || missingFields.productUrl;
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,6 +139,119 @@ export function FacialProductCard({ product, onEdit }: FacialProductCardProps) {
   const IconComponent = CATEGORY_ICONS[category] || Droplet;
   const iconBgColor = CATEGORY_COLORS[category] || CATEGORY_COLORS.other;
   const iconColor = CATEGORY_ICON_COLORS[category] || CATEGORY_ICON_COLORS.other;
+
+  // Calculate daily applications based on frequency and timing
+  const calculateDailyApplications = (): number | null => {
+    const usageFrequency = (product as any).usage_frequency?.toLowerCase() || '';
+    const usageTiming = (product as any).usage_timing?.toLowerCase() || '';
+
+    // Count applications per day based on timing
+    // Assuming each timing is 1 application
+    const timingsPerDay = usageTiming && VALID_TIMINGS.includes(usageTiming) ? 1 : 0;
+    if (timingsPerDay === 0) return null;
+
+    // Frequency multiplier
+    let freqMultiplier = 1;
+    if (usageFrequency === 'every_other_day') freqMultiplier = 0.5;
+    else if (usageFrequency === 'as_needed') freqMultiplier = 0.5; // estimate
+    else if (!VALID_FREQUENCIES.includes(usageFrequency)) return null;
+
+    return timingsPerDay * freqMultiplier;
+  };
+
+  const dailyApplications = calculateDailyApplications();
+
+  // Unit conversion constants
+  const ML_PER_OZ = 29.5735;
+  const ML_PER_PUMP = 0.5;
+  const ML_PER_DROP = 0.05;
+  const ML_PER_PEA_SIZED = 0.5;
+
+  // Calculate cost per month
+  const calculateMonthlyCost = (): number | null => {
+    if (!product.price || !product.size_amount || !product.usage_amount || !dailyApplications) return null;
+
+    const sizeUnit = product.size_unit?.toLowerCase() || '';
+    const usageUnit = product.usage_unit?.toLowerCase() || '';
+
+    // Convert size to ml
+    let sizeInMl: number;
+    if (sizeUnit === 'ml') {
+      sizeInMl = product.size_amount;
+    } else if (sizeUnit === 'oz') {
+      sizeInMl = product.size_amount * ML_PER_OZ;
+    } else if (sizeUnit === 'g') {
+      sizeInMl = product.size_amount; // 1g ≈ 1ml for skincare
+    } else {
+      return null;
+    }
+
+    // Convert usage to ml
+    let usageInMl: number;
+    if (usageUnit === 'ml') {
+      usageInMl = product.usage_amount;
+    } else if (usageUnit === 'pumps') {
+      usageInMl = product.usage_amount * ML_PER_PUMP;
+    } else if (usageUnit === 'drops') {
+      usageInMl = product.usage_amount * ML_PER_DROP;
+    } else if (usageUnit === 'pea-sized') {
+      usageInMl = product.usage_amount * ML_PER_PEA_SIZED;
+    } else {
+      return null;
+    }
+
+    const mlPerDay = usageInMl * dailyApplications;
+    const daysPerContainer = sizeInMl / (mlPerDay || 1);
+    return (product.price / daysPerContainer) * 30;
+  };
+
+  const monthlyCost = calculateMonthlyCost();
+
+  // Calculate how long the product lasts
+  const calculateProductDuration = (): { value: number; unit: string } | null => {
+    if (!product.size_amount || !product.usage_amount || !dailyApplications) return null;
+
+    const sizeUnit = product.size_unit?.toLowerCase() || '';
+    const usageUnit = product.usage_unit?.toLowerCase() || '';
+
+    // Convert size to ml
+    let sizeInMl: number;
+    if (sizeUnit === 'ml') {
+      sizeInMl = product.size_amount;
+    } else if (sizeUnit === 'oz') {
+      sizeInMl = product.size_amount * ML_PER_OZ;
+    } else if (sizeUnit === 'g') {
+      sizeInMl = product.size_amount;
+    } else {
+      return null;
+    }
+
+    // Convert usage to ml
+    let usageInMl: number;
+    if (usageUnit === 'ml') {
+      usageInMl = product.usage_amount;
+    } else if (usageUnit === 'pumps') {
+      usageInMl = product.usage_amount * ML_PER_PUMP;
+    } else if (usageUnit === 'drops') {
+      usageInMl = product.usage_amount * ML_PER_DROP;
+    } else if (usageUnit === 'pea-sized') {
+      usageInMl = product.usage_amount * ML_PER_PEA_SIZED;
+    } else {
+      return null;
+    }
+
+    const mlPerDay = usageInMl * dailyApplications;
+    const days = sizeInMl / mlPerDay;
+
+    if (days >= 60) {
+      return { value: Math.round(days / 30), unit: "months" };
+    } else if (days >= 14) {
+      return { value: Math.round(days / 7), unit: "weeks" };
+    }
+    return { value: Math.round(days), unit: "days" };
+  };
+
+  const productDuration = calculateProductDuration();
 
   return (
     <Card
@@ -168,7 +322,35 @@ export function FacialProductCard({ product, onEdit }: FacialProductCardProps) {
           </div>
         </div>
 
-        {/* Price + Size */}
+        {/* Frequency + Timing row */}
+        {((product as any).usage_frequency || (product as any).usage_timing) && (
+          <div className="flex items-center gap-3 mb-3">
+            {/* Frequency */}
+            {(product as any).usage_frequency && (
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium">{FREQUENCY_LABELS[(product as any).usage_frequency] || (product as any).usage_frequency}</span>
+              </div>
+            )}
+            {/* Timing */}
+            {(product as any).usage_timing && (() => {
+              const timing = (product as any).usage_timing?.toLowerCase();
+              const config = TIMING_CONFIG[timing];
+              if (config) {
+                const TimingIcon = config.icon;
+                return (
+                  <div className={`flex items-center gap-1 ${config.color}`}>
+                    <TimingIcon className="w-4 h-4 shrink-0" />
+                    <span className="text-sm font-medium">{config.label}</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        )}
+
+        {/* Price + Size + Cost */}
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           {product.price != null && (
             <span className="flex items-center gap-1">
@@ -189,6 +371,32 @@ export function FacialProductCard({ product, onEdit }: FacialProductCardProps) {
             </span>
           )}
         </div>
+
+        {/* Cost calculations - show missing usage indicator if usage_amount not set */}
+        {(monthlyCost || productDuration || product.usage_amount || (product.is_active && product.price && product.size_amount && !product.usage_amount)) && (
+          <div className="flex items-center gap-3 mt-2 text-sm">
+            {product.usage_amount && product.usage_unit ? (
+              <span className="text-muted-foreground">
+                {product.usage_amount} {product.usage_unit}/use
+              </span>
+            ) : product.is_active && product.price && product.size_amount ? (
+              <span className="text-red-400 text-xs flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                Missing usage
+              </span>
+            ) : null}
+            {monthlyCost != null && (
+              <span className="text-green-400 font-medium">
+                ${monthlyCost.toFixed(2)}/mo
+              </span>
+            )}
+            {productDuration && (
+              <span className="text-blue-400">
+                ~{productDuration.value} {productDuration.unit}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Key ingredients preview */}
         {product.key_ingredients && product.key_ingredients.length > 0 && (
@@ -217,12 +425,22 @@ export function FacialProductCard({ product, onEdit }: FacialProductCardProps) {
                 <AlertTriangle className="w-4 h-4" />
                 Missing:
               </span>
-              {missingGroups.productInfo && (
+              {missingFields.frequency && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">
+                  Frequency
+                </span>
+              )}
+              {missingFields.timing && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
+                  When
+                </span>
+              )}
+              {missingFields.productInfo && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
                   Product Info
                 </span>
               )}
-              {missingGroups.productUrl && (
+              {missingFields.productUrl && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
                   Product URL
                 </span>

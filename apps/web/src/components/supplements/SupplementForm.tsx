@@ -359,19 +359,17 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     // Initialize all fields as pending
     fieldsToFind.forEach(f => { fieldConfidence[f] = 0; });
 
-    // Build search query
-    const searchQuery = `${formData.name} ${formData.brand || ""} supplement. Find: brand, price, servings, form, dose, unit, category.`;
-
     // Track result from streaming
-    let result: any = null;
+    let result: { data: Record<string, unknown>; field_confidence: Record<string, number> } | null = null;
     let streamError: string | null = null;
 
-    // Use streaming API with proper auth
-    await aiApi.extractSupplementsStream(
+    // Use unified streaming API
+    await aiApi.enrichProductStream(
       {
-        text_content: searchQuery,
-        source_type: "text",
+        product_name: formData.name,
+        brand: formData.brand || undefined,
         product_url: formData.purchase_url || undefined,
+        product_type: 'supplement',
       },
       // onProgress callback
       (event) => {
@@ -391,8 +389,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
             });
             break;
           case 'first_pass_done':
-            const found = event.fields?.filter((f) => f.status === 'found').map((f) => f.key) || [];
-            event.fields?.forEach((f) => {
+            const found = event.fields?.filter((f: { status: string }) => f.status === 'found').map((f: { key: string }) => f.key) || [];
+            event.fields?.forEach((f: { key: string; status: string; confidence?: number }) => {
               fieldConfidence[f.key] = f.confidence || (f.status === 'found' ? 0.7 : 0);
             });
             setExtractionStep({
@@ -428,8 +426,8 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         }
       },
       // onComplete callback
-      (data) => {
-        result = data;
+      (completeResult) => {
+        result = completeResult;
       },
       // onError callback
       (error) => {
@@ -441,42 +439,50 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
     if (streamError || !result) {
       console.log('Streaming failed, using fallback:', streamError);
       try {
+        const searchQuery = `${formData.name} ${formData.brand || ""} supplement. Find: brand, price, servings, form, dose, unit, category.`;
         const fallbackResult = await extractSupplements.mutateAsync({
           text_content: searchQuery,
           source_type: "text",
           product_url: formData.purchase_url || undefined,
         });
-        result = fallbackResult;
-      } catch (e: any) {
-        toast.error(e.message || "AI fetch failed");
+        // Convert fallback format to match enrichment format
+        if (fallbackResult.supplements?.[0]) {
+          const supplement = fallbackResult.supplements[0] as Record<string, unknown>;
+          result = {
+            data: supplement,
+            field_confidence: (supplement.field_confidence as Record<string, number>) || {},
+          };
+        }
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : "AI fetch failed";
+        toast.error(errorMessage);
         setIsAIFetching(false);
-        setExtractionStep({ type: 'error', message: e.message || 'Failed' });
+        setExtractionStep({ type: 'error', message: errorMessage });
         return;
       }
     }
 
     try {
-
-      if (result.supplements && result.supplements.length > 0) {
-        const s = result.supplements[0];
+      if (result?.data) {
+        const s = result.data as Record<string, unknown>;
         console.log("AI response:", s);
 
         // Normalize values
         const normalizeValue = (val: string | undefined) => val?.toLowerCase().replace(/\s+/g, '_');
 
         // Use field_confidence from API (already populated by streaming) or calculate
-        const apiFieldConfidence = s.field_confidence || {};
+        const apiFieldConfidence = result.field_confidence || {};
         fieldsToFind.forEach(field => {
           // Only update if not already set by streaming
           if (fieldConfidence[field] === 0 || fieldConfidence[field] === undefined) {
-            const val = s[field as keyof typeof s];
+            const val = s[field];
             if (apiFieldConfidence[field] !== undefined) {
               fieldConfidence[field] = apiFieldConfidence[field];
               if (apiFieldConfidence[field] > 0 && !foundFields.includes(field)) {
                 foundFields.push(field);
               }
             } else if (val !== undefined && val !== null && val !== '' && val !== 0) {
-              fieldConfidence[field] = s.confidence || 0.7;
+              fieldConfidence[field] = 0.7;
               if (!foundFields.includes(field)) foundFields.push(field);
             } else {
               fieldConfidence[field] = -1;
@@ -496,16 +502,16 @@ export function SupplementForm({ supplement, open, onOpenChange }: SupplementFor
         // Update form with found values
         setFormData(prev => ({
           ...prev,
-          name: s.name || prev.name,
-          brand: s.brand && fieldConfidence.brand > 0 ? s.brand : (fieldConfidence.brand === -1 ? "[Cannot Find]" : prev.brand),
-          intake_quantity: s.intake_quantity || prev.intake_quantity,
-          intake_form: normalizeValue(s.intake_form) || "",
-          serving_size: s.serving_size ?? prev.serving_size ?? 1,
-          dose_per_serving: s.dose_per_serving ?? undefined,
-          dose_unit: s.dose_unit || "",
-          servings_per_container: s.servings_per_container ?? undefined,
-          price: s.price ?? undefined,
-          category: normalizeValue(s.category) || "",
+          name: (s.name as string) || prev.name,
+          brand: s.brand && fieldConfidence.brand > 0 ? (s.brand as string) : (fieldConfidence.brand === -1 ? "[Cannot Find]" : prev.brand),
+          intake_quantity: (s.intake_quantity as number) || prev.intake_quantity,
+          intake_form: normalizeValue(s.intake_form as string) || "",
+          serving_size: (s.serving_size as number) ?? prev.serving_size ?? 1,
+          dose_per_serving: (s.dose_per_serving as number) ?? undefined,
+          dose_unit: (s.dose_unit as string) || "",
+          servings_per_container: (s.servings_per_container as number) ?? undefined,
+          price: (s.price as number) ?? undefined,
+          category: normalizeValue(s.category as string) || "",
           product_data_source: 'ai',
           product_updated_at: new Date().toISOString(),
         }));

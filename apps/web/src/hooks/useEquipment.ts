@@ -77,9 +77,36 @@ export function useToggleEquipment() {
       const response = await equipmentApi.toggle(id);
       return response.data.data as Equipment;
     },
-    onSuccess: (_, id) => {
+    onMutate: async (id: string) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["equipment"] });
+
+      // Get all cached queries and update them optimistically
+      const queryCache = queryClient.getQueryCache();
+      const queries = queryCache.findAll({ queryKey: ["equipment"] });
+
+      const previousData: { queryKey: unknown[]; data: Equipment[] }[] = [];
+
+      queries.forEach((query) => {
+        const data = query.state.data as Equipment[] | undefined;
+        if (data && Array.isArray(data)) {
+          previousData.push({ queryKey: query.queryKey, data });
+          queryClient.setQueryData<Equipment[]>(query.queryKey,
+            data.map(e => e.id === id ? { ...e, is_active: !e.is_active } : e)
+          );
+        }
+      });
+
+      return { previousData };
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      context?.previousData?.forEach(({ queryKey, data }) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["equipment"] });
-      queryClient.invalidateQueries({ queryKey: ["equipment", id] });
     },
   });
 }

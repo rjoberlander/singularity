@@ -23,6 +23,11 @@ interface CreateFacialProductRequest {
   application_area?: string;
   application_method?: string;
   routines?: string[];
+  usage_frequency?: string;
+  usage_timing?: string;
+  frequency_days?: string[];
+  usage_amount?: number;  // How much product used per application
+  usage_unit?: string;    // Unit: ml, pumps, drops
   size_amount?: number;
   size_unit?: string;
   price?: number;

@@ -182,7 +182,6 @@ export type FacialProductForm =
   | 'cream'
   | 'gel'
   | 'lotion'
-  | 'oil'
   | 'serum'
   | 'liquid'
   | 'spray'
@@ -214,6 +213,15 @@ export interface FacialProduct {
 
   // Timing (AM/PM routine)
   routines?: FacialProductRoutine[];
+
+  // Usage schedule
+  usage_frequency?: string;
+  usage_timing?: string;
+  frequency_days?: string[];
+
+  // Usage per application (for cost calculations)
+  usage_amount?: number;  // How much product used per application (e.g., 1, 2, 0.5)
+  usage_unit?: string;    // Unit: ml, pumps, drops, pea-sized
 
   // Product details
   size_amount?: number;
@@ -254,6 +262,11 @@ export interface CreateFacialProductRequest {
   application_area?: FacialProductApplicationArea | string;
   application_method?: string;
   routines?: FacialProductRoutine[];
+  usage_frequency?: string;
+  usage_timing?: string;
+  frequency_days?: string[];
+  usage_amount?: number;  // How much product used per application
+  usage_unit?: string;    // Unit: ml, pumps, drops
   size_amount?: number;
   size_unit?: string;
   price?: number;

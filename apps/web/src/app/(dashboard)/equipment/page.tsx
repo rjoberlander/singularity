@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates, useUpdateEquipment } from "@/hooks/useEquipment";
+import { useEquipment, useCreateEquipmentBulk, useEquipmentDuplicates, useUpdateEquipment, useToggleEquipment } from "@/hooks/useEquipment";
 import { EquipmentDuplicatesModal } from "@/components/equipment/EquipmentDuplicatesModal";
 import { EquipmentCard } from "@/components/equipment/EquipmentCard";
 import { EquipmentForm } from "@/components/equipment/EquipmentForm";
@@ -51,6 +51,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -168,6 +169,7 @@ export default function EquipmentPage() {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduleEntries, setScheduleEntries] = useState<Record<string, { frequency: string; frequency_days: string[]; timing: string; duration: string }>>({});
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({});
 
   // Batch AI population modal state
   const [isBatchAIModalOpen, setIsBatchAIModalOpen] = useState(false);
@@ -193,6 +195,7 @@ export default function EquipmentPage() {
   const createBulkMutation = useCreateEquipmentBulk();
   const extractMutation = useExtractEquipment();
   const updateEquipment = useUpdateEquipment();
+  const toggleEquipment = useToggleEquipment();
 
   // Fetch existing duplicates for the equipment list
   const { data: existingDuplicates, refetch: refetchDuplicates } = useEquipmentDuplicates();
@@ -1173,9 +1176,27 @@ export default function EquipmentPage() {
             <div className="space-y-3">
               {missingFieldCounts.equipmentNeedingSchedule.map((item) => (
                 <div key={item.id} className="border rounded-lg px-3 py-2 space-y-1.5">
-                  {/* Line 1: Equipment name + Duration */}
+                  {/* Line 1: Equipment name + Toggle + Duration */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{item.name}</span>
+                    {(() => {
+                      const isActive = pendingToggles[item.id] ?? item.is_active;
+                      return (
+                        <>
+                          <Switch
+                            checked={isActive}
+                            onCheckedChange={() => {
+                              setPendingToggles(prev => ({ ...prev, [item.id]: !isActive }));
+                              toggleEquipment.mutate(item.id);
+                            }}
+                            className="data-[state=checked]:bg-green-500 scale-75"
+                          />
+                          <span className={`text-xs ${isActive ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </>
+                      );
+                    })()}
                     <span className="text-xs text-muted-foreground ml-4">Duration:</span>
                     <Input
                       value={scheduleEntries[item.id]?.duration || ""}

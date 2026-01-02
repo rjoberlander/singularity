@@ -7,6 +7,7 @@ import { ExtractBiomarkersRequest, HealthChatRequest, ExtractedBiomarkerData } f
 import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService';
 import { extractTextFromPDF, isPDFBase64, getBase64SizeMB } from '../utils/pdfProcessor';
 import { BIOMARKER_REFERENCE, findBiomarkerMatch, getBiomarkerNames } from '../data/biomarkerReference';
+import { enrichProductStream, ProductType, EnrichmentRequest } from '../services/productEnrichment';
 
 const router = Router();
 const MAX_IMAGE_SIZE_MB = 10; // Max size for image/vision API calls
@@ -1250,185 +1251,6 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
- * POST /api/v1/ai/extract-supplements/stream
- * Extract supplements with real-time progress streaming (SSE)
- */
-router.post('/extract-supplements/stream', async (req: Request, res: Response): Promise<any> => {
-  // Set up SSE headers
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
-  const sendProgress = (step: string, data: any) => {
-    res.write(`data: ${JSON.stringify({ step, ...data })}\n\n`);
-  };
-
-  try {
-    const userId = req.user!.id;
-    const { text_content, source_type, product_url } = req.body;
-
-    if (!text_content) {
-      sendProgress('error', { message: 'text_content is required' });
-      res.end();
-      return;
-    }
-
-    const REQUIRED_FIELDS = ['brand', 'price', 'servings_per_container', 'serving_size', 'intake_form', 'dose_per_serving', 'dose_unit', 'category'];
-
-    // Step 1: URL scraping
-    let urlContent = '';
-    if (product_url) {
-      sendProgress('scraping', { message: `Fetching ${product_url}...` });
-      const fetchResult = await fetchWebpageContent(product_url);
-      if (fetchResult.success && fetchResult.content) {
-        urlContent = `\n\n--- Product Page Content ---\n${fetchResult.content}\n--- End ---\n`;
-        sendProgress('scraping_done', { message: 'URL scraped successfully', contentLength: fetchResult.content.length });
-      } else {
-        sendProgress('scraping_failed', { message: fetchResult.error || 'Could not fetch URL' });
-      }
-    }
-
-    // Step 2: AI Analysis
-    sendProgress('analyzing', { message: 'AI analyzing supplement data...', fields: REQUIRED_FIELDS.map(f => ({ key: f, status: 'pending' })) });
-
-    const anthropic = await getAnthropicClient(userId);
-    if (!anthropic) {
-      sendProgress('error', { message: 'No Anthropic API key configured' });
-      res.end();
-      return;
-    }
-
-    const actualContent = (text_content || '') + urlContent;
-    const systemPrompt = `You are a supplement extraction assistant. Extract: brand, price, servings_per_container, serving_size (how many units per serving, e.g., 2 capsules = 1 serving), intake_form (capsule/powder/liquid/spray/gummy/patch), dose_per_serving, dose_unit (mg/g/mcg/IU/ml/CFU), category (vitamin_mineral/amino_protein/herb_botanical/probiotic/other). Return JSON with field_confidence for each field (0-1).`;
-
-    const response = await anthropic.messages.create({
-      model: AI_CONFIG.model,
-      max_tokens: 1000,
-      temperature: 0.1,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: `Extract supplement info:\n${actualContent}\nReturn JSON with supplements array including field_confidence object.` }]
-    });
-
-    const responseText = response.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    let extractedData: any = { supplements: [] };
-    if (jsonMatch) {
-      extractedData = JSON.parse(jsonMatch[0]);
-    }
-
-    // Process first pass results
-    if (extractedData.supplements && extractedData.supplements.length > 0) {
-      // Normalize the data to fix common AI mistakes (form/unit confusion, etc.)
-      extractedData.supplements[0] = normalizeSupplementData(extractedData.supplements[0]);
-      const supplement = extractedData.supplements[0];
-      const baseConfidence = supplement.confidence || 0.7;
-
-      if (!supplement.field_confidence) {
-        supplement.field_confidence = {};
-      }
-
-      // Check each field and stream results one by one
-      const lowConfidenceFields: string[] = [];
-      const fieldStatuses: Array<{ key: string; status: string; confidence?: number }> = [];
-
-      // Helper to add delay between field events for visual effect
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-      for (const field of REQUIRED_FIELDS) {
-        const value = supplement[field];
-        const fieldConf = supplement.field_confidence[field] || (value ? baseConfidence : 0);
-        supplement.field_confidence[field] = fieldConf;
-
-        if (!value || fieldConf < 0.8) {
-          lowConfidenceFields.push(field);
-          fieldStatuses.push({ key: field, status: 'missing', confidence: fieldConf });
-          // Send per-field event for missing fields too
-          sendProgress('field_not_found', { field, confidence: fieldConf, source: 'ai_analysis' });
-        } else {
-          fieldStatuses.push({ key: field, status: 'found', confidence: fieldConf });
-          // Stream each found field individually with its value
-          sendProgress('field_found', { field, value, confidence: fieldConf, source: 'ai_analysis' });
-        }
-        // Delay between fields for visual streaming effect (200ms = ~1.6s for all 8 fields)
-        await delay(200);
-      }
-
-      sendProgress('first_pass_done', {
-        message: `First pass: found ${REQUIRED_FIELDS.length - lowConfidenceFields.length}/${REQUIRED_FIELDS.length} fields`,
-        fields: fieldStatuses,
-        supplement
-      });
-
-      // Step 3: Web search if needed
-      if (lowConfidenceFields.length > 0) {
-        sendProgress('web_search', {
-          message: `Searching web for ${lowConfidenceFields.length} missing fields...`,
-          missingFields: lowConfidenceFields
-        });
-
-        const perplexityKey = await getPerplexityKey(userId);
-        if (perplexityKey) {
-          // Use the original text_content for the search query if available (preserves full product name)
-          // Parse out just the product info before "supplement" or "Find:"
-          let searchName = supplement.name || 'supplement';
-          if (text_content) {
-            // Extract the product portion from text like "Krill Oil Sports Research supplement. Find: ..."
-            const cleanedText = text_content.split(/supplement\.|Find:/i)[0].trim();
-            if (cleanedText && cleanedText.length > searchName.length) {
-              searchName = cleanedText;
-            }
-          }
-
-          const searchResult = await webSearchForSupplement(
-            perplexityKey,
-            searchName,
-            supplement.brand || null,
-            lowConfidenceFields
-          );
-
-          if (searchResult.success && searchResult.data) {
-            const webData = searchResult.data;
-            const webConfidence = webData.confidence || 0.95;
-
-            // Update fields one by one with progress
-            for (const field of lowConfidenceFields) {
-              const webValue = webData[field];
-              if (webValue !== undefined && webValue !== null && webValue !== '') {
-                supplement[field] = webValue;
-                supplement.field_confidence[field] = webConfidence;
-                sendProgress('field_found', { field, value: webValue, confidence: webConfidence, source: 'web_search' });
-              } else {
-                supplement.field_confidence[field] = -1;
-                sendProgress('field_not_found', { field });
-              }
-            }
-          } else {
-            sendProgress('web_search_failed', { message: searchResult.error || 'Web search failed' });
-            for (const field of lowConfidenceFields) {
-              supplement.field_confidence[field] = -1;
-            }
-          }
-        } else {
-          sendProgress('web_search_skipped', { message: 'No Perplexity API key' });
-        }
-      }
-
-      extractedData.supplements[0] = supplement;
-    }
-
-    // Final result
-    sendProgress('complete', { data: extractedData });
-    res.end();
-
-  } catch (error: any) {
-    console.error('POST /ai/extract-supplements/stream error:', error);
-    sendProgress('error', { message: error.message || 'Extraction failed' });
-    res.end();
-  }
-});
-
-/**
  * POST /api/v1/ai/extract-equipment
  * Extract equipment/devices from text description
  */
@@ -1784,10 +1606,11 @@ Return ONLY valid JSON in this exact format:
 });
 
 /**
- * POST /api/v1/ai/extract-facial-products/stream
- * Extract facial products with real-time progress streaming (SSE)
+ * POST /api/v1/ai/enrich-product/stream
+ * Universal product enrichment with real-time progress streaming (SSE)
+ * Works for supplements, facial_products, and equipment
  */
-router.post('/extract-facial-products/stream', async (req: Request, res: Response): Promise<any> => {
+router.post('/enrich-product/stream', async (req: Request, res: Response): Promise<any> => {
   // Set up SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1800,32 +1623,21 @@ router.post('/extract-facial-products/stream', async (req: Request, res: Respons
 
   try {
     const userId = req.user!.id;
-    const { text_content, source_type, product_url } = req.body;
+    const { product_name, brand, product_url, product_type, existing_data } = req.body;
 
-    if (!text_content) {
-      sendProgress('error', { message: 'text_content is required' });
+    if (!product_name) {
+      sendProgress('error', { message: 'product_name is required' });
       res.end();
       return;
     }
 
-    const REQUIRED_FIELDS = ['brand', 'price', 'size_amount', 'size_unit', 'application_form', 'category'];
-
-    // Step 1: URL scraping
-    let urlContent = '';
-    if (product_url) {
-      sendProgress('scraping', { message: `Fetching ${product_url}...` });
-      const fetchResult = await fetchWebpageContent(product_url);
-      if (fetchResult.success && fetchResult.content) {
-        urlContent = `\n\n--- Product Page Content ---\n${fetchResult.content}\n--- End ---\n`;
-        sendProgress('scraping_done', { message: 'URL scraped successfully', contentLength: fetchResult.content.length });
-      } else {
-        sendProgress('scraping_failed', { message: fetchResult.error || 'Could not fetch URL' });
-      }
+    if (!product_type || !['supplement', 'facial_product', 'equipment'].includes(product_type)) {
+      sendProgress('error', { message: 'product_type must be one of: supplement, facial_product, equipment' });
+      res.end();
+      return;
     }
 
-    // Step 2: AI Analysis
-    sendProgress('analyzing', { message: 'AI analyzing facial product data...', fields: REQUIRED_FIELDS.map(f => ({ key: f, status: 'pending' })) });
-
+    // Get Anthropic client
     const anthropic = await getAnthropicClient(userId);
     if (!anthropic) {
       sendProgress('error', { message: 'No Anthropic API key configured' });
@@ -1833,69 +1645,36 @@ router.post('/extract-facial-products/stream', async (req: Request, res: Respons
       return;
     }
 
-    const actualContent = (text_content || '') + urlContent;
-    const systemPrompt = `You are a facial/skincare product extraction assistant. Extract: brand, price, size_amount (number), size_unit (ml/oz/g), application_form (cream/gel/oil/liquid/foam), category (cleanser/toner/serum/moisturizer/sunscreen/other). Return JSON with field_confidence for each field (0-1).`;
+    // Get Perplexity key for web search fallback
+    const perplexityKey = await getPerplexityKey(userId);
 
-    const response = await anthropic.messages.create({
-      model: AI_CONFIG.model,
-      max_tokens: 1000,
-      temperature: 0.1,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: `Extract facial product info:\n${actualContent}\nReturn JSON with products array including field_confidence object.` }]
-    });
+    // Use the universal enrichment service
+    const request: EnrichmentRequest = {
+      product_name,
+      brand,
+      product_url,
+      product_type: product_type as ProductType,
+      existing_data,
+    };
 
-    const responseText = response.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    let extractedData: any = { products: [] };
-    if (jsonMatch) {
-      extractedData = JSON.parse(jsonMatch[0]);
+    const result = await enrichProductStream(
+      request,
+      anthropic,
+      (event) => sendProgress(event.step, event),
+      perplexityKey
+    );
+
+    // Send final result
+    if (result.success) {
+      sendProgress('complete', { data: result.data, field_confidence: result.field_confidence });
+    } else {
+      sendProgress('error', { message: result.error || 'Enrichment failed' });
     }
-
-    // Process results
-    if (extractedData.products && extractedData.products.length > 0) {
-      const product = extractedData.products[0];
-      const baseConfidence = product.confidence || 0.7;
-
-      if (!product.field_confidence) {
-        product.field_confidence = {};
-      }
-
-      // Check each field and stream results
-      const lowConfidenceFields: string[] = [];
-      const fieldStatuses: Array<{ key: string; status: string; confidence?: number }> = [];
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-      for (const field of REQUIRED_FIELDS) {
-        const value = product[field];
-        const fieldConf = product.field_confidence[field] || (value ? baseConfidence : 0);
-        product.field_confidence[field] = fieldConf;
-
-        if (!value || fieldConf < 0.8) {
-          lowConfidenceFields.push(field);
-          fieldStatuses.push({ key: field, status: 'missing', confidence: fieldConf });
-          sendProgress('field_not_found', { field, confidence: fieldConf, source: 'ai_analysis' });
-        } else {
-          fieldStatuses.push({ key: field, status: 'found', confidence: fieldConf });
-          sendProgress('field_found', { field, value, confidence: fieldConf, source: 'ai_analysis' });
-        }
-        await delay(200);
-      }
-
-      sendProgress('first_pass_done', {
-        message: 'Initial analysis complete',
-        product: product,
-        fields: fieldStatuses,
-        lowConfidenceFields
-      });
-    }
-
-    // Final complete message
-    sendProgress('complete', { data: extractedData });
     res.end();
 
   } catch (error: any) {
-    console.error('POST /ai/extract-facial-products/stream error:', error);
-    sendProgress('error', { message: error.message || 'Extraction failed' });
+    console.error('POST /ai/enrich-product/stream error:', error);
+    sendProgress('error', { message: error.message || 'Enrichment failed' });
     res.end();
   }
 });

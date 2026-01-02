@@ -67,7 +67,6 @@ const FORM_OPTIONS = [
   { value: "cream", label: "Cream" },
   { value: "gel", label: "Gel" },
   { value: "lotion", label: "Lotion" },
-  { value: "oil", label: "Oil" },
   { value: "serum", label: "Serum" },
   { value: "liquid", label: "Liquid" },
   { value: "foam", label: "Foam" },
