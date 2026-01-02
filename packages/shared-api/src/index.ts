@@ -421,5 +421,41 @@ export const accessTokensApi = {
   test: (token: string) => getApi().post("/access-tokens/test", { token }),
 };
 
+// Google Calendar
+export const googleCalendarApi = {
+  // OAuth configuration (Client ID/Secret)
+  getConfig: () => getApi().get("/google-calendar/config"),
+  saveConfig: (data: { client_id: string; client_secret: string; redirect_uri?: string }) =>
+    getApi().post("/google-calendar/config", data),
+  deleteConfig: () => getApi().delete("/google-calendar/config"),
+
+  // OAuth flow
+  getAuthUrl: (state?: string) =>
+    getApi().post("/google-calendar/auth-url", { state }),
+  handleCallback: (code: string) =>
+    getApi().post("/google-calendar/callback", { code }),
+
+  // Connection management
+  disconnect: () => getApi().delete("/google-calendar/disconnect"),
+  getStatus: () => getApi().get("/google-calendar/status"),
+  testConnection: () => getApi().post("/google-calendar/test"),
+
+  // Calendar data
+  listCalendars: () => getApi().get("/google-calendar/calendars"),
+  getEvents: (params?: {
+    calendar_id?: string;
+    time_min?: string;
+    time_max?: string;
+    max_results?: number;
+  }) => getApi().get("/google-calendar/events", { params }),
+  getTodayEvents: () => getApi().get("/google-calendar/events/today"),
+  getUpcomingEvents: (days?: number) =>
+    getApi().get("/google-calendar/events/upcoming", { params: { days } }),
+
+  // Settings
+  updateSettings: (data: { sync_enabled?: boolean; primary_calendar_id?: string }) =>
+    getApi().patch("/google-calendar/settings", data),
+};
+
 // Re-export types
 export type { AxiosInstance } from 'axios';

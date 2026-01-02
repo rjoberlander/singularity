@@ -25,6 +25,7 @@ import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
 import { twilioRoutes } from './modules/twilio';
 import eightSleepRoutes from './modules/eight-sleep/routes';
+import googleCalendarRoutes from './modules/google-calendar/routes';
 import adminRoutes from './routes/admin';
 import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
@@ -118,6 +119,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
       aiApiKeys: '/api/v1/ai-api-keys',
       chat: '/api/v1/chat',
       eightSleep: '/api/v1/eight-sleep',
+      googleCalendar: '/api/v1/google-calendar',
       admin: '/api/v1/admin',
       twilio: '/api/v1/twilio'
     }
@@ -143,6 +145,7 @@ app.use('/api/v1/users', authenticateUser, userRoutes);
 app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
 app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sleep integration
+app.use('/api/v1/google-calendar', googleCalendarRoutes); // Google Calendar integration (auth handled in routes)
 app.use('/api/v1/admin', adminRoutes); // Admin routes (auth handled in routes)
 app.use('/api/v1/changelog', authenticateUser, changelogRoutes); // Protocol change log
 app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Protocol documents

@@ -18,6 +18,7 @@ import { FamilySharing } from "@/components/settings/FamilySharing";
 import { DataExport } from "@/components/settings/DataExport";
 import { AIKeys } from "@/components/settings/AIKeys";
 import { AIConnectors } from "@/components/settings/AIConnectors";
+import { GoogleCalendar } from "@/components/settings/GoogleCalendar";
 import { usersApi } from "@/lib/api";
 import {
   User,
@@ -33,6 +34,7 @@ import {
   Loader2,
   Key,
   Plug,
+  Calendar,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -107,7 +109,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid grid-cols-4 sm:grid-cols-7 w-full h-auto gap-1">
+        <TabsList className="grid grid-cols-4 sm:grid-cols-8 w-full h-auto gap-1">
           <TabsTrigger value="profile" className="flex items-center gap-2 px-2 py-2">
             <User className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline truncate">Profile</span>
@@ -119,6 +121,10 @@ export default function SettingsPage() {
           <TabsTrigger value="connectors" className="flex items-center gap-2 px-2 py-2">
             <Plug className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline truncate">Connectors</span>
+          </TabsTrigger>
+          <TabsTrigger value="calendar" className="flex items-center gap-2 px-2 py-2">
+            <Calendar className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline truncate">Calendar</span>
           </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2 px-2 py-2">
             <Bell className="w-4 h-4 shrink-0" />
@@ -225,6 +231,11 @@ export default function SettingsPage() {
         {/* AI Connectors Tab */}
         <TabsContent value="connectors">
           <AIConnectors />
+        </TabsContent>
+
+        {/* Google Calendar Tab */}
+        <TabsContent value="calendar">
+          <GoogleCalendar />
         </TabsContent>
 
         {/* Notifications Tab */}
