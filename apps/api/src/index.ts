@@ -30,6 +30,7 @@ import adminRoutes from './routes/admin';
 import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
 import accessTokenRoutes from './routes/accessTokens';
+import journalRoutes from './routes/journal';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -151,6 +152,7 @@ app.use('/api/v1/changelog', authenticateUser, changelogRoutes); // Protocol cha
 app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Protocol documents
 app.use('/api/v1/twilio', authenticateUser, twilioRoutes); // Twilio SMS settings
 app.use('/api/v1/access-tokens', authenticateUser, accessTokenRoutes); // MCP/AI connector tokens
+app.use('/api/v1/journal', journalRoutes); // Journal module (auth handled in most routes, public routes for shared entries)
 
 // ==============================================
 // Error Handling

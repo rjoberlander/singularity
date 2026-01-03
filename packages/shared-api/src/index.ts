@@ -421,6 +421,111 @@ export const accessTokensApi = {
   test: (token: string) => getApi().post("/access-tokens/test", { token }),
 };
 
+// Journal
+export const journalApi = {
+  // Entries
+  list: (params?: {
+    tag?: string;
+    start_date?: string;
+    end_date?: string;
+    mood?: string;
+    entry_mode?: string;
+    limit?: number;
+    offset?: number;
+  }) => getApi().get("/journal", { params }),
+  get: (id: string) => getApi().get(`/journal/${id}`),
+  create: (data: {
+    title?: string;
+    content: string;
+    entry_date?: string;
+    entry_time?: string;
+    location_name?: string;
+    location_lat?: number;
+    location_lng?: number;
+    weather_condition?: string;
+    weather_temp_f?: number;
+    weather_icon?: string;
+    mood?: string;
+    mood_custom?: string;
+    tags?: string[];
+    entry_mode?: 'freeform' | 'guided';
+    prompt_used?: string;
+    is_public?: boolean;
+    public_slug?: string;
+    show_author?: boolean;
+    show_location?: boolean;
+    show_date?: boolean;
+  }) => getApi().post("/journal", data),
+  update: (id: string, data: unknown) => getApi().put(`/journal/${id}`, data),
+  delete: (id: string) => getApi().delete(`/journal/${id}`),
+
+  // On This Day
+  onThisDay: (date?: string) =>
+    getApi().get("/journal/on-this-day", { params: date ? { date } : undefined }),
+
+  // Tags
+  getTags: () => getApi().get("/journal/tags"),
+
+  // Public entries (no auth)
+  getPublic: (slug: string, password?: string) =>
+    getApi().get(`/journal/public/${slug}`, { params: password ? { password } : undefined }),
+
+  // Media
+  addMedia: (entryId: string, media: Array<{
+    media_type: 'image' | 'video';
+    file_url: string;
+    thumbnail_url?: string;
+    width?: number;
+    height?: number;
+    duration_seconds?: number;
+    file_size_bytes?: number;
+    original_filename?: string;
+    mime_type?: string;
+  }>) => getApi().post(`/journal/${entryId}/media`, { media }),
+  deleteMedia: (entryId: string, mediaId: string) =>
+    getApi().delete(`/journal/${entryId}/media/${mediaId}`),
+  reorderMedia: (entryId: string, mediaIds: string[]) =>
+    getApi().put(`/journal/${entryId}/media/reorder`, { media_ids: mediaIds }),
+
+  // Sharing
+  updateShare: (entryId: string, settings: {
+    is_public: boolean;
+    password?: string;
+    custom_slug?: string;
+    show_author?: boolean;
+    show_location?: boolean;
+    show_date?: boolean;
+  }) => getApi().post(`/journal/${entryId}/share`, settings),
+  revokeShare: (entryId: string) => getApi().delete(`/journal/${entryId}/share`),
+
+  // Time Capsule
+  assignCapsule: (entryId: string, data: {
+    recipient_ids: string[];
+    delivery_date: string;
+  }) => getApi().post(`/journal/${entryId}/capsule`, data),
+  cancelCapsule: (entryId: string) => getApi().delete(`/journal/${entryId}/capsule`),
+
+  // Recipients
+  getRecipients: () => getApi().get("/journal/recipients/list"),
+  createRecipient: (data: {
+    name: string;
+    relationship?: string;
+    email?: string;
+    phone?: string;
+  }) => getApi().post("/journal/recipients", data),
+  updateRecipient: (id: string, data: unknown) =>
+    getApi().put(`/journal/recipients/${id}`, data),
+  deleteRecipient: (id: string) => getApi().delete(`/journal/recipients/${id}`),
+
+  // Prompts
+  getRandomPrompt: (category?: string) =>
+    getApi().get("/journal/prompts/random", { params: category ? { category } : undefined }),
+  getMyPrompts: () => getApi().get("/journal/prompts/mine"),
+  createPrompt: (data: { prompt_text: string; category?: string }) =>
+    getApi().post("/journal/prompts", data),
+  deletePrompt: (id: string) => getApi().delete(`/journal/prompts/${id}`),
+};
+
 // Google Calendar
 export const googleCalendarApi = {
   // OAuth configuration (Client ID/Secret)

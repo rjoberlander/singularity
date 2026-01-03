@@ -701,3 +701,210 @@ export interface CorrelationSummary {
   insights: string[];
   total_days_analyzed: number;
 }
+
+// =============================================
+// JOURNAL TYPES
+// =============================================
+
+// Mood options for journal entries
+export type JournalMood = 'happy' | 'calm' | 'neutral' | 'sad' | 'down' | 'frustrated';
+
+// Entry mode options
+export type JournalEntryMode = 'freeform' | 'guided';
+
+// Prompt source options
+export type JournalPromptSource = 'curated' | 'ai' | 'user';
+
+// Media type options
+export type JournalMediaType = 'image' | 'video';
+
+// Journal Entry
+export interface JournalEntry {
+  id: string;
+  user_id: string;
+
+  // Content
+  title?: string;
+  content: string;
+  content_html?: string;
+
+  // Metadata
+  entry_date: string;
+  entry_time?: string;
+  location_name?: string;
+  location_lat?: number;
+  location_lng?: number;
+  weather_condition?: string;
+  weather_temp_f?: number;
+  weather_icon?: string;
+
+  // Mood
+  mood?: JournalMood | string;
+  mood_custom?: string;
+
+  // Organization
+  tags: string[];
+
+  // Entry mode
+  entry_mode: JournalEntryMode;
+  prompt_used?: string;
+
+  // Sharing
+  is_public: boolean;
+  public_slug?: string;
+  share_password?: string;
+  show_author: boolean;
+  show_location: boolean;
+  show_date: boolean;
+
+  // Time Capsule
+  is_time_capsule: boolean;
+  capsule_delivery_date?: string;
+  capsule_delivered: boolean;
+  capsule_reminder_30d_sent: boolean;
+  capsule_reminder_7d_sent: boolean;
+
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+
+  // Related data (populated via joins)
+  media?: JournalMedia[];
+  capsule_recipients?: JournalCapsuleRecipient[];
+}
+
+export interface CreateJournalEntryRequest {
+  title?: string;
+  content: string;
+  entry_date?: string;
+  entry_time?: string;
+  location_name?: string;
+  location_lat?: number;
+  location_lng?: number;
+  weather_condition?: string;
+  weather_temp_f?: number;
+  weather_icon?: string;
+  mood?: JournalMood | string;
+  mood_custom?: string;
+  tags?: string[];
+  entry_mode?: JournalEntryMode;
+  prompt_used?: string;
+  is_public?: boolean;
+  public_slug?: string;
+  show_author?: boolean;
+  show_location?: boolean;
+  show_date?: boolean;
+}
+
+export interface UpdateJournalEntryRequest extends Partial<CreateJournalEntryRequest> {
+  share_password?: string;
+  is_time_capsule?: boolean;
+  capsule_delivery_date?: string;
+}
+
+// Journal Media
+export interface JournalMedia {
+  id: string;
+  entry_id: string;
+  user_id: string;
+  media_type: JournalMediaType;
+  file_url: string;
+  thumbnail_url?: string;
+  width?: number;
+  height?: number;
+  duration_seconds?: number;
+  file_size_bytes?: number;
+  sort_order: number;
+  original_filename?: string;
+  mime_type?: string;
+  created_at: string;
+}
+
+export interface CreateJournalMediaRequest {
+  entry_id: string;
+  media_type: JournalMediaType;
+  file_url: string;
+  thumbnail_url?: string;
+  width?: number;
+  height?: number;
+  duration_seconds?: number;
+  file_size_bytes?: number;
+  sort_order?: number;
+  original_filename?: string;
+  mime_type?: string;
+}
+
+// Journal Recipients (for time capsule)
+export interface JournalRecipient {
+  id: string;
+  user_id: string;
+  name: string;
+  relationship?: string;
+  email?: string;
+  phone?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateJournalRecipientRequest {
+  name: string;
+  relationship?: string;
+  email?: string;
+  phone?: string;
+}
+
+// Junction table for time capsule recipients
+export interface JournalCapsuleRecipient {
+  id: string;
+  entry_id: string;
+  recipient_id: string;
+  delivered_at?: string;
+  delivery_email?: string;
+  created_at: string;
+  recipient?: JournalRecipient;
+}
+
+// Journal Prompts
+export interface JournalPrompt {
+  id: string;
+  prompt_text: string;
+  category?: string;
+  source: JournalPromptSource;
+  user_id?: string;
+  is_active: boolean;
+  times_used: number;
+  created_at: string;
+}
+
+export interface CreateJournalPromptRequest {
+  prompt_text: string;
+  category?: string;
+}
+
+// Time Capsule assignment
+export interface AssignTimeCapsuleRequest {
+  recipient_ids: string[];
+  delivery_date: string;
+}
+
+// Share settings
+export interface UpdateShareSettingsRequest {
+  is_public: boolean;
+  password?: string;
+  custom_slug?: string;
+  show_author?: boolean;
+  show_location?: boolean;
+  show_date?: boolean;
+}
+
+// On This Day response
+export interface OnThisDayEntry {
+  entry: JournalEntry;
+  years_ago: number;
+}
+
+// Journal tags with counts
+export interface JournalTagCount {
+  tag: string;
+  count: number;
+}

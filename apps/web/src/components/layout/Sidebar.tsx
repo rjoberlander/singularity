@@ -16,12 +16,14 @@ import {
   Settings,
   Moon,
   Sparkles,
+  BookOpen,
 } from "lucide-react";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Biomarkers", href: "/biomarkers", icon: Activity },
   { name: "Sleep", href: "/sleep", icon: Moon },
+  { name: "Journal", href: "/journal", icon: BookOpen },
   { name: "Supplements", href: "/supplements", icon: Pill },
   { name: "Facial Products", href: "/facial-products", icon: Sparkles },
   { name: "Equipment", href: "/equipment", icon: Cpu },

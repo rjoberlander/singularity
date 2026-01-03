@@ -13,6 +13,7 @@ import {
   protocolDocsApi,
   userLinksApi,
   eightSleepApi,
+  journalApi,
 } from "./index";
 import type {
   Biomarker,
@@ -43,6 +44,14 @@ import type {
   SleepTrend,
   SupplementCorrelation,
   CorrelationSummary,
+  JournalEntry,
+  CreateJournalEntryRequest,
+  UpdateJournalEntryRequest,
+  JournalRecipient,
+  CreateJournalRecipientRequest,
+  JournalPrompt,
+  JournalTagCount,
+  OnThisDayEntry,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1109,4 +1118,380 @@ export function getImpactColor(impact: "positive" | "negative" | "neutral"): str
     default:
       return "#9CA3AF";
   }
+}
+
+// ============================================
+// Journal Hooks
+// ============================================
+
+export function useJournalEntries(params?: {
+  tag?: string;
+  start_date?: string;
+  end_date?: string;
+  mood?: string;
+  entry_mode?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: ["journal", "entries", params],
+    queryFn: async () => {
+      const response = await journalApi.list(params);
+      return response.data.data as JournalEntry[];
+    },
+  });
+}
+
+export function useJournalEntry(id: string) {
+  return useQuery({
+    queryKey: ["journal", "entries", id],
+    queryFn: async () => {
+      const response = await journalApi.get(id);
+      return response.data.data as JournalEntry;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useJournalOnThisDay(date?: string) {
+  return useQuery({
+    queryKey: ["journal", "on-this-day", date],
+    queryFn: async () => {
+      const response = await journalApi.onThisDay(date);
+      return response.data.data as OnThisDayEntry[];
+    },
+  });
+}
+
+export function useJournalTags() {
+  return useQuery({
+    queryKey: ["journal", "tags"],
+    queryFn: async () => {
+      const response = await journalApi.getTags();
+      return response.data.data as JournalTagCount[];
+    },
+  });
+}
+
+export function useCreateJournalEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateJournalEntryRequest) => {
+      const response = await journalApi.create(data);
+      return response.data.data as JournalEntry;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal"] });
+    },
+  });
+}
+
+export function useUpdateJournalEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: UpdateJournalEntryRequest }) => {
+      const response = await journalApi.update(id, data);
+      return response.data.data as JournalEntry;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal"] });
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.id] });
+    },
+  });
+}
+
+export function useDeleteJournalEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await journalApi.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal"] });
+    },
+  });
+}
+
+// Journal Media Hooks
+export function useAddJournalMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      entryId,
+      media,
+    }: {
+      entryId: string;
+      media: Array<{
+        media_type: "image" | "video";
+        file_url: string;
+        thumbnail_url?: string;
+        width?: number;
+        height?: number;
+        duration_seconds?: number;
+        file_size_bytes?: number;
+        original_filename?: string;
+        mime_type?: string;
+      }>;
+    }) => {
+      const response = await journalApi.addMedia(entryId, media);
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.entryId] });
+    },
+  });
+}
+
+export function useDeleteJournalMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ entryId, mediaId }: { entryId: string; mediaId: string }) => {
+      await journalApi.deleteMedia(entryId, mediaId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.entryId] });
+    },
+  });
+}
+
+export function useReorderJournalMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ entryId, mediaIds }: { entryId: string; mediaIds: string[] }) => {
+      await journalApi.reorderMedia(entryId, mediaIds);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.entryId] });
+    },
+  });
+}
+
+// Journal Sharing Hooks
+export function useUpdateJournalShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      entryId,
+      settings,
+    }: {
+      entryId: string;
+      settings: {
+        is_public: boolean;
+        password?: string;
+        custom_slug?: string;
+        show_author?: boolean;
+        show_location?: boolean;
+        show_date?: boolean;
+      };
+    }) => {
+      const response = await journalApi.updateShare(entryId, settings);
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.entryId] });
+    },
+  });
+}
+
+export function useRevokeJournalShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (entryId: string) => {
+      await journalApi.revokeShare(entryId);
+    },
+    onSuccess: (_, entryId) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", entryId] });
+    },
+  });
+}
+
+// Time Capsule Hooks
+export function useAssignTimeCapsule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      entryId,
+      recipientIds,
+      deliveryDate,
+    }: {
+      entryId: string;
+      recipientIds: string[];
+      deliveryDate: string;
+    }) => {
+      const response = await journalApi.assignCapsule(entryId, {
+        recipient_ids: recipientIds,
+        delivery_date: deliveryDate,
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", variables.entryId] });
+    },
+  });
+}
+
+export function useCancelTimeCapsule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (entryId: string) => {
+      await journalApi.cancelCapsule(entryId);
+    },
+    onSuccess: (_, entryId) => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "entries", entryId] });
+    },
+  });
+}
+
+// Journal Recipients Hooks
+export function useJournalRecipients() {
+  return useQuery({
+    queryKey: ["journal", "recipients"],
+    queryFn: async () => {
+      const response = await journalApi.getRecipients();
+      return response.data.data as JournalRecipient[];
+    },
+  });
+}
+
+export function useCreateJournalRecipient() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateJournalRecipientRequest) => {
+      const response = await journalApi.createRecipient(data);
+      return response.data.data as JournalRecipient;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "recipients"] });
+    },
+  });
+}
+
+export function useUpdateJournalRecipient() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<JournalRecipient> }) => {
+      const response = await journalApi.updateRecipient(id, data);
+      return response.data.data as JournalRecipient;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "recipients"] });
+    },
+  });
+}
+
+export function useDeleteJournalRecipient() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await journalApi.deleteRecipient(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "recipients"] });
+    },
+  });
+}
+
+// Journal Prompts Hooks
+export function useRandomJournalPrompt(category?: string) {
+  return useQuery({
+    queryKey: ["journal", "prompts", "random", category],
+    queryFn: async () => {
+      const response = await journalApi.getRandomPrompt(category);
+      return response.data.data as JournalPrompt;
+    },
+    // Don't auto-refetch on window focus for random prompts
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
+}
+
+export function useMyJournalPrompts() {
+  return useQuery({
+    queryKey: ["journal", "prompts", "mine"],
+    queryFn: async () => {
+      const response = await journalApi.getMyPrompts();
+      return response.data.data as JournalPrompt[];
+    },
+  });
+}
+
+export function useCreateJournalPrompt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { prompt_text: string; category?: string }) => {
+      const response = await journalApi.createPrompt(data);
+      return response.data.data as JournalPrompt;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "prompts"] });
+    },
+  });
+}
+
+export function useDeleteJournalPrompt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await journalApi.deletePrompt(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "prompts"] });
+    },
+  });
+}
+
+// Journal helper functions
+export function getMoodEmoji(mood: string): string {
+  const moodMap: Record<string, string> = {
+    happy: "😊",
+    calm: "😌",
+    neutral: "😐",
+    sad: "😔",
+    down: "😢",
+    frustrated: "😤",
+  };
+  return moodMap[mood] || "😐";
+}
+
+export function getMoodColor(mood: string): string {
+  const colorMap: Record<string, string> = {
+    happy: "#22C55E",
+    calm: "#3B82F6",
+    neutral: "#9CA3AF",
+    sad: "#6B7280",
+    down: "#8B5CF6",
+    frustrated: "#EF4444",
+  };
+  return colorMap[mood] || "#9CA3AF";
+}
+
+export function formatJournalDate(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return date.toLocaleDateString("en-US", { weekday: "long" });
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
+  });
 }
