@@ -331,12 +331,21 @@ export default function BiomarkersPage() {
       }
       if (sortType === "status") {
         // Sort by status: critical first, then suboptimal, then optimal
-        const latestA = [...historyA].sort(
-          (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
-        )[0];
-        const latestB = [...historyB].sort(
-          (x, y) => new Date(y.date_tested).getTime() - new Date(x.date_tested).getTime()
-        )[0];
+        // Use same logic as BiomarkerChartCard: sort ascending by date, then by id for stable sort
+        const sortedA = [...historyA].sort((x, y) => {
+          const dateDiff = new Date(x.date_tested).getTime() - new Date(y.date_tested).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          // Secondary sort by id for stable ordering when dates match
+          return (x.id || '').localeCompare(y.id || '');
+        });
+        const sortedB = [...historyB].sort((x, y) => {
+          const dateDiff = new Date(x.date_tested).getTime() - new Date(y.date_tested).getTime();
+          if (dateDiff !== 0) return dateDiff;
+          return (x.id || '').localeCompare(y.id || '');
+        });
+        // Get the last (most recent) entry, matching BiomarkerChartCard logic
+        const latestA = sortedA[sortedA.length - 1];
+        const latestB = sortedB[sortedB.length - 1];
         const statusA = getValueStatus(latestA.value, a);
         const statusB = getValueStatus(latestB.value, b);
 
