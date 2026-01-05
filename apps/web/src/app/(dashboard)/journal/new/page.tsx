@@ -1,33 +1,33 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   useCreateJournalEntry,
   useRandomJournalPrompt,
-  getMoodEmoji,
-  getMoodColor,
-} from "@singularity/shared-api/hooks";
+  useAddJournalMedia,
+} from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
-  BookOpen,
   Sparkles,
   Edit3,
   Send,
   Loader2,
   MapPin,
-  Cloud,
-  Tag,
   X,
   Plus,
   RefreshCw,
-  Image,
+  Image as ImageIcon,
   Calendar,
   Clock,
+  Upload,
+  Video,
+  Locate,
 } from "lucide-react";
 import { toast } from "sonner";
 import { JournalMood, JournalEntryMode } from "@singularity/shared-types";
@@ -45,9 +45,16 @@ const MOOD_OPTIONS: { value: JournalMood; emoji: string; label: string }[] = [
 
 type EditorStep = "mode" | "editor";
 
+interface MediaFile {
+  file: File;
+  preview: string;
+  type: "image" | "video";
+}
+
 export default function NewJournalEntryPage() {
   const router = useRouter();
   const createEntry = useCreateJournalEntry();
+  const addMedia = useAddJournalMedia();
   const { data: randomPrompt, refetch: refetchPrompt, isLoading: isLoadingPrompt } = useRandomJournalPrompt();
 
   // Steps
@@ -61,6 +68,8 @@ export default function NewJournalEntryPage() {
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [locationName, setLocationName] = useState("");
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
   const [entryDate, setEntryDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -69,6 +78,201 @@ export default function NewJournalEntryPage() {
   );
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
+
+  // Media state
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Location state
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
+
+  // Cleanup media previews on unmount
+  useEffect(() => {
+    return () => {
+      mediaFiles.forEach((media) => URL.revokeObjectURL(media.preview));
+    };
+  }, [mediaFiles]);
+
+  // Media handlers
+  const processFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/")
+    );
+
+    if (validFiles.length === 0) {
+      toast.error("Please select image or video files");
+      return;
+    }
+
+    const newMediaFiles: MediaFile[] = validFiles.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      type: file.type.startsWith("image/") ? "image" : "video",
+    }));
+
+    setMediaFiles((prev) => [...prev, ...newMediaFiles]);
+  }, []);
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        processFiles(e.target.files);
+      }
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    [processFiles]
+  );
+
+  const handleRemoveMedia = useCallback((index: number) => {
+    setMediaFiles((prev) => {
+      const removed = prev[index];
+      URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        processFiles(e.dataTransfer.files);
+      }
+    },
+    [processFiles]
+  );
+
+  // Location handlers
+  const reverseGeocode = async (lat: number, lng: number): Promise<string | null> => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14`,
+        { headers: { "User-Agent": "Singularity Journal App" } }
+      );
+      const data = await response.json();
+      if (data.address) {
+        const { city, town, village, suburb, neighbourhood, county, state } = data.address;
+        const locality = city || town || village || suburb || neighbourhood || county;
+        if (locality && state) {
+          return `${locality}, ${state}`;
+        }
+        return locality || state || data.display_name?.split(",").slice(0, 2).join(",");
+      }
+      return null;
+    } catch (error) {
+      console.error("Reverse geocoding error:", error);
+      return null;
+    }
+  };
+
+  const handleGetLocation = useCallback(async () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setIsGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setLocationLat(latitude);
+        setLocationLng(longitude);
+
+        // Get readable address
+        const address = await reverseGeocode(latitude, longitude);
+        if (address) {
+          setLocationName(address);
+        } else {
+          setLocationName(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+        }
+
+        setIsGettingLocation(false);
+        toast.success("Location detected");
+      },
+      (error) => {
+        setIsGettingLocation(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            toast.error("Location permission denied");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            toast.error("Location unavailable");
+            break;
+          case error.TIMEOUT:
+            toast.error("Location request timed out");
+            break;
+          default:
+            toast.error("Failed to get location");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+  }, []);
+
+  // Upload media to Supabase Storage
+  const uploadMediaToStorage = async (
+    file: File,
+    entryId: string
+  ): Promise<{ url: string; type: "image" | "video" } | null> => {
+    try {
+      const supabase = createClient();
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${entryId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from("singularity-uploads")
+        .upload(`journal/${fileName}`, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (error) {
+        console.error("Upload error:", error);
+        return null;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("singularity-uploads")
+        .getPublicUrl(data.path);
+
+      return {
+        url: urlData.publicUrl,
+        type: file.type.startsWith("image/") ? "image" : "video",
+      };
+    } catch (error) {
+      console.error("Upload error:", error);
+      return null;
+    }
+  };
 
   const handleSelectMode = (selectedMode: JournalEntryMode) => {
     setMode(selectedMode);
@@ -96,6 +300,7 @@ export default function NewJournalEntryPage() {
     }
 
     try {
+      // Create the entry first
       const entry = await createEntry.mutateAsync({
         title: title.trim() || undefined,
         content: content.trim(),
@@ -104,13 +309,52 @@ export default function NewJournalEntryPage() {
         mood: mood || undefined,
         tags,
         location_name: locationName || undefined,
+        location_lat: locationLat || undefined,
+        location_lng: locationLng || undefined,
         entry_mode: mode,
         prompt_used: selectedPrompt || undefined,
       });
 
-      toast.success("Entry saved");
+      // Upload media files if any
+      if (mediaFiles.length > 0) {
+        setIsUploadingMedia(true);
+        const uploadedMedia: { media_type: "image" | "video"; file_url: string; original_filename: string; mime_type: string; file_size_bytes: number }[] = [];
+
+        for (const media of mediaFiles) {
+          const result = await uploadMediaToStorage(media.file, entry.id);
+          if (result) {
+            uploadedMedia.push({
+              media_type: result.type,
+              file_url: result.url,
+              original_filename: media.file.name,
+              mime_type: media.file.type,
+              file_size_bytes: media.file.size,
+            });
+          }
+        }
+
+        // Add all uploaded media to the entry
+        if (uploadedMedia.length > 0) {
+          await addMedia.mutateAsync({
+            entryId: entry.id,
+            media: uploadedMedia,
+          });
+        }
+
+        setIsUploadingMedia(false);
+
+        if (uploadedMedia.length < mediaFiles.length) {
+          toast.warning(`Entry saved, but ${mediaFiles.length - uploadedMedia.length} file(s) failed to upload`);
+        } else {
+          toast.success("Entry saved with media");
+        }
+      } else {
+        toast.success("Entry saved");
+      }
+
       router.push(`/journal/${entry.id}`);
     } catch (error) {
+      setIsUploadingMedia(false);
       toast.error("Failed to save entry");
     }
   };
@@ -201,14 +445,14 @@ export default function NewJournalEntryPage() {
         </div>
         <Button
           onClick={handleSubmit}
-          disabled={createEntry.isPending || !content.trim()}
+          disabled={createEntry.isPending || isUploadingMedia || !content.trim()}
         >
-          {createEntry.isPending ? (
+          {createEntry.isPending || isUploadingMedia ? (
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
           ) : (
             <Send className="w-4 h-4 mr-2" />
           )}
-          Save
+          {isUploadingMedia ? "Uploading..." : "Save"}
         </Button>
       </div>
 
@@ -257,6 +501,96 @@ export default function NewJournalEntryPage() {
           className="min-h-[300px] resize-none border-none shadow-none focus-visible:ring-0 px-0 text-base"
           autoFocus
         />
+
+        {/* Media Upload */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            Photos & Videos
+          </label>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          {/* Media previews */}
+          {mediaFiles.length > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+              {mediaFiles.map((media, index) => (
+                <div
+                  key={`${media.file.name}-${index}`}
+                  className="relative aspect-square rounded-lg overflow-hidden bg-muted group"
+                >
+                  {media.type === "image" ? (
+                    <img
+                      src={media.preview}
+                      alt={media.file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-muted">
+                      <Video className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => handleRemoveMedia(index)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                  {media.type === "video" && (
+                    <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-white text-xs">
+                      Video
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Drop zone */}
+          <div
+            ref={dropZoneRef}
+            onClick={() => fileInputRef.current?.click()}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className={cn(
+              "flex flex-col items-center justify-center p-6 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
+              isDragging
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/50 hover:bg-muted/50"
+            )}
+          >
+            {isDragging ? (
+              <>
+                <Upload className="w-8 h-8 mb-2 text-primary" />
+                <p className="text-sm font-medium text-primary">Drop files here</p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-2">
+                  <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                  <Video className="w-6 h-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Drag & drop or click to add photos/videos
+                </p>
+                {mediaFiles.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {mediaFiles.length} file{mediaFiles.length !== 1 ? "s" : ""} selected
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Mood Selector */}
         <div className="space-y-2">
@@ -369,11 +703,40 @@ export default function NewJournalEntryPage() {
                 <MapPin className="w-4 h-4" />
                 Location
               </label>
-              <Input
-                placeholder="Where are you?"
-                value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
-              />
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Where are you?"
+                  value={locationName}
+                  onChange={(e) => {
+                    setLocationName(e.target.value);
+                    // Clear coords if manually editing
+                    if (locationLat || locationLng) {
+                      setLocationLat(null);
+                      setLocationLng(null);
+                    }
+                  }}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleGetLocation}
+                  disabled={isGettingLocation}
+                  title="Use my location"
+                >
+                  {isGettingLocation ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Locate className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              {locationLat && locationLng && (
+                <p className="text-xs text-muted-foreground">
+                  Coordinates: {locationLat.toFixed(4)}, {locationLng.toFixed(4)}
+                </p>
+              )}
             </div>
           </div>
         )}

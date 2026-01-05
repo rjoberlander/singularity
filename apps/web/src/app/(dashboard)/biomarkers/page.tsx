@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { BIOMARKER_REFERENCE, BiomarkerReference, getCategories } from "@/data/biomarkerReference";
 import { Biomarker } from "@/types";
+import { calculateTrend } from "@/utils/trendCalculation";
 
 // Status colors: green (optimal), yellow (suboptimal), brown (critical)
 const STATUS_COLORS = {
@@ -179,10 +180,11 @@ export default function BiomarkersPage() {
     let noData = 0;
 
     // Track trends within each status
+    // Now tracks direction (up/down/stable) with health assessment
     const trends = {
-      optimal: { better: 0, same: 0, worse: 0 },
-      suboptimal: { better: 0, same: 0, worse: 0 },
-      critical: { better: 0, same: 0, worse: 0 },
+      optimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
+      suboptimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
+      critical: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
     };
 
     BIOMARKER_REFERENCE.forEach((ref) => {
@@ -194,41 +196,26 @@ export default function BiomarkersPage() {
           (a, b) => new Date(b.date_tested).getTime() - new Date(a.date_tested).getTime()
         );
         const latest = sorted[0];
-        const previous = sorted[1];
         const status = getValueStatus(latest.value, ref);
 
         if (status === "optimal") optimal++;
         else if (status === "suboptimal") suboptimal++;
         else critical++;
 
-        // Calculate trend (comparing to previous reading)
-        if (previous) {
-          const prevStatus = getValueStatus(previous.value, ref);
-          const statusRank: Record<string, number> = { optimal: 2, suboptimal: 1, critical: 0 };
-          const currentRank = statusRank[status];
-          const prevRank = statusRank[prevStatus];
+        // Calculate trend using same logic as card (requires 3+ readings)
+        const trendResult = calculateTrend(history, ref);
 
-          if (currentRank > prevRank) {
-            trends[status].better++;
-          } else if (currentRank < prevRank) {
-            trends[status].worse++;
-          } else {
-            // Same status, check if value is moving toward optimal
-            const optimalMid = (ref.optimalRange.low + ref.optimalRange.high) / 2;
-            const latestDist = Math.abs(latest.value - optimalMid);
-            const prevDist = Math.abs(previous.value - optimalMid);
-
-            if (latestDist < prevDist - 0.01) {
-              trends[status].better++;
-            } else if (latestDist > prevDist + 0.01) {
-              trends[status].worse++;
-            } else {
-              trends[status].same++;
-            }
-          }
-        } else {
-          // No previous reading, count as "same" (stable/new)
-          trends[status].same++;
+        if (trendResult.direction === null) {
+          // No trend (insufficient data) - don't count in trends
+          // This keeps summary consistent with card icons
+        } else if (trendResult.direction === "stable") {
+          trends[status].stable++;
+        } else if (trendResult.direction === "up") {
+          trends[status].up++;
+          trends[status].upHealth.push(trendResult.health || 'neutral');
+        } else if (trendResult.direction === "down") {
+          trends[status].down++;
+          trends[status].downHealth.push(trendResult.health || 'neutral');
         }
       }
     });
@@ -549,7 +536,7 @@ export default function BiomarkersPage() {
                               <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12" strokeLinecap="round"/>
                               <path d="M8 12l3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
-                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full transition-all"
                                 style={{
@@ -558,26 +545,34 @@ export default function BiomarkersPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                              {summaryStats.optimalPercent}%
-                            </span>
+                            <div className="flex items-center gap-1 ml-auto">
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[20px] text-center"
+                                style={{ backgroundColor: STATUS_COLORS.optimal, color: '#1a1a1a' }}
+                              >
+                                {summaryStats.optimal}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-medium w-8 text-right">
+                                {summaryStats.optimalPercent}%
+                              </span>
+                            </div>
                           </div>
-                          {/* Trend sublist */}
-                          {(summaryStats.trends.optimal.better > 0 || summaryStats.trends.optimal.worse > 0) && (
+                          {/* Trend sublist - UP=red (worse), DOWN=green (better), STABLE=gray */}
+                          {(summaryStats.trends.optimal.up > 0 || summaryStats.trends.optimal.down > 0 || summaryStats.trends.optimal.stable > 0) && (
                             <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
-                              {summaryStats.trends.optimal.better > 0 && (
-                                <span className="flex items-center gap-0.5 text-green-500">
-                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.optimal.better}
-                                </span>
-                              )}
-                              {summaryStats.trends.optimal.worse > 0 && (
+                              {summaryStats.trends.optimal.up > 0 && (
                                 <span className="flex items-center gap-0.5 text-red-400">
-                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.optimal.worse}
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.optimal.up}
                                 </span>
                               )}
-                              {summaryStats.trends.optimal.same > 0 && (
+                              {summaryStats.trends.optimal.down > 0 && (
+                                <span className="flex items-center gap-0.5 text-green-500">
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.optimal.down}
+                                </span>
+                              )}
+                              {summaryStats.trends.optimal.stable > 0 && (
                                 <span className="flex items-center gap-0.5">
-                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.optimal.same}
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.optimal.stable}
                                 </span>
                               )}
                             </div>
@@ -591,7 +586,7 @@ export default function BiomarkersPage() {
                             onClick={() => setFilterType(filterType === "suboptimal" ? "all" : "suboptimal")}
                           >
                             <CirclePlus className="w-4 h-4 shrink-0" style={{ color: STATUS_COLORS.suboptimal }} />
-                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full transition-all"
                                 style={{
@@ -600,26 +595,34 @@ export default function BiomarkersPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                              {summaryStats.suboptimalPercent}%
-                            </span>
+                            <div className="flex items-center gap-1 ml-auto">
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[20px] text-center"
+                                style={{ backgroundColor: STATUS_COLORS.suboptimal, color: '#1a1a1a' }}
+                              >
+                                {summaryStats.suboptimal}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-medium w-8 text-right">
+                                {summaryStats.suboptimalPercent}%
+                              </span>
+                            </div>
                           </div>
-                          {/* Trend sublist */}
-                          {(summaryStats.trends.suboptimal.better > 0 || summaryStats.trends.suboptimal.worse > 0) && (
+                          {/* Trend sublist - shows direction counts matching card icons */}
+                          {(summaryStats.trends.suboptimal.up > 0 || summaryStats.trends.suboptimal.down > 0 || summaryStats.trends.suboptimal.stable > 0) && (
                             <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
-                              {summaryStats.trends.suboptimal.better > 0 && (
-                                <span className="flex items-center gap-0.5 text-green-500">
-                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.better}
+                              {summaryStats.trends.suboptimal.up > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.up}
                                 </span>
                               )}
-                              {summaryStats.trends.suboptimal.worse > 0 && (
-                                <span className="flex items-center gap-0.5 text-red-400">
-                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.worse}
+                              {summaryStats.trends.suboptimal.down > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.down}
                                 </span>
                               )}
-                              {summaryStats.trends.suboptimal.same > 0 && (
-                                <span className="flex items-center gap-0.5">
-                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.same}
+                              {summaryStats.trends.suboptimal.stable > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.stable}
                                 </span>
                               )}
                             </div>
@@ -635,7 +638,7 @@ export default function BiomarkersPage() {
                             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={STATUS_COLORS.critical} strokeWidth="2">
                               <path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
-                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full transition-all"
                                 style={{
@@ -644,26 +647,34 @@ export default function BiomarkersPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-xs text-muted-foreground w-10 text-right font-medium">
-                              {summaryStats.criticalPercent}%
-                            </span>
+                            <div className="flex items-center gap-1 ml-auto">
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[20px] text-center"
+                                style={{ backgroundColor: STATUS_COLORS.critical, color: '#fff' }}
+                              >
+                                {summaryStats.critical}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-medium w-8 text-right">
+                                {summaryStats.criticalPercent}%
+                              </span>
+                            </div>
                           </div>
-                          {/* Trend sublist */}
-                          {(summaryStats.trends.critical.better > 0 || summaryStats.trends.critical.worse > 0) && (
+                          {/* Trend sublist - shows direction counts matching card icons */}
+                          {(summaryStats.trends.critical.up > 0 || summaryStats.trends.critical.down > 0 || summaryStats.trends.critical.stable > 0) && (
                             <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
-                              {summaryStats.trends.critical.better > 0 && (
-                                <span className="flex items-center gap-0.5 text-green-500">
-                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.critical.better}
+                              {summaryStats.trends.critical.up > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                  <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.critical.up}
                                 </span>
                               )}
-                              {summaryStats.trends.critical.worse > 0 && (
-                                <span className="flex items-center gap-0.5 text-red-400">
-                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.critical.worse}
+                              {summaryStats.trends.critical.down > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                  <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.critical.down}
                                 </span>
                               )}
-                              {summaryStats.trends.critical.same > 0 && (
-                                <span className="flex items-center gap-0.5">
-                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.critical.same}
+                              {summaryStats.trends.critical.stable > 0 && (
+                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                  <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.critical.stable}
                                 </span>
                               )}
                             </div>

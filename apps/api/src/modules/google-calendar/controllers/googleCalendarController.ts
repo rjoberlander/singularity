@@ -7,7 +7,7 @@ import { Request, Response } from 'express';
 import { googleCalendarService } from '../services/googleCalendarService';
 
 // Type for authenticated requests
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends Omit<Request, 'user'> {
   user?: {
     id: string;
     email?: string;

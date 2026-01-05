@@ -202,7 +202,7 @@ class GoogleCalendarService {
       : undefined;
 
     // Create OAuth client with tokens
-    const oauth2Client = this.getOAuth2Client();
+    const oauth2Client = await this.getOAuth2Client(userId);
     oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -410,12 +410,12 @@ class GoogleCalendarService {
     return items.map((item) => ({
       id: item.id || '',
       summary: item.summary || '',
-      description: item.description,
-      primary: item.primary,
-      backgroundColor: item.backgroundColor,
-      foregroundColor: item.foregroundColor,
-      accessRole: item.accessRole,
-      timeZone: item.timeZone,
+      description: item.description ?? undefined,
+      primary: item.primary ?? undefined,
+      backgroundColor: item.backgroundColor ?? undefined,
+      foregroundColor: item.foregroundColor ?? undefined,
+      accessRole: item.accessRole ?? undefined,
+      timeZone: item.timeZone ?? undefined,
     }));
   }
 
@@ -451,36 +451,36 @@ class GoogleCalendarService {
     return items.map((event) => ({
       id: event.id || '',
       summary: event.summary || '',
-      description: event.description,
-      location: event.location,
+      description: event.description ?? undefined,
+      location: event.location ?? undefined,
       start: {
-        dateTime: event.start?.dateTime,
-        date: event.start?.date,
-        timeZone: event.start?.timeZone,
+        dateTime: event.start?.dateTime ?? undefined,
+        date: event.start?.date ?? undefined,
+        timeZone: event.start?.timeZone ?? undefined,
       },
       end: {
-        dateTime: event.end?.dateTime,
-        date: event.end?.date,
-        timeZone: event.end?.timeZone,
+        dateTime: event.end?.dateTime ?? undefined,
+        date: event.end?.date ?? undefined,
+        timeZone: event.end?.timeZone ?? undefined,
       },
-      status: event.status,
-      created: event.created,
-      updated: event.updated,
+      status: event.status ?? undefined,
+      created: event.created ?? undefined,
+      updated: event.updated ?? undefined,
       organizer: event.organizer
         ? {
-            email: event.organizer.email,
-            displayName: event.organizer.displayName,
-            self: event.organizer.self,
+            email: event.organizer.email ?? undefined,
+            displayName: event.organizer.displayName ?? undefined,
+            self: event.organizer.self ?? undefined,
           }
         : undefined,
-      attendees: event.attendees?.map((a) => ({
-        email: a.email,
-        displayName: a.displayName,
-        responseStatus: a.responseStatus,
-        self: a.self,
+      attendees: event.attendees?.map((a: calendar_v3.Schema$EventAttendee) => ({
+        email: a.email ?? undefined,
+        displayName: a.displayName ?? undefined,
+        responseStatus: a.responseStatus ?? undefined,
+        self: a.self ?? undefined,
       })),
-      htmlLink: event.htmlLink,
-      recurringEventId: event.recurringEventId,
+      htmlLink: event.htmlLink ?? undefined,
+      recurringEventId: event.recurringEventId ?? undefined,
     }));
   }
 

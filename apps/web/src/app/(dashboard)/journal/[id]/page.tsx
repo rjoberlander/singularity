@@ -10,7 +10,7 @@ import {
   useRevokeJournalShare,
   getMoodEmoji,
   getMoodColor,
-} from "@singularity/shared-api/hooks";
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";

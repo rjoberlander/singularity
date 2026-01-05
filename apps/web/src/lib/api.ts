@@ -17,3 +17,4 @@ export default api;
 
 // Re-export all API functions and hooks from shared package
 export * from "@singularity/shared-api";
+export * from "@singularity/shared-api/hooks";
