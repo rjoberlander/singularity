@@ -675,7 +675,7 @@ export default function RoutinesPage() {
         const scheduleItem = draggedItem.original as ScheduleItemType;
         await updateScheduleItem.mutateAsync({
           id: scheduleItem.id,
-          data: { timing: newTiming },
+          data: { timing: newTiming as SupplementTiming },
         });
         toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
       }
