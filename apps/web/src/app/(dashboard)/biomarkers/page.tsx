@@ -607,21 +607,21 @@ export default function BiomarkersPage() {
                               </span>
                             </div>
                           </div>
-                          {/* Trend sublist - shows direction counts matching card icons */}
+                          {/* Trend sublist - UP=red (worse), DOWN=green (better), STABLE=gray */}
                           {(summaryStats.trends.suboptimal.up > 0 || summaryStats.trends.suboptimal.down > 0 || summaryStats.trends.suboptimal.stable > 0) && (
                             <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
                               {summaryStats.trends.suboptimal.up > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                <span className="flex items-center gap-0.5 text-red-400">
                                   <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.up}
                                 </span>
                               )}
                               {summaryStats.trends.suboptimal.down > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                <span className="flex items-center gap-0.5 text-green-500">
                                   <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.down}
                                 </span>
                               )}
                               {summaryStats.trends.suboptimal.stable > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.suboptimal }}>
+                                <span className="flex items-center gap-0.5">
                                   <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.suboptimal.stable}
                                 </span>
                               )}
@@ -659,21 +659,21 @@ export default function BiomarkersPage() {
                               </span>
                             </div>
                           </div>
-                          {/* Trend sublist - shows direction counts matching card icons */}
+                          {/* Trend sublist - UP=red (worse), DOWN=green (better), STABLE=gray */}
                           {(summaryStats.trends.critical.up > 0 || summaryStats.trends.critical.down > 0 || summaryStats.trends.critical.stable > 0) && (
                             <div className="ml-6 mt-0.5 flex gap-2 text-[10px] text-muted-foreground">
                               {summaryStats.trends.critical.up > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                <span className="flex items-center gap-0.5 text-red-400">
                                   <ArrowUp className="w-2.5 h-2.5" />{summaryStats.trends.critical.up}
                                 </span>
                               )}
                               {summaryStats.trends.critical.down > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                <span className="flex items-center gap-0.5 text-green-500">
                                   <ArrowDown className="w-2.5 h-2.5" />{summaryStats.trends.critical.down}
                                 </span>
                               )}
                               {summaryStats.trends.critical.stable > 0 && (
-                                <span className="flex items-center gap-0.5" style={{ color: STATUS_COLORS.critical }}>
+                                <span className="flex items-center gap-0.5">
                                   <ArrowRight className="w-2.5 h-2.5" />{summaryStats.trends.critical.stable}
                                 </span>
                               )}

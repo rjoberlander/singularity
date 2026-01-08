@@ -4,6 +4,8 @@ import { useState, useMemo, DragEvent } from "react";
 import { useRoutines } from "@/hooks/useRoutines";
 import { useSupplements, useUpdateSupplement } from "@/hooks/useSupplements";
 import { useEquipment, useUpdateEquipment } from "@/hooks/useEquipment";
+import { useScheduleItems, useUpdateScheduleItem } from "@/lib/api";
+import { useRoutineChanges } from "@/hooks/useRoutineChanges";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -12,12 +14,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Supplement, Equipment, RoutineItem, SupplementTiming } from "@/types";
+import { DietHeader, AddItemMenu, ChangesBanner } from "@/components/schedule";
+import { Supplement, Equipment, RoutineItem, SupplementTiming, ScheduleItem as ScheduleItemType } from "@/types";
 import {
   Pill, Zap, Clock, ListTodo, GripVertical,
   Sunrise, Sun, Utensils, Sunset, Moon, BedDouble,
   Atom, Leaf, Bug, MoreHorizontal, LucideIcon,
-  FlaskConical, Droplet, Wind, Candy, Square
+  FlaskConical, Droplet, Wind, Candy, Square,
+  Flame, Footprints, Bike, Waves, Dumbbell, Flower2, Move, Trophy, Activity, Coffee, Cookie
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -66,6 +70,27 @@ const INTAKE_FORM_CONFIG: Record<string, { icon: LucideIcon; color: string }> = 
   tablets: { icon: Pill, color: "text-slate-400" },
   softgel: { icon: Pill, color: "text-blue-300" },
   softgels: { icon: Pill, color: "text-blue-300" },
+};
+
+// Exercise type icons
+const EXERCISE_ICONS: Record<string, LucideIcon> = {
+  hiit: Flame,
+  run: Footprints,
+  bike: Bike,
+  swim: Waves,
+  strength: Dumbbell,
+  yoga: Flower2,
+  walk: Footprints,
+  stretch: Move,
+  sports: Trophy,
+  other: Activity,
+};
+
+// Meal type icons
+const MEAL_ICONS: Record<string, LucideIcon> = {
+  meal: Utensils,
+  protein_shake: Coffee,
+  snack: Cookie,
 };
 
 // Day config with abbreviations and colors
@@ -141,7 +166,7 @@ function normalizeTiming(timing: string): string {
 // Unified schedule item type
 interface ScheduleItem {
   id: string;
-  type: "supplement" | "equipment" | "routine";
+  type: "supplement" | "equipment" | "routine" | "exercise" | "meal";
   name: string;
   brand?: string;
   timing: string;
@@ -150,8 +175,11 @@ interface ScheduleItem {
   duration?: string;
   notes?: string;
   days?: string[]; // For filtering by day
-  original: Supplement | Equipment | RoutineItem;
+  original: Supplement | Equipment | RoutineItem | ScheduleItemType;
   routineName?: string;
+  exerciseType?: string;
+  mealType?: string;
+  isActive?: boolean;
 }
 
 // Check if item is "daily" (shows every day) vs "special" (specific days only)
@@ -219,12 +247,25 @@ export default function RoutinesPage() {
 
   const { data: routines, isLoading: routinesLoading, error: routinesError } = useRoutines();
   const { data: supplements, isLoading: supplementsLoading } = useSupplements({ is_active: true });
+  const { data: inactiveSupplements } = useSupplements({ is_active: false });
   const { data: equipment, isLoading: equipmentLoading } = useEquipment({ is_active: true });
+  const { data: inactiveEquipment } = useEquipment({ is_active: false });
+  const { data: scheduleItems, isLoading: scheduleItemsLoading } = useScheduleItems();
 
   const updateSupplement = useUpdateSupplement();
   const updateEquipment = useUpdateEquipment();
+  const updateScheduleItem = useUpdateScheduleItem();
 
-  const isLoading = routinesLoading || supplementsLoading || equipmentLoading;
+  // Routine changes tracking
+  const {
+    hasUnsavedChanges,
+    changes,
+    saveRoutine,
+    discardChanges,
+    isSaving,
+  } = useRoutineChanges();
+
+  const isLoading = routinesLoading || supplementsLoading || equipmentLoading || scheduleItemsLoading;
   const error = routinesError;
 
   // Convert supplements to schedule items
@@ -302,7 +343,28 @@ export default function RoutinesPage() {
     return items;
   }, [routines]);
 
-  // Items without timing (unscheduled)
+  // Convert exercises and meals (schedule_items) to schedule items
+  const exerciseMealScheduleItems: ScheduleItem[] = useMemo(() => {
+    return (scheduleItems || [])
+      .filter((s) => s.is_active && s.timing)
+      .map((s) => ({
+        id: `schedule_item-${s.id}`,
+        type: s.item_type as "exercise" | "meal",
+        name: s.name,
+        timing: s.timing!,
+        timeOfDay: normalizeTiming(s.timing!),
+        frequency: s.frequency,
+        days: s.frequency_days || undefined,
+        duration: s.duration || undefined,
+        notes: s.notes || undefined,
+        original: s,
+        exerciseType: s.exercise_type || undefined,
+        mealType: s.meal_type || undefined,
+        isActive: s.is_active,
+      }));
+  }, [scheduleItems]);
+
+  // Items without timing (unscheduled) - includes active items without timing
   const unscheduledItems = useMemo(() => {
     const items: ScheduleItem[] = [];
 
@@ -320,6 +382,7 @@ export default function RoutinesPage() {
           frequency: s.frequency,
           notes: s.timing_reason || s.reason,
           original: s,
+          isActive: true,
         });
       });
 
@@ -338,16 +401,97 @@ export default function RoutinesPage() {
           duration: e.usage_duration,
           notes: e.usage_protocol,
           original: e,
+          isActive: true,
+        });
+      });
+
+    // Schedule items (exercises/meals) without timing
+    (scheduleItems || [])
+      .filter((s) => s.is_active && !s.timing)
+      .forEach((s) => {
+        items.push({
+          id: `schedule_item-${s.id}`,
+          type: s.item_type as "exercise" | "meal",
+          name: s.name,
+          timing: "",
+          timeOfDay: "",
+          frequency: s.frequency,
+          duration: s.duration || undefined,
+          notes: s.notes || undefined,
+          original: s,
+          exerciseType: s.exercise_type || undefined,
+          mealType: s.meal_type || undefined,
+          isActive: true,
         });
       });
 
     return items;
-  }, [supplements, equipment]);
+  }, [supplements, equipment, scheduleItems]);
+
+  // Inactive items - shown greyed out in the unscheduled section
+  const inactiveItems = useMemo(() => {
+    const items: ScheduleItem[] = [];
+
+    // Inactive supplements
+    (inactiveSupplements || []).forEach((s) => {
+      items.push({
+        id: `supplement-${s.id}`,
+        type: "supplement" as const,
+        name: s.name,
+        brand: s.brand,
+        timing: "",
+        timeOfDay: "",
+        frequency: s.frequency,
+        notes: s.timing_reason || s.reason,
+        original: s,
+        isActive: false,
+      });
+    });
+
+    // Inactive equipment
+    (inactiveEquipment || []).forEach((e) => {
+      items.push({
+        id: `equipment-${e.id}`,
+        type: "equipment" as const,
+        name: e.name,
+        brand: e.brand,
+        timing: "",
+        timeOfDay: "",
+        frequency: e.usage_frequency,
+        duration: e.usage_duration,
+        notes: e.usage_protocol,
+        original: e,
+        isActive: false,
+      });
+    });
+
+    // Inactive schedule items (exercises/meals)
+    (scheduleItems || [])
+      .filter((s) => !s.is_active)
+      .forEach((s) => {
+        items.push({
+          id: `schedule_item-${s.id}`,
+          type: s.item_type as "exercise" | "meal",
+          name: s.name,
+          timing: "",
+          timeOfDay: "",
+          frequency: s.frequency,
+          duration: s.duration || undefined,
+          notes: s.notes || undefined,
+          original: s,
+          exerciseType: s.exercise_type || undefined,
+          mealType: s.meal_type || undefined,
+          isActive: false,
+        });
+      });
+
+    return items;
+  }, [inactiveSupplements, inactiveEquipment, scheduleItems]);
 
   // Combine all schedule items
   const allScheduleItems = useMemo(() => {
-    return [...supplementScheduleItems, ...equipmentScheduleItems, ...routineScheduleItems];
-  }, [supplementScheduleItems, equipmentScheduleItems, routineScheduleItems]);
+    return [...supplementScheduleItems, ...equipmentScheduleItems, ...routineScheduleItems, ...exerciseMealScheduleItems];
+  }, [supplementScheduleItems, equipmentScheduleItems, routineScheduleItems, exerciseMealScheduleItems]);
 
   // Split items into Daily and Special
   const { dailyItems, specialItems } = useMemo(() => {
@@ -387,6 +531,10 @@ export default function RoutinesPage() {
         return "bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30";
       case "routine":
         return "bg-blue-500/20 border-blue-500/50 text-blue-300 hover:bg-blue-500/30";
+      case "exercise":
+        return "bg-purple-500/20 border-purple-500/50 text-purple-300 hover:bg-purple-500/30";
+      case "meal":
+        return "bg-orange-500/20 border-orange-500/50 text-orange-300 hover:bg-orange-500/30";
       default:
         return "bg-secondary";
     }
@@ -406,6 +554,14 @@ export default function RoutinesPage() {
     }
     if (item.type === "routine") {
       return <ListTodo className="w-3 h-3 flex-shrink-0 text-blue-400" />;
+    }
+    if (item.type === "exercise") {
+      const IconComponent = EXERCISE_ICONS[item.exerciseType || "other"] || Activity;
+      return <IconComponent className="w-3 h-3 flex-shrink-0 text-purple-400" />;
+    }
+    if (item.type === "meal") {
+      const IconComponent = MEAL_ICONS[item.mealType || "meal"] || Utensils;
+      return <IconComponent className="w-3 h-3 flex-shrink-0 text-orange-400" />;
     }
     return null;
   };
@@ -442,7 +598,7 @@ export default function RoutinesPage() {
 
   // Drag and drop handlers
   const handleDragStart = (e: DragEvent<HTMLButtonElement>, item: ScheduleItem) => {
-    // Only allow dragging supplements and equipment (not routine items)
+    // Only allow dragging supplements, equipment, exercises, and meals (not routine items)
     if (item.type === "routine") {
       e.preventDefault();
       return;
@@ -509,10 +665,17 @@ export default function RoutinesPage() {
         });
         toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
       } else if (draggedItem.type === "equipment") {
-        const equipment = draggedItem.original as Equipment;
+        const equipmentItem = draggedItem.original as Equipment;
         await updateEquipment.mutateAsync({
-          id: equipment.id,
+          id: equipmentItem.id,
           data: { usage_timing: newTiming },
+        });
+        toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
+      } else if (draggedItem.type === "exercise" || draggedItem.type === "meal") {
+        const scheduleItem = draggedItem.original as ScheduleItemType;
+        await updateScheduleItem.mutateAsync({
+          id: scheduleItem.id,
+          data: { timing: newTiming },
         });
         toast.success(`Moved ${draggedItem.name} to ${TIME_SLOTS.find(s => s.value === newTiming)?.label || newTiming}`);
       }
@@ -548,7 +711,20 @@ export default function RoutinesPage() {
           <h1 className="text-2xl font-bold">Schedule</h1>
           <p className="text-muted-foreground text-sm">Your health protocols</p>
         </div>
+        <AddItemMenu />
       </div>
+
+      {/* Diet Header */}
+      <DietHeader />
+
+      {/* Changes Banner */}
+      <ChangesBanner
+        hasChanges={hasUnsavedChanges}
+        changes={changes}
+        onSave={saveRoutine}
+        onDiscard={discardChanges}
+        isSaving={isSaving}
+      />
 
       {/* Two Column Layout: Daily | Special */}
       <div className="border rounded-lg overflow-hidden bg-card">
@@ -679,14 +855,15 @@ export default function RoutinesPage() {
         })}
       </div>
 
-      {/* No Schedule Section - Always shown at bottom */}
+      {/* Unscheduled / Inactive Section */}
       <div className="border rounded-lg overflow-hidden bg-card">
         <div className="p-3 bg-muted/30 border-b">
-          <h2 className="text-sm font-semibold text-muted-foreground">No Schedule</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground">Unscheduled / Inactive</h2>
         </div>
         <div className="p-3 min-h-[50px]">
-          {unscheduledItems.length > 0 ? (
+          {unscheduledItems.length > 0 || inactiveItems.length > 0 ? (
             <div className="flex flex-wrap gap-2">
+              {/* Unscheduled items (active, no timing) */}
               {unscheduledItems.map((item) => {
                 const dose = getSupplementDose(item);
                 const DoseIcon = dose?.icon;
@@ -708,6 +885,28 @@ export default function RoutinesPage() {
                   </button>
                 );
               })}
+              {/* Inactive items (greyed out) */}
+              {inactiveItems.map((item) => {
+                const dose = getSupplementDose(item);
+                const DoseIcon = dose?.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleItemClick(item)}
+                    className={`text-left px-2 py-1 rounded border text-xs transition-colors cursor-pointer opacity-40 grayscale ${getItemColor(item.type)}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {getItemIcon(item)}
+                      <span className="font-medium">{item.name}</span>
+                      {dose && DoseIcon && (
+                        <span className={`flex items-center gap-0.5 text-[10px] ${dose.color}`}>
+                          {dose.text}<DoseIcon className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground/50 italic">All items have a scheduled time</p>
@@ -716,7 +915,7 @@ export default function RoutinesPage() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-emerald-500/30 border border-emerald-500/50" />
           <span>Supplements</span>
@@ -727,7 +926,15 @@ export default function RoutinesPage() {
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-blue-500/30 border border-blue-500/50" />
-          <span>Schedules</span>
+          <span>Routines</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-purple-500/30 border border-purple-500/50" />
+          <span>Exercise</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-orange-500/30 border border-orange-500/50" />
+          <span>Meals</span>
         </div>
       </div>
 

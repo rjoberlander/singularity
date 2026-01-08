@@ -31,6 +31,9 @@ import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
 import accessTokenRoutes from './routes/accessTokens';
 import journalRoutes from './routes/journal';
+import scheduleItemsRoutes from './routes/scheduleItems';
+import userDietRoutes from './routes/userDiet';
+import routineVersionsRoutes from './routes/routineVersions';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -153,6 +156,9 @@ app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Proto
 app.use('/api/v1/twilio', authenticateUser, twilioRoutes); // Twilio SMS settings
 app.use('/api/v1/access-tokens', authenticateUser, accessTokenRoutes); // MCP/AI connector tokens
 app.use('/api/v1/journal', journalRoutes); // Journal module (auth handled in most routes, public routes for shared entries)
+app.use('/api/v1/schedule-items', authenticateUser, scheduleItemsRoutes); // Schedule items (exercises, meals)
+app.use('/api/v1/user-diet', authenticateUser, userDietRoutes); // User diet settings
+app.use('/api/v1/routine-versions', authenticateUser, routineVersionsRoutes); // Routine versions (change log)
 
 // ==============================================
 // Error Handling

@@ -526,6 +526,33 @@ export const journalApi = {
   deletePrompt: (id: string) => getApi().delete(`/journal/prompts/${id}`),
 };
 
+// Schedule Items (Exercises & Meals)
+export const scheduleItemsApi = {
+  list: (params?: { item_type?: string; is_active?: boolean }) =>
+    getApi().get("/schedule-items", { params }),
+  get: (id: string) => getApi().get(`/schedule-items/${id}`),
+  create: (data: unknown) => getApi().post("/schedule-items", data),
+  update: (id: string, data: unknown) => getApi().put(`/schedule-items/${id}`, data),
+  toggle: (id: string) => getApi().patch(`/schedule-items/${id}/toggle`),
+  delete: (id: string) => getApi().delete(`/schedule-items/${id}`),
+};
+
+// User Diet
+export const userDietApi = {
+  get: () => getApi().get("/user-diet"),
+  update: (data: unknown) => getApi().patch("/user-diet", data),
+};
+
+// Routine Versions (Change Log)
+export const routineVersionsApi = {
+  list: (params?: { limit?: number; offset?: number }) =>
+    getApi().get("/routine-versions", { params }),
+  get: (id: string) => getApi().get(`/routine-versions/${id}`),
+  getLatest: () => getApi().get("/routine-versions/latest"),
+  getCurrentSnapshot: () => getApi().get("/routine-versions/current-snapshot"),
+  create: (data?: { reason?: string }) => getApi().post("/routine-versions", data || {}),
+};
+
 // Google Calendar
 export const googleCalendarApi = {
   // OAuth configuration (Client ID/Secret)

@@ -14,6 +14,9 @@ import {
   userLinksApi,
   eightSleepApi,
   journalApi,
+  scheduleItemsApi,
+  userDietApi,
+  routineVersionsApi,
 } from "./index";
 import type {
   Biomarker,
@@ -52,6 +55,12 @@ import type {
   JournalPrompt,
   JournalTagCount,
   OnThisDayEntry,
+  ScheduleItem,
+  CreateScheduleItemRequest,
+  UserDiet,
+  UpdateUserDietRequest,
+  RoutineVersion,
+  RoutineSnapshot,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1493,5 +1502,182 @@ export function formatJournalDate(dateString: string): string {
     month: "short",
     day: "numeric",
     year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+// ============================================
+// Schedule Items Hooks (Exercises & Meals)
+// ============================================
+
+export function useScheduleItems(params?: {
+  item_type?: 'exercise' | 'meal';
+  is_active?: boolean;
+}) {
+  return useQuery({
+    queryKey: ["schedule-items", params],
+    queryFn: async () => {
+      const response = await scheduleItemsApi.list(params);
+      return response.data.data as ScheduleItem[];
+    },
+  });
+}
+
+export function useScheduleItem(id: string) {
+  return useQuery({
+    queryKey: ["schedule-items", id],
+    queryFn: async () => {
+      const response = await scheduleItemsApi.get(id);
+      return response.data.data as ScheduleItem;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCreateScheduleItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateScheduleItemRequest) => {
+      const response = await scheduleItemsApi.create(data);
+      return response.data.data as ScheduleItem;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule-items"] });
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+export function useUpdateScheduleItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<ScheduleItem> }) => {
+      const response = await scheduleItemsApi.update(id, data);
+      return response.data.data as ScheduleItem;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["schedule-items"] });
+      queryClient.invalidateQueries({ queryKey: ["schedule-items", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+export function useToggleScheduleItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await scheduleItemsApi.toggle(id);
+      return response.data.data as ScheduleItem;
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["schedule-items"] });
+      queryClient.invalidateQueries({ queryKey: ["schedule-items", id] });
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+export function useDeleteScheduleItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await scheduleItemsApi.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule-items"] });
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+// ============================================
+// User Diet Hooks
+// ============================================
+
+export function useUserDiet() {
+  return useQuery({
+    queryKey: ["user-diet"],
+    queryFn: async () => {
+      const response = await userDietApi.get();
+      return response.data.data as UserDiet;
+    },
+  });
+}
+
+export function useUpdateUserDiet() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: UpdateUserDietRequest) => {
+      const response = await userDietApi.update(data);
+      return response.data.data as UserDiet;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-diet"] });
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+// ============================================
+// Routine Version Hooks (Change Log)
+// ============================================
+
+export function useRoutineVersions(params?: { limit?: number; offset?: number }) {
+  return useQuery({
+    queryKey: ["routine-versions", params],
+    queryFn: async () => {
+      const response = await routineVersionsApi.list(params);
+      return response.data.data as RoutineVersion[];
+    },
+  });
+}
+
+export function useRoutineVersion(id: string) {
+  return useQuery({
+    queryKey: ["routine-versions", id],
+    queryFn: async () => {
+      const response = await routineVersionsApi.get(id);
+      return response.data.data as RoutineVersion;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useLatestRoutineVersion() {
+  return useQuery({
+    queryKey: ["routine-versions", "latest"],
+    queryFn: async () => {
+      const response = await routineVersionsApi.getLatest();
+      return response.data.data as RoutineVersion | null;
+    },
+  });
+}
+
+export function useCurrentRoutineSnapshot() {
+  return useQuery({
+    queryKey: ["routine-versions", "current-snapshot"],
+    queryFn: async () => {
+      const response = await routineVersionsApi.getCurrentSnapshot();
+      return response.data.data as RoutineSnapshot;
+    },
+  });
+}
+
+export function useSaveRoutineVersion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data?: { reason?: string }) => {
+      const response = await routineVersionsApi.create(data);
+      return response.data.data as RoutineVersion;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
   });
 }

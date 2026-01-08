@@ -908,3 +908,124 @@ export interface JournalTagCount {
   tag: string;
   count: number;
 }
+
+// =============================================
+// SCHEDULE & ROUTINE VERSION TYPES
+// =============================================
+
+// Exercise types (10 options)
+export type ExerciseType = 'hiit' | 'run' | 'bike' | 'swim' | 'strength' | 'yoga' | 'walk' | 'stretch' | 'sports' | 'other';
+
+// Meal types (3 options)
+export type MealType = 'meal' | 'protein_shake' | 'snack';
+
+// Diet types
+export type DietType = 'untracked' | 'standard' | 'keto' | 'carnivore' | 'vegan' | 'vegetarian' | 'mediterranean' | 'paleo' | 'low_fodmap' | 'other';
+
+// Schedule Item (exercises & meals)
+export interface ScheduleItem {
+  id: string;
+  user_id: string;
+  item_type: 'exercise' | 'meal';
+  name: string;
+  timing: SupplementTiming | null;
+  frequency: SupplementFrequency | string;
+  frequency_days: DayOfWeek[] | null;
+  exercise_type: ExerciseType | null;
+  meal_type: MealType | null;
+  duration: string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateScheduleItemRequest {
+  item_type: 'exercise' | 'meal';
+  name: string;
+  timing?: SupplementTiming | string;
+  frequency?: SupplementFrequency | string;
+  frequency_days?: DayOfWeek[];
+  exercise_type?: ExerciseType;
+  meal_type?: MealType;
+  duration?: string;
+  notes?: string;
+}
+
+// User Diet
+export interface UserDiet {
+  id: string;
+  user_id: string;
+  diet_type: DietType;
+  diet_type_other: string | null;
+  target_protein_g: number | null;
+  target_carbs_g: number | null;
+  target_fat_g: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateUserDietRequest {
+  diet_type?: DietType;
+  diet_type_other?: string;
+  target_protein_g?: number | null;
+  target_carbs_g?: number | null;
+  target_fat_g?: number | null;
+}
+
+// Routine Snapshot Item (for versioning)
+export interface RoutineSnapshotItem {
+  id: string;
+  source: 'supplement' | 'equipment' | 'schedule_item' | 'routine';
+  source_id: string;
+  name: string;
+  timing: string | null;
+  timings?: string[];
+  frequency: string;
+  frequency_days: string[] | null;
+  // Type-specific fields
+  category?: string;
+  intake_quantity?: number;
+  intake_form?: string;
+  duration?: string;
+  item_type?: 'exercise' | 'meal';
+  exercise_type?: ExerciseType;
+  meal_type?: MealType;
+}
+
+// Routine Snapshot (full state)
+export interface RoutineSnapshot {
+  diet: {
+    type: DietType;
+    type_other: string | null;
+    macros: {
+      protein_g: number | null;
+      carbs_g: number | null;
+      fat_g: number | null;
+    };
+  };
+  items: RoutineSnapshotItem[];
+}
+
+// Routine Changes (diff)
+export interface RoutineChanges {
+  diet_changed: { from: string; to: string } | null;
+  macros_changed: Record<string, { from: number | null; to: number | null }> | null;
+  started: RoutineSnapshotItem[];
+  stopped: RoutineSnapshotItem[];
+  modified: Array<{
+    item: RoutineSnapshotItem;
+    changes: Array<{ field: string; from: unknown; to: unknown }>;
+  }>;
+}
+
+// Routine Version
+export interface RoutineVersion {
+  id: string;
+  user_id: string;
+  version_number: number;
+  snapshot: RoutineSnapshot;
+  changes: RoutineChanges;
+  reason: string | null;
+  created_at: string;
+}
