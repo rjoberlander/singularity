@@ -54,8 +54,7 @@ const TIME_SLOTS: { value: SupplementTiming; label: string }[] = [
   { value: "lunch", label: "Lunch" },
   { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
-  { value: "evening", label: "Evening" },
-  { value: "bed", label: "Bed" },
+  { value: "before_bed", label: "Before Bed" },
 ];
 
 const FREQUENCY_OPTIONS = [

@@ -124,8 +124,7 @@ const TIME_SLOTS = [
   { value: "lunch", label: "Lunch" },
   { value: "pm", label: "PM" },
   { value: "dinner", label: "Dinner" },
-  { value: "evening", label: "Evening" },
-  { value: "bed", label: "Bed" },
+  { value: "before_bed", label: "Before Bed" },
 ];
 
 // Normalize timing values to canonical form
@@ -133,7 +132,7 @@ function normalizeTiming(timing: string): string {
   const lowerTiming = timing.toLowerCase();
 
   // Direct matches
-  if (["wake_up", "am", "lunch", "pm", "dinner", "evening", "bed"].includes(timing)) {
+  if (["wake_up", "am", "lunch", "pm", "dinner", "before_bed"].includes(timing)) {
     return timing;
   }
 
@@ -153,11 +152,8 @@ function normalizeTiming(timing: string): string {
   if (lowerTiming.includes("dinner")) {
     return "dinner";
   }
-  if (lowerTiming.includes("evening")) {
-    return "evening";
-  }
-  if (lowerTiming.includes("bed") || lowerTiming.includes("night") || lowerTiming.includes("sleep")) {
-    return "bed";
+  if (lowerTiming.includes("evening") || lowerTiming.includes("bed") || lowerTiming.includes("night") || lowerTiming.includes("sleep")) {
+    return "before_bed";
   }
 
   return "am"; // Default
