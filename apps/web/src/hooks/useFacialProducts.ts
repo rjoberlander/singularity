@@ -86,7 +86,7 @@ export function useToggleFacialProduct() {
       const queryCache = queryClient.getQueryCache();
       const queries = queryCache.findAll({ queryKey: ["facial-products"] });
 
-      const previousData: { queryKey: unknown[]; data: FacialProduct[] }[] = [];
+      const previousData: { queryKey: readonly unknown[]; data: FacialProduct[] }[] = [];
 
       queries.forEach((query) => {
         const data = query.state.data as FacialProduct[] | undefined;

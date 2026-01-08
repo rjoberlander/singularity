@@ -85,7 +85,7 @@ export function useToggleSupplement() {
       const queryCache = queryClient.getQueryCache();
       const queries = queryCache.findAll({ queryKey: ["supplements"] });
 
-      const previousData: { queryKey: unknown[]; data: Supplement[] }[] = [];
+      const previousData: { queryKey: readonly unknown[]; data: Supplement[] }[] = [];
 
       queries.forEach((query) => {
         const data = query.state.data as Supplement[] | undefined;
