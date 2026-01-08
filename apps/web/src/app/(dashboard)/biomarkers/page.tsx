@@ -182,9 +182,9 @@ export default function BiomarkersPage() {
     // Track trends within each status
     // Now tracks direction (up/down/stable) with health assessment
     const trends = {
-      optimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
-      suboptimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
-      critical: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral')[], downHealth: [] as ('good' | 'bad' | 'neutral')[] },
+      optimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[], downHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[] },
+      suboptimal: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[], downHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[] },
+      critical: { up: 0, down: 0, stable: 0, upHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[], downHealth: [] as ('good' | 'bad' | 'neutral' | 'warning')[] },
     };
 
     BIOMARKER_REFERENCE.forEach((ref) => {
