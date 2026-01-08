@@ -276,17 +276,17 @@ export default function JournalEntryPage({
           </div>
 
           {/* Right Column - Media Gallery (40%) - Pinterest/Instagram mosaic */}
-          {entry.media && entry.media.length > 0 && (
+          {entry.media && entry.media!.length > 0 && (
             <div className="lg:w-[40%] mb-6 lg:mb-0 lg:sticky lg:top-0 lg:self-start">
               <div className="rounded-2xl overflow-hidden">
                 {/* Single image - hero style with shadow */}
-                {entry.media.length === 1 && (
+                {entry.media!.length === 1 && (
                   <div
                     className="rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-300 shadow-lg"
-                    onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                    onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                   >
-                    {entry.media[0].media_type === "image" ? (
-                      <img src={entry.media[0].file_url} alt="" className="w-full h-auto object-cover" />
+                    {entry.media![0].media_type === "image" ? (
+                      <img src={entry.media![0].file_url} alt="" className="w-full h-auto object-cover" />
                     ) : (
                       <div className="aspect-video flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 relative">
                         <Video className="w-16 h-16 text-muted-foreground/60" />
@@ -297,14 +297,14 @@ export default function JournalEntryPage({
                 )}
 
                 {/* 2 images - portrait/landscape combo */}
-                {entry.media.length === 2 && (
+                {entry.media!.length === 2 && (
                   <div className="grid grid-cols-5 gap-1.5">
                     <div
                       className="col-span-3 aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-300 shadow-md"
-                      onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                      onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                     >
-                      {entry.media[0].media_type === "image" ? (
-                        <img src={entry.media[0].file_url} alt="" className="w-full h-full object-cover" />
+                      {entry.media![0].media_type === "image" ? (
+                        <img src={entry.media![0].file_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                           <Video className="w-10 h-10 text-muted-foreground/60" />
@@ -313,10 +313,10 @@ export default function JournalEntryPage({
                     </div>
                     <div
                       className="col-span-2 aspect-[2/3] rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-300 shadow-md"
-                      onClick={() => setLightboxMedia({ url: entry.media[1].file_url, type: entry.media[1].media_type as "image" | "video" })}
+                      onClick={() => setLightboxMedia({ url: entry.media![1].file_url, type: entry.media![1].media_type as "image" | "video" })}
                     >
-                      {entry.media[1].media_type === "image" ? (
-                        <img src={entry.media[1].file_url} alt="" className="w-full h-full object-cover" />
+                      {entry.media![1].media_type === "image" ? (
+                        <img src={entry.media![1].file_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                           <Video className="w-8 h-8 text-muted-foreground/60" />
@@ -327,14 +327,14 @@ export default function JournalEntryPage({
                 )}
 
                 {/* 3 images - featured hero + 2 thumbnails */}
-                {entry.media.length === 3 && (
+                {entry.media!.length === 3 && (
                   <div className="space-y-1.5">
                     <div
                       className="aspect-[4/3] rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.01] transition-transform duration-300 shadow-lg"
-                      onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                      onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                     >
-                      {entry.media[0].media_type === "image" ? (
-                        <img src={entry.media[0].file_url} alt="" className="w-full h-full object-cover" />
+                      {entry.media![0].media_type === "image" ? (
+                        <img src={entry.media![0].file_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                           <Video className="w-12 h-12 text-muted-foreground/60" />
@@ -342,7 +342,7 @@ export default function JournalEntryPage({
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {entry.media.slice(1, 3).map((media) => (
+                      {entry.media!.slice(1, 3).map((media) => (
                         <div
                           key={media.id}
                           className="aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-[1.03] transition-transform duration-300 shadow-md"
@@ -362,21 +362,21 @@ export default function JournalEntryPage({
                 )}
 
                 {/* 4 images - asymmetric grid */}
-                {entry.media.length === 4 && (
+                {entry.media!.length === 4 && (
                   <div className="grid grid-cols-3 gap-1.5">
                     <div
                       className="col-span-2 row-span-2 rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.01] transition-transform duration-300 shadow-lg"
-                      onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                      onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                     >
-                      {entry.media[0].media_type === "image" ? (
-                        <img src={entry.media[0].file_url} alt="" className="w-full h-full object-cover" />
+                      {entry.media![0].media_type === "image" ? (
+                        <img src={entry.media![0].file_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                           <Video className="w-10 h-10 text-muted-foreground/60" />
                         </div>
                       )}
                     </div>
-                    {entry.media.slice(1, 4).map((media, i) => (
+                    {entry.media!.slice(1, 4).map((media, i) => (
                       <div
                         key={media.id}
                         className={cn(
@@ -398,15 +398,15 @@ export default function JournalEntryPage({
                 )}
 
                 {/* 5 images - magazine style */}
-                {entry.media.length === 5 && (
+                {entry.media!.length === 5 && (
                   <div className="space-y-1.5">
                     <div className="grid grid-cols-2 gap-1.5">
                       <div
                         className="aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-300 shadow-lg"
-                        onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                        onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                       >
-                        {entry.media[0].media_type === "image" ? (
-                          <img src={entry.media[0].file_url} alt="" className="w-full h-full object-cover" />
+                        {entry.media![0].media_type === "image" ? (
+                          <img src={entry.media![0].file_url} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                             <Video className="w-10 h-10 text-muted-foreground/60" />
@@ -414,7 +414,7 @@ export default function JournalEntryPage({
                         )}
                       </div>
                       <div className="space-y-1.5">
-                        {entry.media.slice(1, 3).map((media) => (
+                        {entry.media!.slice(1, 3).map((media) => (
                           <div
                             key={media.id}
                             className="aspect-[4/3] rounded-xl overflow-hidden cursor-pointer hover:scale-[1.03] transition-transform duration-300 shadow-md"
@@ -432,7 +432,7 @@ export default function JournalEntryPage({
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {entry.media.slice(3, 5).map((media) => (
+                      {entry.media!.slice(3, 5).map((media) => (
                         <div
                           key={media.id}
                           className="aspect-video rounded-xl overflow-hidden cursor-pointer hover:scale-[1.03] transition-transform duration-300 shadow-md"
@@ -452,16 +452,16 @@ export default function JournalEntryPage({
                 )}
 
                 {/* 6+ images - Pinterest masonry style with +N */}
-                {entry.media.length >= 6 && (
+                {entry.media!.length >= 6 && (
                   <div className="space-y-1.5">
                     {/* Top row - 1 large + 2 stacked */}
                     <div className="grid grid-cols-5 gap-1.5" style={{ height: '200px' }}>
                       <div
                         className="col-span-3 rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.01] transition-transform duration-300 shadow-lg"
-                        onClick={() => setLightboxMedia({ url: entry.media[0].file_url, type: entry.media[0].media_type as "image" | "video" })}
+                        onClick={() => setLightboxMedia({ url: entry.media![0].file_url, type: entry.media![0].media_type as "image" | "video" })}
                       >
-                        {entry.media[0].media_type === "image" ? (
-                          <img src={entry.media[0].file_url} alt="" className="w-full h-full object-cover" />
+                        {entry.media![0].media_type === "image" ? (
+                          <img src={entry.media![0].file_url} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
                             <Video className="w-10 h-10 text-muted-foreground/60" />
@@ -469,7 +469,7 @@ export default function JournalEntryPage({
                         )}
                       </div>
                       <div className="col-span-2 flex flex-col gap-1.5">
-                        {entry.media.slice(1, 3).map((media) => (
+                        {entry.media!.slice(1, 3).map((media) => (
                           <div
                             key={media.id}
                             className="flex-1 rounded-xl overflow-hidden cursor-pointer hover:scale-[1.03] transition-transform duration-300 shadow-md"
@@ -488,7 +488,7 @@ export default function JournalEntryPage({
                     </div>
                     {/* Bottom row - 3 equal with +N on last */}
                     <div className="grid grid-cols-3 gap-1.5">
-                      {entry.media.slice(3, 6).map((media, index) => (
+                      {entry.media!.slice(3, 6).map((media, index) => (
                         <div
                           key={media.id}
                           className="aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-[1.03] transition-transform duration-300 shadow-md relative"
@@ -502,9 +502,9 @@ export default function JournalEntryPage({
                             </div>
                           )}
                           {/* +N overlay */}
-                          {index === 2 && entry.media.length > 6 && (
+                          {index === 2 && entry.media!.length > 6 && (
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30 flex items-center justify-center backdrop-blur-[1px]">
-                              <span className="text-white text-2xl font-bold drop-shadow-lg">+{entry.media.length - 6}</span>
+                              <span className="text-white text-2xl font-bold drop-shadow-lg">+{entry.media!.length - 6}</span>
                             </div>
                           )}
                         </div>
@@ -515,7 +515,7 @@ export default function JournalEntryPage({
 
                 {/* Photo count - subtle indicator */}
                 <div className="text-center text-xs text-muted-foreground/70 mt-3 font-medium">
-                  {entry.media.length} {entry.media.length === 1 ? 'photo' : 'photos'}
+                  {entry.media!.length} {entry.media!.length === 1 ? 'photo' : 'photos'}
                 </div>
               </div>
             </div>
