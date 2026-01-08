@@ -19,7 +19,7 @@ interface SaveRoutineModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   changes: RoutineChanges | null;
-  onSave: (reason?: string) => Promise<void>;
+  onSave: (reason?: string) => Promise<unknown>;
   isSaving: boolean;
 }
 

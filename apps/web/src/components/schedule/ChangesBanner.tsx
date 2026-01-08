@@ -9,7 +9,7 @@ import type { RoutineChanges } from "@singularity/shared-types";
 interface ChangesBannerProps {
   hasChanges: boolean;
   changes: RoutineChanges | null;
-  onSave: (reason?: string) => Promise<void>;
+  onSave: (reason?: string) => Promise<unknown>;
   onDiscard: () => void;
   isSaving: boolean;
 }
