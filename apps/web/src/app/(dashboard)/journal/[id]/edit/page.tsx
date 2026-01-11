@@ -1,13 +1,15 @@
 "use client";
 
-import { use, useState, useCallback, useEffect } from "react";
+import { use, useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   useJournalEntry,
   useUpdateJournalEntry,
-  getMoodEmoji,
+  useAddJournalMedia,
+  useDeleteJournalMedia,
 } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,16 +20,25 @@ import {
   Save,
   Loader2,
   MapPin,
-  Tag,
   X,
   Plus,
   Calendar,
   Clock,
   Sparkles,
+  Image as ImageIcon,
+  Video,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { JournalMood } from "@singularity/shared-types";
+import { JournalMood, JournalMedia } from "@singularity/shared-types";
 import { cn } from "@/lib/utils";
+
+interface MediaFile {
+  file: File;
+  preview: string;
+  type: "image" | "video";
+}
 
 const MOOD_OPTIONS: { value: JournalMood; emoji: string; label: string }[] = [
   { value: "happy", emoji: "😊", label: "Happy" },
@@ -48,6 +59,17 @@ export default function EditJournalEntryPage({
 
   const { data: entry, isLoading } = useJournalEntry(id);
   const updateEntry = useUpdateJournalEntry();
+  const addMedia = useAddJournalMedia();
+  const deleteMedia = useDeleteJournalMedia();
+
+  // Media state
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [deletingMediaIds, setDeletingMediaIds] = useState<Set<string>>(new Set());
+  const [lightboxMedia, setLightboxMedia] = useState<{ url: string; type: "image" | "video" } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   // Form state
   const [title, setTitle] = useState("");
@@ -83,6 +105,138 @@ export default function EditJournalEntryPage({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
+  // Cleanup media previews on unmount
+  useEffect(() => {
+    return () => {
+      mediaFiles.forEach((media) => URL.revokeObjectURL(media.preview));
+    };
+  }, [mediaFiles]);
+
+  // Media handlers
+  const processFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/")
+    );
+
+    if (validFiles.length === 0) {
+      toast.error("Please select image or video files");
+      return;
+    }
+
+    const newMediaFiles: MediaFile[] = validFiles.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      type: file.type.startsWith("image/") ? "image" : "video",
+    }));
+
+    setMediaFiles((prev) => [...prev, ...newMediaFiles]);
+  }, []);
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        processFiles(e.target.files);
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    [processFiles]
+  );
+
+  const handleRemoveNewMedia = useCallback((index: number) => {
+    setMediaFiles((prev) => {
+      const removed = prev[index];
+      URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const handleDeleteExistingMedia = async (mediaId: string) => {
+    setDeletingMediaIds((prev) => new Set(prev).add(mediaId));
+    try {
+      await deleteMedia.mutateAsync({ entryId: id, mediaId });
+      toast.success("Media deleted");
+    } catch (error) {
+      toast.error("Failed to delete media");
+    } finally {
+      setDeletingMediaIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(mediaId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        processFiles(e.dataTransfer.files);
+      }
+    },
+    [processFiles]
+  );
+
+  // Upload media to Supabase Storage
+  const uploadMediaToStorage = async (
+    file: File,
+    entryId: string
+  ): Promise<{ url: string; type: "image" | "video" } | null> => {
+    try {
+      const supabase = createClient();
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${entryId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from("singularity-uploads")
+        .upload(`journal/${fileName}`, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (error) {
+        console.error("Upload error:", error);
+        return null;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("singularity-uploads")
+        .getPublicUrl(data.path);
+
+      return {
+        url: urlData.publicUrl,
+        type: file.type.startsWith("image/") ? "image" : "video",
+      };
+    } catch (error) {
+      console.error("Upload error:", error);
+      return null;
+    }
+  };
+
   const handleSubmit = async () => {
     if (!content.trim()) {
       toast.error("Please write something");
@@ -103,9 +257,45 @@ export default function EditJournalEntryPage({
         },
       });
 
-      toast.success("Entry updated");
+      // Upload new media files if any
+      if (mediaFiles.length > 0) {
+        setIsUploadingMedia(true);
+        const uploadedMedia: { media_type: "image" | "video"; file_url: string; original_filename: string; mime_type: string; file_size_bytes: number }[] = [];
+
+        for (const media of mediaFiles) {
+          const result = await uploadMediaToStorage(media.file, id);
+          if (result) {
+            uploadedMedia.push({
+              media_type: result.type,
+              file_url: result.url,
+              original_filename: media.file.name,
+              mime_type: media.file.type,
+              file_size_bytes: media.file.size,
+            });
+          }
+        }
+
+        if (uploadedMedia.length > 0) {
+          await addMedia.mutateAsync({
+            entryId: id,
+            media: uploadedMedia,
+          });
+        }
+
+        setIsUploadingMedia(false);
+
+        if (uploadedMedia.length < mediaFiles.length) {
+          toast.warning(`Entry updated, but ${mediaFiles.length - uploadedMedia.length} file(s) failed to upload`);
+        } else {
+          toast.success("Entry updated with new media");
+        }
+      } else {
+        toast.success("Entry updated");
+      }
+
       router.push(`/journal/${id}`);
     } catch (error) {
+      setIsUploadingMedia(false);
       toast.error("Failed to update entry");
     }
   };
@@ -144,14 +334,14 @@ export default function EditJournalEntryPage({
         </div>
         <Button
           onClick={handleSubmit}
-          disabled={updateEntry.isPending || !content.trim()}
+          disabled={updateEntry.isPending || isUploadingMedia || !content.trim()}
         >
-          {updateEntry.isPending ? (
+          {updateEntry.isPending || isUploadingMedia ? (
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
           ) : (
             <Save className="w-4 h-4 mr-2" />
           )}
-          Save
+          {isUploadingMedia ? "Uploading..." : "Save"}
         </Button>
       </div>
 
@@ -182,6 +372,141 @@ export default function EditJournalEntryPage({
           onChange={(e) => setContent(e.target.value)}
           className="min-h-[300px] resize-none border-none shadow-none focus-visible:ring-0 px-0 text-base"
         />
+
+        {/* Media Section */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            Photos & Videos
+          </label>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          {/* Existing media from entry - Instagram style small thumbnails */}
+          {entry.media && entry.media.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Current media ({entry.media.length})</p>
+              <div className="flex flex-wrap gap-2">
+                {entry.media.map((media: JournalMedia) => (
+                  <div
+                    key={media.id}
+                    className="relative w-16 h-16 rounded-md overflow-hidden bg-muted group flex-shrink-0"
+                  >
+                    {media.media_type === "image" ? (
+                      <img
+                        src={media.file_url}
+                        alt={media.original_filename || "Journal media"}
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setLightboxMedia({ url: media.file_url, type: "image" })}
+                      />
+                    ) : (
+                      <div
+                        className="w-full h-full flex items-center justify-center bg-muted cursor-pointer hover:bg-muted/80 transition-colors"
+                        onClick={() => setLightboxMedia({ url: media.file_url, type: "video" })}
+                      >
+                        <Video className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteExistingMedia(media.id);
+                      }}
+                      disabled={deletingMediaIds.has(media.id)}
+                      className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-red-500/90 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 disabled:opacity-50"
+                    >
+                      {deletingMediaIds.has(media.id) ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-2.5 h-2.5" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* New media previews - Instagram style small thumbnails */}
+          {mediaFiles.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">New media ({mediaFiles.length})</p>
+              <div className="flex flex-wrap gap-2">
+                {mediaFiles.map((media, index) => (
+                  <div
+                    key={`${media.file.name}-${index}`}
+                    className="relative w-16 h-16 rounded-md overflow-hidden bg-muted group flex-shrink-0 ring-2 ring-primary/50"
+                  >
+                    {media.type === "image" ? (
+                      <img
+                        src={media.preview}
+                        alt={media.file.name}
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setLightboxMedia({ url: media.preview, type: "image" })}
+                      />
+                    ) : (
+                      <div
+                        className="w-full h-full flex items-center justify-center bg-muted cursor-pointer hover:bg-muted/80 transition-colors"
+                        onClick={() => setLightboxMedia({ url: media.preview, type: "video" })}
+                      >
+                        <Video className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveNewMedia(index);
+                      }}
+                      className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Drop zone - compact */}
+          <div
+            ref={dropZoneRef}
+            onClick={() => fileInputRef.current?.click()}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className={cn(
+              "flex items-center justify-center gap-3 p-3 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
+              isDragging
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/50 hover:bg-muted/50"
+            )}
+          >
+            {isDragging ? (
+              <>
+                <Upload className="w-5 h-5 text-primary" />
+                <p className="text-sm font-medium text-primary">Drop files here</p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1">
+                  <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                  <Video className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Add photos/videos
+                </p>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Mood Selector */}
         <div className="space-y-2">
@@ -291,6 +616,37 @@ export default function EditJournalEntryPage({
           </div>
         </div>
       </div>
+
+      {/* Lightbox Modal */}
+      {lightboxMedia && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightboxMedia(null)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+            onClick={() => setLightboxMedia(null)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          {lightboxMedia.type === "image" ? (
+            <img
+              src={lightboxMedia.url}
+              alt="Full size"
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <video
+              src={lightboxMedia.url}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -24,10 +24,13 @@ import {
   Clock,
   AlertTriangle,
   ChevronRight,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { BIOMARKER_REFERENCE, BiomarkerReference } from "@/data/biomarkerReference";
+import { calculateTrend, TrendDirection } from "@/utils/trendCalculation";
+import { TrendingUp, TrendingDown, ArrowRight as TrendStable } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
   "What supplements should I consider?",
@@ -74,10 +77,10 @@ export default function DashboardPage() {
   const { data: goals } = useGoals();
   const { data: routines } = useRoutines();
 
-  // Group biomarkers by name and get concerned ones
-  const { concernedBiomarkers, biomarkerCount } = useMemo(() => {
+  // Group biomarkers by name and get concerned ones with trends
+  const { biomarkerSections, biomarkerCount } = useMemo(() => {
     const biomarkersByName = new Map<string, Biomarker[]>();
-    if (!biomarkers) return { concernedBiomarkers: [], biomarkerCount: 0 };
+    if (!biomarkers) return { biomarkerSections: { needsAttention: [], watchClosely: [], monitor: [], gettingBetter: [] }, biomarkerCount: 0 };
 
     biomarkers.forEach((b) => {
       const name = b.name.toLowerCase();
@@ -93,38 +96,96 @@ export default function DashboardPage() {
       biomarkersByName.get(key)!.push(b);
     });
 
-    // Find critical biomarkers
-    const concerned: Array<{
+    // Find critical and suboptimal biomarkers with trends
+    type ConcernedBiomarker = {
       name: string;
       value: number;
+      previousValue: number | null;
+      change: number | null;
+      percentChange: number | null;
       unit: string;
       status: "critical" | "suboptimal";
+      trend: TrendDirection | null;
+      history: number[];  // Last few values for mini trend
       reference: BiomarkerReference;
       biomarker: Biomarker;
-    }> = [];
+    };
+
+    const needsAttention: ConcernedBiomarker[] = [];  // Critical + Increasing
+    const watchClosely: ConcernedBiomarker[] = [];    // Suboptimal + Increasing (yellow going up)
+    const monitor: ConcernedBiomarker[] = [];         // Critical/Suboptimal + Stable/None
+    const gettingBetter: ConcernedBiomarker[] = [];   // Any decreasing (getting better)
 
     BIOMARKER_REFERENCE.forEach((ref) => {
       const history = biomarkersByName.get(ref.name) || [];
       if (history.length > 0) {
-        const latest = history.sort(
+        const sorted = [...history].sort(
           (a, b) => new Date(b.date_tested).getTime() - new Date(a.date_tested).getTime()
-        )[0];
+        );
+        const latest = sorted[0];
+        const previous = sorted[1] || null;
         const status = getValueStatus(latest.value, ref);
-        if (status === "critical") {
-          concerned.push({
+
+        // Only include critical and suboptimal
+        if (status === "critical" || status === "suboptimal") {
+          const trendResult = calculateTrend(history, ref);
+          const trend = trendResult.direction;
+
+          // Calculate change from previous
+          const change = previous ? latest.value - previous.value : null;
+          const percentChange = previous && previous.value !== 0
+            ? ((latest.value - previous.value) / previous.value) * 100
+            : null;
+
+          // Get last 4 values for mini trend display (chronological order)
+          const historyValues = sorted.slice(0, 4).reverse().map(b => b.value);
+
+          const item: ConcernedBiomarker = {
             name: ref.name,
             value: latest.value,
+            previousValue: previous?.value || null,
+            change,
+            percentChange,
             unit: latest.unit,
             status,
+            trend,
+            history: historyValues,
             reference: ref,
             biomarker: latest,
-          });
+          };
+
+          // Categorize based on status and trend
+          if (trend === "down") {
+            // Getting better - any red/yellow that's decreasing
+            gettingBetter.push(item);
+          } else if (status === "critical" && trend === "up") {
+            // Worst case: critical and getting worse
+            needsAttention.push(item);
+          } else if (status === "suboptimal" && trend === "up") {
+            // Yellow and increasing - watch closely
+            watchClosely.push(item);
+          } else {
+            // Critical/Suboptimal + stable/none - just monitor
+            monitor.push(item);
+          }
         }
       }
     });
 
+    // Sort each section: critical before suboptimal
+    const sortByStatus = (a: ConcernedBiomarker, b: ConcernedBiomarker) => {
+      if (a.status === "critical" && b.status !== "critical") return -1;
+      if (a.status !== "critical" && b.status === "critical") return 1;
+      return 0;
+    };
+
+    needsAttention.sort(sortByStatus);
+    watchClosely.sort(sortByStatus);
+    monitor.sort(sortByStatus);
+    gettingBetter.sort(sortByStatus);
+
     return {
-      concernedBiomarkers: concerned,
+      biomarkerSections: { needsAttention, watchClosely, monitor, gettingBetter },
       biomarkerCount: biomarkersByName.size,
     };
   }, [biomarkers]);
@@ -420,17 +481,12 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Concerned Biomarkers Section */}
+        {/* Biomarker Trends Section */}
         <div className="flex-1 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              <h2 className="text-lg font-semibold">Concerned Biomarkers</h2>
-              {concernedBiomarkers.length > 0 && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-destructive/10 text-destructive rounded-full">
-                  {concernedBiomarkers.length}
-                </span>
-              )}
+              <Activity className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-semibold">Biomarker Trends</h2>
             </div>
             <Link href="/biomarkers">
               <Button variant="ghost" size="sm">
@@ -440,37 +496,99 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {concernedBiomarkers.length === 0 ? (
-            <Card className="p-8 text-center">
+          {biomarkerSections.needsAttention.length === 0 &&
+           biomarkerSections.watchClosely.length === 0 &&
+           biomarkerSections.monitor.length === 0 &&
+           biomarkerSections.gettingBetter.length === 0 ? (
+            <Card className="p-6 text-center">
               <div className="text-primary mb-2">
-                <Activity className="w-12 h-12 mx-auto opacity-50" />
+                <Activity className="w-10 h-10 mx-auto opacity-50" />
               </div>
-              <p className="text-muted-foreground">
-                No critical biomarkers detected. Great job keeping your health on track!
+              <p className="text-sm text-muted-foreground">
+                All biomarkers are optimal! Great job!
               </p>
             </Card>
           ) : (
-            <div className="grid gap-3">
-              {concernedBiomarkers.map((item) => (
-                <Link key={item.name} href={`/biomarkers/${item.biomarker.id}`}>
-                  <Card className="p-4 hover:bg-muted/50 transition-colors cursor-pointer border-destructive/30">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Optimal: {item.reference.optimalRange.low} - {item.reference.optimalRange.high} {item.unit}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-destructive">
-                          {item.value} <span className="text-sm font-normal">{item.unit}</span>
-                        </p>
-                        <p className="text-xs text-destructive">Critical</p>
-                      </div>
-                    </div>
-                  </Card>
-                </Link>
-              ))}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Needs Attention: Critical + Increasing */}
+              {biomarkerSections.needsAttention.length > 0 && (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wide">
+                      Needs Attention
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ({biomarkerSections.needsAttention.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {biomarkerSections.needsAttention.map((item) => (
+                      <BiomarkerTrendCard key={item.name} item={item} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Watch Closely: Suboptimal increasing (yellow going up) */}
+              {biomarkerSections.watchClosely.length > 0 && (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide">
+                      Watch Closely
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ({biomarkerSections.watchClosely.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {biomarkerSections.watchClosely.map((item) => (
+                      <BiomarkerTrendCard key={item.name} item={item} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Monitor: Critical/Suboptimal stable or no trend data */}
+              {biomarkerSections.monitor.length > 0 && (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      Monitor
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ({biomarkerSections.monitor.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {biomarkerSections.monitor.map((item) => (
+                      <BiomarkerTrendCard key={item.name} item={item} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Getting Better: Any decreasing */}
+              {biomarkerSections.gettingBetter.length > 0 && (
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <TrendingDown className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                    <span className="text-[10px] font-semibold text-green-500 uppercase tracking-wide">
+                      Getting Better
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ({biomarkerSections.gettingBetter.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {biomarkerSections.gettingBetter.map((item) => (
+                      <BiomarkerTrendCard key={item.name} item={item} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -615,6 +733,121 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Status colors matching the biomarkers page
+const STATUS_COLORS = {
+  optimal: "#6B8E5A",
+  suboptimal: "#D4A84B",
+  critical: "#8B4513",
+};
+
+interface BiomarkerTrendCardProps {
+  item: {
+    name: string;
+    value: number;
+    previousValue: number | null;
+    change: number | null;
+    percentChange: number | null;
+    unit: string;
+    status: "critical" | "suboptimal";
+    trend: TrendDirection | null;
+    history: number[];
+    reference: BiomarkerReference;
+    biomarker: Biomarker;
+  };
+}
+
+// Mini sparkline component
+function MiniSparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null;
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const height = 16;
+  const width = 40;
+  const padding = 2;
+
+  const points = values.map((v, i) => {
+    const x = padding + (i / (values.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((v - min) / range) * (height - padding * 2);
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg width={width} height={height} className="shrink-0">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function BiomarkerTrendCard({ item }: BiomarkerTrendCardProps) {
+  const statusColor = item.status === "critical" ? STATUS_COLORS.critical : STATUS_COLORS.suboptimal;
+  const borderColor = item.status === "critical" ? "border-[#8B4513]/30" : "border-[#D4A84B]/30";
+
+  const getTrendIcon = () => {
+    if (item.trend === "up") {
+      return <TrendingUp className="w-3.5 h-3.5 text-red-400" />;
+    } else if (item.trend === "down") {
+      return <TrendingDown className="w-3.5 h-3.5 text-green-500" />;
+    } else if (item.trend === "stable") {
+      return <TrendStable className="w-3.5 h-3.5 text-muted-foreground" />;
+    }
+    return null;
+  };
+
+  const formatChange = () => {
+    if (item.change === null) return null;
+    const sign = item.change > 0 ? '+' : '';
+    const changeColor = item.change > 0 ? 'text-red-400' : 'text-green-500';
+    return (
+      <span className={`text-[10px] ${changeColor}`}>
+        {sign}{item.change.toFixed(1)}
+      </span>
+    );
+  };
+
+  return (
+    <Link href={`/biomarkers/${item.biomarker.id}`}>
+      <div className={`flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted/50 transition-colors cursor-pointer border ${borderColor}`}>
+        {/* Status dot */}
+        <div
+          className="w-1.5 h-1.5 rounded-full shrink-0"
+          style={{ backgroundColor: statusColor }}
+        />
+        {/* Name */}
+        <span className="font-medium text-xs truncate min-w-0 flex-1">{item.name}</span>
+        {/* Change (before sparkline) */}
+        {formatChange()}
+        {/* Mini sparkline */}
+        {item.history.length >= 2 && (
+          <MiniSparkline
+            values={item.history}
+            color={statusColor}
+          />
+        )}
+        {/* Value */}
+        <span
+          className="text-xs font-semibold tabular-nums shrink-0"
+          style={{ color: statusColor }}
+        >
+          {item.value}
+        </span>
+        {/* Unit */}
+        <span className="text-[10px] text-muted-foreground shrink-0">{item.unit}</span>
+        {/* Trend icon (at the end) */}
+        {getTrendIcon()}
+      </div>
+    </Link>
   );
 }
 

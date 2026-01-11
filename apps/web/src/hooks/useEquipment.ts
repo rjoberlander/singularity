@@ -85,7 +85,7 @@ export function useToggleEquipment() {
       const queryCache = queryClient.getQueryCache();
       const queries = queryCache.findAll({ queryKey: ["equipment"] });
 
-      const previousData: { queryKey: unknown[]; data: Equipment[] }[] = [];
+      const previousData: { queryKey: readonly unknown[]; data: Equipment[] }[] = [];
 
       queries.forEach((query) => {
         const data = query.state.data as Equipment[] | undefined;
