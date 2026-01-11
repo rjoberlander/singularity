@@ -1,0 +1,1427 @@
+/**
+ * Travel Import & Settings API Routes
+ *
+ * Part of the trip import workflow - see docs/travel-module-prd.md for full documentation.
+ *
+ * WORKFLOW OVERVIEW:
+ *   1. User maintains Family Profile and Claude Instructions in travel_settings (this file)
+ *   2. User researches in Claude.ai with deep research mode
+ *   3. Claude outputs segment-X-research.json files
+ *   4. User imports JSON via /travel/import endpoints (this file) -> creates trip_research_items
+ *   5. User reviews/approves items in the app
+ *   6. Approved items can be imported as trip_activities
+ */
+
+import { Router, Request, Response } from 'express';
+import { supabase } from '../config/supabase';
+import { authenticateUser } from '../middleware/auth';
+import {
+  TravelSettings,
+  TripImportPayload,
+  TripImportOptions,
+  TripImportResult,
+  TripImportValidationResult,
+  TripResearchItem,
+  UpdateResearchItemRequest,
+  ExpansionOutput,
+} from '@singularity/shared-types';
+import Anthropic from '@anthropic-ai/sdk';
+
+const router = Router();
+router.use(authenticateUser);
+
+// =============================================
+// TRAVEL SETTINGS
+// =============================================
+
+/**
+ * GET /api/v1/travel/settings
+ * Get the current user's travel settings
+ */
+router.get('/settings', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+
+    const { data, error } = await supabase
+      .from('travel_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      // PGRST116 = no rows returned
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Return null if no settings exist yet
+    return res.json({
+      success: true,
+      data: data || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * PUT /api/v1/travel/settings
+ * Create or update the user's travel settings
+ */
+router.put('/settings', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { claude_instructions, family_profile, output_template } = req.body;
+
+    // Check if settings exist
+    const { data: existing } = await supabase
+      .from('travel_settings')
+      .select('id')
+      .eq('user_id', userId)
+      .single();
+
+    let data, error;
+
+    if (existing) {
+      // Update existing
+      const result = await supabase
+        .from('travel_settings')
+        .update({
+          claude_instructions,
+          family_profile,
+          output_template,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId)
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } else {
+      // Create new
+      const result = await supabase
+        .from('travel_settings')
+        .insert({
+          user_id: userId,
+          claude_instructions,
+          family_profile,
+          output_template,
+        })
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    }
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * PATCH /api/v1/travel/settings/claude-instructions
+ * Update only the Claude instructions
+ */
+router.patch('/settings/claude-instructions', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { claude_instructions } = req.body;
+
+    // Upsert
+    const { data, error } = await supabase
+      .from('travel_settings')
+      .upsert(
+        {
+          user_id: userId,
+          claude_instructions,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * PATCH /api/v1/travel/settings/family-profile
+ * Update only the family profile
+ */
+router.patch('/settings/family-profile', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { family_profile } = req.body;
+
+    // Upsert
+    const { data, error } = await supabase
+      .from('travel_settings')
+      .upsert(
+        {
+          user_id: userId,
+          family_profile,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// =============================================
+// TRIP IMPORT
+// =============================================
+
+/**
+ * POST /api/v1/travel/import
+ *
+ * Full import of Claude's research output.
+ * Creates trip (optional), segment, days, and research items.
+ *
+ * Part of the trip import workflow - see docs/travel-module-prd.md
+ */
+router.post('/import', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const payload: TripImportPayload = req.body.payload;
+    const options: TripImportOptions = req.body.options || {};
+
+    // Set defaults
+    const opts = {
+      create_trip: options.trip_id ? false : true,
+      create_segment: true,
+      create_days: true,
+      create_research_items: true,
+      import_approved_as_activities: false,
+      auto_approve_must_do: true,
+      ...options,
+    };
+
+    let tripId = options.trip_id;
+    let segmentId: string = '';
+    const errors: string[] = [];
+    const created = {
+      trip: false,
+      segment: false,
+      days: 0,
+      research_items: 0,
+      activities: 0,
+    };
+
+    // ========================================
+    // 1. Create or verify Trip
+    // ========================================
+
+    if (opts.create_trip && !tripId) {
+      const { data: trip, error: tripError } = await supabase
+        .from('trips')
+        .insert({
+          user_id: userId,
+          name: payload.metadata.trip_name,
+          start_date: payload.metadata.dates.start,
+          end_date: payload.metadata.dates.end,
+          destination: payload.segment.location?.location_name || payload.segment.name,
+          status: 'planning',
+          traveler_count: 5, // Default, can be updated later
+        })
+        .select()
+        .single();
+
+      if (tripError) {
+        return res.status(500).json({
+          success: false,
+          error: `Failed to create trip: ${tripError.message}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      tripId = trip.id;
+      created.trip = true;
+    }
+
+    if (!tripId) {
+      return res.status(400).json({
+        success: false,
+        error: 'No trip_id provided and create_trip is false',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // ========================================
+    // 2. Create or Update Segment
+    // ========================================
+
+    // If segment_id is provided, update existing segment instead of creating new one
+    if (options.segment_id) {
+      segmentId = options.segment_id;
+
+      // Update the existing segment with the research data
+      const segmentData = {
+        name: payload.segment.name,
+        description: payload.segment.description,
+        theme: payload.segment.theme,  // V3
+        start_date: payload.metadata.dates.start,
+        end_date: payload.metadata.dates.end,
+        location_name: payload.segment.location?.location_name,
+        latitude: payload.segment.location?.latitude,
+        longitude: payload.segment.location?.longitude,
+        timezone: payload.segment.location?.timezone,
+        country: payload.segment.location?.country,
+        country_code: payload.segment.location?.country_code,
+        city_info: payload.segment.city_info,  // V3: now supports sections, culture, cuisine
+        local_food: payload.segment.local_food,
+        packing_list: payload.segment.packing_list,
+        booking_priorities: payload.segment.booking_priorities,
+        accommodation: payload.segment.accommodation,  // V3
+        driving_from_previous: payload.segment.driving?.from_previous_segment,
+        driving_notes: payload.segment.driving?.driving_notes,
+        research_status: 'completed',
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from('trip_segments')
+        .update(segmentData)
+        .eq('id', segmentId);
+
+      if (updateError) {
+        errors.push(`Failed to update segment: ${updateError.message}`);
+      } else {
+        created.segment = true;
+      }
+    } else if (opts.create_segment) {
+      const segmentData = {
+        trip_id: tripId,
+        name: payload.segment.name,
+        description: payload.segment.description,
+        theme: payload.segment.theme,  // V3
+        start_date: payload.metadata.dates.start,
+        end_date: payload.metadata.dates.end,
+        location_name: payload.segment.location?.location_name,
+        latitude: payload.segment.location?.latitude,
+        longitude: payload.segment.location?.longitude,
+        timezone: payload.segment.location?.timezone,
+        country: payload.segment.location?.country,
+        country_code: payload.segment.location?.country_code,
+        city_info: payload.segment.city_info,  // V3: now supports sections, culture, cuisine
+        local_food: payload.segment.local_food,
+        packing_list: payload.segment.packing_list,
+        booking_priorities: payload.segment.booking_priorities,
+        accommodation: payload.segment.accommodation,  // V3
+        driving_from_previous: payload.segment.driving?.from_previous_segment,
+        driving_notes: payload.segment.driving?.driving_notes,
+        sort_order: payload.metadata.segment_number,
+      };
+
+      const { data: segment, error: segmentError } = await supabase
+        .from('trip_segments')
+        .insert(segmentData)
+        .select()
+        .single();
+
+      if (segmentError) {
+        errors.push(`Failed to create segment: ${segmentError.message}`);
+      } else {
+        segmentId = segment.id;
+        created.segment = true;
+      }
+    }
+
+    // ========================================
+    // 3. Create Days
+    // ========================================
+
+    // Handle both v2 (array) and v3 (nested { days: [...] }) formats
+    const importDays = Array.isArray(payload.days)
+      ? payload.days
+      : (payload.days as any)?.days || [];
+
+    if (opts.create_days && importDays.length > 0) {
+      const daysData = importDays.map((day: any) => ({
+        trip_id: tripId,
+        segment_id: segmentId || null,
+        date: day.date,
+        day_number: day.day_number,
+        title: day.title,
+        theme: day.theme,
+        overview: day.overview,
+        weather_high_c: day.weather?.high_c,
+        weather_low_c: day.weather?.low_c,
+        weather_conditions: day.weather?.conditions,
+        photo_opportunities: day.photo_opportunities,
+        notes: day.notes,
+        sort_order: day.day_number,
+        // V3 fields
+        schedule: day.schedule,  // V3: time-based schedule items
+        meals: day.meals,  // V3: structured meal plans
+        logistics: day.logistics,  // V3: driving, parking, tickets
+        backup_plan: day.backup_plan,  // V3: if_rain, if_tired, if_kids_meltdown
+      }));
+
+      const { data: days, error: daysError } = await supabase
+        .from('trip_days')
+        .insert(daysData)
+        .select();
+
+      if (daysError) {
+        errors.push(`Failed to create some days: ${daysError.message}`);
+      } else if (days) {
+        created.days = days.length;
+      }
+    }
+
+    // ========================================
+    // 4. Create Research Items
+    // ========================================
+
+    if (opts.create_research_items && payload.research_items?.length > 0) {
+      const itemsData = payload.research_items.map((item) => ({
+        trip_id: tripId,
+        segment_id: segmentId || null,
+
+        // Required
+        item_type: item.item_type,
+        name: item.name,
+        source_url: item.source_url,
+        source_name: item.source_name,
+        why_relevant: item.why_relevant,
+
+        // Classification
+        category: item.category,
+        priority: item.priority,
+        status:
+          opts.auto_approve_must_do && item.priority === 'must_do' ? 'approved' : 'unprocessed',
+
+        // V3 Location (structured) - takes precedence
+        location: item.location,
+        // Legacy location fields (fallback)
+        location_name: item.location?.area || item.location_name,
+        address: item.location?.address || item.address,
+        latitude: item.location?.latitude || item.latitude,
+        longitude: item.location?.longitude || item.longitude,
+        google_maps_url: item.location?.google_maps_url || item.google_maps_url,
+        google_place_id: item.google_place_id,
+
+        // V3 Ratings (structured)
+        ratings: item.ratings,
+        // Legacy quality fields
+        rating: item.ratings?.score || item.rating,
+        review_count: item.ratings?.count || item.review_count,
+        review_summary: item.review_summary,
+        price_level: item.price_level,
+
+        // V3 Deep Dive (complete structured content)
+        deep_dive: item.deep_dive,
+
+        // V3 Kid Engagement (named children with scripts)
+        kid_engagement: item.kid_engagement,
+        // Legacy family fields
+        kid_friendly: item.kid_friendly,
+        min_age: item.min_age,
+        stroller_friendly: item.stroller_friendly,
+
+        // V3 Practical (structured)
+        practical: item.practical,
+        // Legacy practical fields
+        hours_text: item.practical?.hours || item.hours_text,
+        cost_estimate_text: item.practical?.cost?.description || item.cost_estimate_text,
+        cost_estimate_value: item.cost_estimate_value,
+        cost_currency: item.cost_currency || 'EUR',
+        reservation_required: item.practical?.reservation?.required || item.reservation_required,
+        booking_url: item.practical?.reservation?.url || item.booking_url,
+        website: item.website,
+        phone: item.phone,
+
+        // V3 Photo opportunities
+        photo_opportunities: item.photo_opportunities,
+
+        // Type-specific details stored in JSONB columns per the 022 migration
+        // Hike details
+        hike_details: item.item_type === 'hike' ? {
+          alltrails_url: item.alltrails_url,
+          distance_km: item.distance_km,
+          elevation_gain_m: item.elevation_gain_m,
+          difficulty: item.difficulty,
+          trail_type: item.trail_type,
+          shaded: item.shaded,
+          trail_surface: item.trail_surface,
+        } : undefined,
+
+        // Restaurant details
+        restaurant_details: item.item_type === 'restaurant' ? {
+          cuisine_type: item.cuisine_type,
+          signature_dishes: item.signature_dishes,
+          ambience: item.ambience,
+          dietary_options: item.dietary_options,
+        } : undefined,
+
+        // Beach details
+        beach_details: item.item_type === 'beach' ? {
+          water_conditions: item.water_conditions,
+          facilities: item.facilities,
+          parking_notes: item.parking_notes,
+        } : undefined,
+
+        // Attraction/historical context (per 022 migration schema)
+        historical_context: item.historical_context,
+        what_to_see: item.what_to_see,
+
+        // V3 Assignment with specific time
+        assigned_day: item.assigned_day,
+        assigned_time: item.assigned_time,  // V3: specific time like "9:00-11:00am"
+        assigned_time_block: item.assigned_time_block,  // Legacy
+        assigned_date: item.assigned_date,
+
+        // Additional
+        additional_sources: item.additional_sources,
+        raw_data: item.raw_data,
+      }));
+
+      const { data: items, error: itemsError } = await supabase
+        .from('trip_research_items')
+        .insert(itemsData)
+        .select();
+
+      if (itemsError) {
+        errors.push(`Failed to create some research items: ${itemsError.message}`);
+      } else if (items) {
+        created.research_items = items.length;
+      }
+    }
+
+    // ========================================
+    // 5. Optionally import must_do items as activities
+    // ========================================
+
+    if (opts.import_approved_as_activities && segmentId) {
+      // Get the created days for mapping
+      const { data: tripDays } = await supabase
+        .from('trip_days')
+        .select('id, day_number, date')
+        .eq('segment_id', segmentId);
+
+      const dayMap = new Map(tripDays?.map((d) => [d.day_number, d.id]) || []);
+
+      // Get approved research items
+      const { data: approvedItems } = await supabase
+        .from('trip_research_items')
+        .select('*')
+        .eq('segment_id', segmentId)
+        .eq('status', 'approved');
+
+      if (approvedItems && approvedItems.length > 0) {
+        for (const item of approvedItems) {
+          if (item.assigned_day && dayMap.has(item.assigned_day)) {
+            const dayId = dayMap.get(item.assigned_day);
+
+            // Import to activity using the database function
+            const { error: importError } = await supabase.rpc('import_research_item_to_activity', {
+              p_research_item_id: item.id,
+              p_day_id: dayId,
+            });
+
+            if (!importError) {
+              created.activities++;
+            }
+          }
+        }
+      }
+    }
+
+    // ========================================
+    // Return Result
+    // ========================================
+
+    return res.json({
+      success: errors.length === 0,
+      trip_id: tripId,
+      segment_id: segmentId,
+      created,
+      errors: errors.length > 0 ? errors : undefined,
+      timestamp: new Date().toISOString(),
+    } as TripImportResult & { timestamp: string });
+  } catch (error: any) {
+    console.error('Import error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/import/validate
+ *
+ * Validate a research JSON before importing.
+ * Returns any issues found.
+ */
+router.post('/import/validate', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const payload: TripImportPayload = req.body;
+    const issues: string[] = [];
+    const warnings: string[] = [];
+
+    // Check metadata
+    if (!payload.metadata) {
+      issues.push('Missing metadata section');
+    } else {
+      if (!payload.metadata.trip_name) issues.push('Missing metadata.trip_name');
+      if (!payload.metadata.dates?.start) issues.push('Missing metadata.dates.start');
+      if (!payload.metadata.dates?.end) issues.push('Missing metadata.dates.end');
+    }
+
+    // Check segment
+    if (!payload.segment) {
+      issues.push('Missing segment section');
+    } else {
+      if (!payload.segment.name) issues.push('Missing segment.name');
+    }
+
+    // Detect v3 format (has _template_version or nested days structure)
+    const isV3 = (payload as any)._template_version === '3.0' ||
+                 (payload.days && !Array.isArray(payload.days) && Array.isArray((payload.days as any).days));
+
+    // Check research items
+    if (!payload.research_items || payload.research_items.length === 0) {
+      warnings.push('No research items - this is unusual');
+    } else {
+      payload.research_items.forEach((item, idx) => {
+        if (!item.item_type) issues.push(`research_items[${idx}]: Missing item_type`);
+        if (!item.name) issues.push(`research_items[${idx}]: Missing name`);
+        // V3 has complete deep_dive content, so source_url is less critical
+        if (!item.source_url && !isV3) {
+          issues.push(`research_items[${idx}]: Missing source_url (critical for expansion)`);
+        }
+        if (!item.source_name) warnings.push(`research_items[${idx}]: Missing source_name`);
+        // V3 might not have why_relevant in same place
+        if (!item.why_relevant && !isV3) warnings.push(`research_items[${idx}]: Missing why_relevant`);
+      });
+
+      // Check for items without source_url
+      const noSource = payload.research_items.filter((i) => !i.source_url).length;
+      if (noSource > 0 && !isV3) {
+        warnings.push(`${noSource} items missing source_url - these cannot be expanded later`);
+      }
+
+      // Check item count (less strict for v3 since it has more content per item)
+      if (payload.research_items.length < 15 && !isV3) {
+        warnings.push(
+          `Only ${payload.research_items.length} research items - consider adding more variety`
+        );
+      }
+    }
+
+    // Check days - handle both v2 (array) and v3 (nested { days: [...] }) formats
+    const daysArray = Array.isArray(payload.days)
+      ? payload.days
+      : (payload.days as any)?.days || [];
+
+    if (daysArray.length === 0) {
+      warnings.push('No days defined - you can add these later');
+    } else {
+      daysArray.forEach((day: any, idx: number) => {
+        if (!day.date) issues.push(`days[${idx}]: Missing date`);
+        if (!day.day_number) issues.push(`days[${idx}]: Missing day_number`);
+      });
+    }
+
+    const result: TripImportValidationResult = {
+      valid: issues.length === 0,
+      issues,
+      warnings,
+      summary: {
+        research_items: payload.research_items?.length || 0,
+        days: daysArray.length,
+        items_with_source: payload.research_items?.filter((i) => i.source_url).length || 0,
+        items_by_type:
+          payload.research_items?.reduce(
+            (acc, item) => {
+              acc[item.item_type] = (acc[item.item_type] || 0) + 1;
+              return acc;
+            },
+            {} as Record<string, number>
+          ) || {},
+        items_by_priority:
+          payload.research_items?.reduce(
+            (acc, item) => {
+              if (item.priority) acc[item.priority] = (acc[item.priority] || 0) + 1;
+              return acc;
+            },
+            {} as Record<string, number>
+          ) || {},
+      },
+    };
+
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(400).json({
+      valid: false,
+      issues: ['Invalid JSON structure'],
+      error: error.message,
+      warnings: [],
+      summary: { research_items: 0, days: 0, items_with_source: 0, items_by_type: {}, items_by_priority: {} },
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/import/template
+ *
+ * Returns the expected JSON template information.
+ */
+router.get('/import/template', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+
+    // Get user's output template from settings
+    const { data: settings } = await supabase
+      .from('travel_settings')
+      .select('output_template')
+      .eq('user_id', userId)
+      .single();
+
+    return res.json({
+      success: true,
+      template: settings?.output_template || null,
+      required_sections: ['metadata', 'segment', 'research_items', 'days'],
+      required_fields: {
+        'metadata.trip_name': 'string',
+        'metadata.dates.start': 'YYYY-MM-DD',
+        'metadata.dates.end': 'YYYY-MM-DD',
+        'segment.name': 'string',
+        'research_items[].item_type': 'restaurant|hike|attraction|beach|activity|...',
+        'research_items[].name': 'string',
+        'research_items[].source_url': 'URL - critical for later expansion',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// =============================================
+// RESEARCH ITEMS CRUD
+// =============================================
+
+/**
+ * GET /api/v1/travel/trips/:tripId/research-items
+ * Get all research items for a trip
+ */
+router.get('/trips/:tripId/research-items', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { tripId } = req.params;
+    const { status, item_type, priority, segment_id, assigned_day } = req.query;
+
+    let query = supabase
+      .from('trip_research_items')
+      .select('*, segment:trip_segments(id, name)')
+      .eq('trip_id', tripId)
+      .order('assigned_day', { ascending: true, nullsFirst: false })
+      .order('assigned_time_block', { ascending: true })
+      .order('priority', { ascending: true });
+
+    if (status) query = query.eq('status', status);
+    if (item_type) query = query.eq('item_type', item_type);
+    if (priority) query = query.eq('priority', priority);
+    if (segment_id) query = query.eq('segment_id', segment_id);
+    if (assigned_day) query = query.eq('assigned_day', Number(assigned_day));
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/research-items/:id
+ * Get a single research item
+ */
+router.get('/research-items/:id', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('trip_research_items')
+      .select('*, segment:trip_segments(id, name, location_name)')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      return res.status(404).json({
+        success: false,
+        error: 'Research item not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * PATCH /api/v1/travel/research-items/:id
+ * Update a research item (status, priority, assignment, notes)
+ */
+router.patch('/research-items/:id', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const updates: UpdateResearchItemRequest = req.body;
+
+    const { data, error } = await supabase
+      .from('trip_research_items')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/research-items/:id/import-to-activity
+ * Import a research item as an activity
+ */
+router.post('/research-items/:id/import-to-activity', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { day_id } = req.body;
+
+    if (!day_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'day_id is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const { data: activityId, error } = await supabase.rpc('import_research_item_to_activity', {
+      p_research_item_id: id,
+      p_day_id: day_id,
+    });
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      activity_id: activityId,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * DELETE /api/v1/travel/research-items/:id
+ * Delete a research item
+ */
+router.delete('/research-items/:id', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase.from('trip_research_items').delete().eq('id', id);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/research-items/bulk-update
+ * Update multiple research items at once
+ */
+router.post('/research-items/bulk-update', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { ids, updates } = req.body as { ids: string[]; updates: UpdateResearchItemRequest };
+
+    if (!ids || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids array is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('trip_research_items')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', ids)
+      .select();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      updated_count: data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// =============================================
+// EXPANSION (Phase 2 - Claude API)
+// Transforms research facts into rich narrative content
+// =============================================
+
+const EXPANSION_SYSTEM_PROMPT = `You are a tour guide writer creating rich, engaging content for a family travel app.
+
+Your job is to take structured research data about a place and transform it into:
+1. An engaging narrative (deep_dive_content)
+2. Age-specific engagement scripts for kids
+3. A practical visit script
+4. Photo guidance
+
+WRITING STYLE:
+- Write like a knowledgeable friend, not a guidebook
+- Be specific and concrete, not generic
+- Include sensory details (what you'll see, hear, smell)
+- Connect to kids' interests and understanding levels
+- Be honest about challenges
+- Make history come alive through stories, not facts
+
+FOR KID ENGAGEMENT:
+- Age 7: Can understand cause/effect, enjoys challenges, can read simple signs
+- Age 5: Concrete thinking, loves discovery, needs things broken into games
+- Age 3: Sensory-focused, short attention span, needs physical engagement
+
+OUTPUT FORMAT:
+Return valid JSON matching the ExpansionOutput type exactly. Do not wrap in markdown code blocks.`;
+
+function buildExpansionPrompt(item: TripResearchItem, segmentCityInfo: any, familyProfile: any): string {
+  const whyRelevant = typeof item.why_relevant === 'object'
+    ? (item.why_relevant as any)?.for_family
+    : item.why_relevant;
+
+  const historicalContext = typeof item.historical_context === 'object'
+    ? (item.historical_context as any)?.summary
+    : item.historical_context;
+
+  return `Generate rich tour-guide content for this research item.
+
+## CONTEXT: Where This Fits
+
+This is part of a trip to ${segmentCityInfo?.location?.location_name || 'this destination'}.
+
+Historical context of the region:
+${segmentCityInfo?.deep_history?.intro || segmentCityInfo?.overview || 'Not provided'}
+
+## THE PLACE TO EXPAND
+
+Name: ${item.name}
+Type: ${item.item_type}
+Why it matters: ${whyRelevant || 'Not specified'}
+
+Basic facts:
+- Location: ${item.address || item.location_name || 'Not specified'}
+- Hours: ${item.hours_text || 'Check website'}
+- Cost: ${item.cost_estimate_text || 'Not specified'}
+- Time needed: ${JSON.stringify(item.time_needed) || '1-2 hours'}
+
+Historical context already gathered:
+${historicalContext || 'None provided'}
+
+What to see:
+${JSON.stringify(item.what_to_see || [], null, 2)}
+
+Kid assessment already done:
+${JSON.stringify(item.kid_assessment || {}, null, 2)}
+
+Review summary:
+${JSON.stringify(item.review_summary || {}, null, 2)}
+
+## THE FAMILY
+
+${JSON.stringify(familyProfile?.family || {}, null, 2)}
+
+Travel style: ${familyProfile?.travel_style?.philosophy || 'Active mornings, rest midday, light evenings'}
+
+## YOUR TASK
+
+Generate:
+
+1. **deep_dive_content** (500-800 words)
+   Write an engaging narrative that:
+   - Opens with something that grabs attention
+   - Explains why this place matters (history, significance)
+   - Describes what the family will experience
+   - Weaves in practical details naturally
+   - Closes with what makes it memorable
+
+2. **kid_engagement**
+   For each age (7, 5, 3), provide 4-6 specific things to:
+   - Point out to them
+   - Ask them about
+   - Let them do
+   Make these SPECIFIC to this place, not generic.
+
+   Add conversation_starters (for the walk/drive there) and games (to play while visiting).
+
+3. **visit_script**
+   - arrival: What to do in the first 5 minutes
+   - flow: The best order to see things
+   - highlight_moments: 3-5 specific moments to not miss
+   - exit_strategy: How to wrap up with kids
+
+4. **photo_guide**
+   3-5 specific photo opportunities with exact locations and tips for getting kids to cooperate.
+
+5. **practical_details_extended**
+   Insider tips, warnings, money-saving ideas, stroller info, bathrooms, food, rest spots.
+
+Return ONLY valid JSON matching this structure:
+{
+  "deep_dive_content": "string",
+  "kid_engagement": {
+    "age_7": ["string"],
+    "age_5": ["string"],
+    "age_3": ["string"],
+    "conversation_starters": ["string"],
+    "games": ["string"]
+  },
+  "visit_script": {
+    "arrival": "string",
+    "flow": "string",
+    "highlight_moments": ["string"],
+    "exit_strategy": "string"
+  },
+  "photo_guide": [
+    {
+      "shot": "string",
+      "where": "string",
+      "when": "string",
+      "how": "string",
+      "with_kids": "string"
+    }
+  ],
+  "practical_details_extended": {
+    "insider_tips": ["string"],
+    "warnings": ["string"],
+    "money_saving": ["string"],
+    "with_stroller": "string",
+    "bathroom_locations": "string",
+    "food_nearby": "string",
+    "rest_spots": "string"
+  }
+}`;
+}
+
+/**
+ * POST /api/v1/travel/research-items/:id/expand
+ *
+ * Phase 2: Expand a research item into rich narrative content using Claude API.
+ * Takes the facts from Phase 1 and transforms them into engaging prose.
+ */
+router.post('/research-items/:id/expand', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    // 1. Get the research item
+    const { data: item, error: itemError } = await supabase
+      .from('trip_research_items')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (itemError || !item) {
+      return res.status(404).json({
+        success: false,
+        error: 'Research item not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Check if already expanded
+    if (item.expanded_at) {
+      return res.json({
+        success: true,
+        message: 'Item already expanded',
+        data: item,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // 2. Get the segment's city_info for context
+    let segmentCityInfo = {};
+    if (item.segment_id) {
+      const { data: segment } = await supabase
+        .from('trip_segments')
+        .select('city_info, location_name, name')
+        .eq('id', item.segment_id)
+        .single();
+
+      if (segment) {
+        segmentCityInfo = segment.city_info || {};
+      }
+    }
+
+    // 3. Get family profile from travel settings
+    const { data: settings } = await supabase
+      .from('travel_settings')
+      .select('family_profile')
+      .eq('user_id', userId)
+      .single();
+
+    const familyProfile = settings?.family_profile || {};
+
+    // 4. Build the prompt
+    const prompt = buildExpansionPrompt(item as TripResearchItem, segmentCityInfo, familyProfile);
+
+    // 5. Call Claude API
+    const anthropic = new Anthropic();
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      system: EXPANSION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // 6. Parse the response
+    const content = response.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type from Claude');
+    }
+
+    // Extract JSON from response (handle potential markdown code blocks)
+    let jsonText = content.text;
+    const jsonMatch = jsonText.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[1];
+    }
+
+    const expansion: ExpansionOutput = JSON.parse(jsonText);
+
+    // 7. Save to database
+    const { data: updated, error: updateError } = await supabase
+      .from('trip_research_items')
+      .update({
+        status: 'expanded',
+        expanded_at: new Date().toISOString(),
+        expanded_by: 'claude-api',
+        deep_dive_content: expansion.deep_dive_content,
+        kid_engagement: expansion.kid_engagement,
+        visit_script: expansion.visit_script,
+        photo_guide: expansion.photo_guide,
+        practical_details_extended: expansion.practical_details_extended,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // 8. Return the expanded item
+    return res.json({
+      success: true,
+      data: updated,
+      expansion,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    console.error('Expansion error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/research-items/expand-bulk
+ *
+ * Expand multiple research items at once.
+ */
+router.post('/research-items/expand-bulk', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { ids } = req.body as { ids: string[] };
+
+    if (!ids || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids array is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get family profile once for all items
+    const { data: settings } = await supabase
+      .from('travel_settings')
+      .select('family_profile')
+      .eq('user_id', userId)
+      .single();
+
+    const familyProfile = settings?.family_profile || {};
+    const anthropic = new Anthropic();
+
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    for (const id of ids) {
+      try {
+        // Get item
+        const { data: item, error: itemError } = await supabase
+          .from('trip_research_items')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (itemError || !item) {
+          errors.push({ id, error: 'Item not found' });
+          continue;
+        }
+
+        if (item.expanded_at) {
+          results.push({ id, status: 'already_expanded' });
+          continue;
+        }
+
+        // Get segment context
+        let segmentCityInfo = {};
+        if (item.segment_id) {
+          const { data: segment } = await supabase
+            .from('trip_segments')
+            .select('city_info')
+            .eq('id', item.segment_id)
+            .single();
+          segmentCityInfo = segment?.city_info || {};
+        }
+
+        // Build prompt and call Claude
+        const prompt = buildExpansionPrompt(item as TripResearchItem, segmentCityInfo, familyProfile);
+
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          system: EXPANSION_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: prompt }],
+        });
+
+        const content = response.content[0];
+        if (content.type !== 'text') {
+          errors.push({ id, error: 'Invalid response type' });
+          continue;
+        }
+
+        let jsonText = content.text;
+        const jsonMatch = jsonText.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[1];
+        }
+
+        const expansion: ExpansionOutput = JSON.parse(jsonText);
+
+        // Save
+        const { error: updateError } = await supabase
+          .from('trip_research_items')
+          .update({
+            status: 'expanded',
+            expanded_at: new Date().toISOString(),
+            expanded_by: 'claude-api',
+            deep_dive_content: expansion.deep_dive_content,
+            kid_engagement: expansion.kid_engagement,
+            visit_script: expansion.visit_script,
+            photo_guide: expansion.photo_guide,
+            practical_details_extended: expansion.practical_details_extended,
+          })
+          .eq('id', id);
+
+        if (updateError) {
+          errors.push({ id, error: updateError.message });
+        } else {
+          results.push({ id, status: 'expanded' });
+        }
+
+      } catch (err: any) {
+        errors.push({ id, error: err.message });
+      }
+    }
+
+    return res.json({
+      success: errors.length === 0,
+      expanded: results.filter(r => r.status === 'expanded').length,
+      already_expanded: results.filter(r => r.status === 'already_expanded').length,
+      failed: errors.length,
+      results,
+      errors: errors.length > 0 ? errors : undefined,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+export default router;

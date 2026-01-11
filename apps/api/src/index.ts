@@ -31,6 +31,7 @@ import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
 import accessTokenRoutes from './routes/accessTokens';
 import journalRoutes from './routes/journal';
+import travelRoutes from './routes/travel';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -122,7 +123,9 @@ app.get('/api/v1', (req: Request, res: Response) => {
       eightSleep: '/api/v1/eight-sleep',
       googleCalendar: '/api/v1/google-calendar',
       admin: '/api/v1/admin',
-      twilio: '/api/v1/twilio'
+      twilio: '/api/v1/twilio',
+      journal: '/api/v1/journal',
+      travel: '/api/v1/travel'
     }
   });
 });
@@ -153,6 +156,7 @@ app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Proto
 app.use('/api/v1/twilio', authenticateUser, twilioRoutes); // Twilio SMS settings
 app.use('/api/v1/access-tokens', authenticateUser, accessTokenRoutes); // MCP/AI connector tokens
 app.use('/api/v1/journal', journalRoutes); // Journal module (auth handled in most routes, public routes for shared entries)
+app.use('/api/v1/travel', travelRoutes); // Travel module (auth handled in routes, public routes for shared trips)
 
 // ==============================================
 // Error Handling

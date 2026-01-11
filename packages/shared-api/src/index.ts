@@ -562,5 +562,243 @@ export const googleCalendarApi = {
     getApi().patch("/google-calendar/settings", data),
 };
 
+// Travel
+export const travelApi = {
+  // Trips
+  trips: {
+    list: (params?: {
+      status?: string;
+      start_date?: string;
+      end_date?: string;
+      limit?: number;
+      offset?: number;
+    }) => getApi().get("/travel/trips", { params }),
+    get: (id: string) => getApi().get(`/travel/trips/${id}`),
+    getFull: (id: string) => getApi().get(`/travel/trips/${id}/full`),
+    create: (data: unknown) => getApi().post("/travel/trips", data),
+    update: (id: string, data: unknown) => getApi().put(`/travel/trips/${id}`, data),
+    delete: (id: string) => getApi().delete(`/travel/trips/${id}`),
+    duplicate: (id: string) => getApi().post(`/travel/trips/${id}/duplicate`),
+    updateStatus: (id: string, status: string) =>
+      getApi().patch(`/travel/trips/${id}/status`, { status }),
+  },
+
+  // Flights
+  flights: {
+    list: (tripId: string) => getApi().get(`/travel/trips/${tripId}/flights`),
+    get: (tripId: string, flightId: string) =>
+      getApi().get(`/travel/trips/${tripId}/flights/${flightId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/flights`, data),
+    update: (tripId: string, flightId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/flights/${flightId}`, data),
+    delete: (tripId: string, flightId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/flights/${flightId}`),
+  },
+
+  // Driving
+  driving: {
+    list: (tripId: string) => getApi().get(`/travel/trips/${tripId}/driving`),
+    get: (tripId: string, drivingId: string) =>
+      getApi().get(`/travel/trips/${tripId}/driving/${drivingId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/driving`, data),
+    update: (tripId: string, drivingId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/driving/${drivingId}`, data),
+    delete: (tripId: string, drivingId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/driving/${drivingId}`),
+  },
+
+  // Segments
+  segments: {
+    list: (tripId: string) => getApi().get(`/travel/trips/${tripId}/segments`),
+    get: (tripId: string, segmentId: string) =>
+      getApi().get(`/travel/trips/${tripId}/segments/${segmentId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/segments`, data),
+    update: (tripId: string, segmentId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/segments/${segmentId}`, data),
+    delete: (tripId: string, segmentId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/segments/${segmentId}`),
+    reorder: (tripId: string, segmentIds: string[]) =>
+      getApi().put(`/travel/trips/${tripId}/segments/reorder`, { segment_ids: segmentIds }),
+    fetchGooglePlaces: (tripId: string, segmentId: string) =>
+      getApi().post(`/travel/trips/${tripId}/segments/${segmentId}/fetch-google`),
+  },
+
+  // Accommodations
+  accommodations: {
+    list: (tripId: string, params?: { segment_id?: string }) =>
+      getApi().get(`/travel/trips/${tripId}/accommodations`, { params }),
+    get: (tripId: string, accommodationId: string) =>
+      getApi().get(`/travel/trips/${tripId}/accommodations/${accommodationId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/accommodations`, data),
+    update: (tripId: string, accommodationId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/accommodations/${accommodationId}`, data),
+    delete: (tripId: string, accommodationId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/accommodations/${accommodationId}`),
+  },
+
+  // Days
+  days: {
+    list: (tripId: string, params?: { segment_id?: string }) =>
+      getApi().get(`/travel/trips/${tripId}/days`, { params }),
+    get: (tripId: string, dayId: string) =>
+      getApi().get(`/travel/trips/${tripId}/days/${dayId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/days`, data),
+    update: (tripId: string, dayId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/days/${dayId}`, data),
+    delete: (tripId: string, dayId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/days/${dayId}`),
+    reorder: (tripId: string, dayIds: string[]) =>
+      getApi().put(`/travel/trips/${tripId}/days/reorder`, { day_ids: dayIds }),
+    generateFromDates: (tripId: string) =>
+      getApi().post(`/travel/trips/${tripId}/days/generate`),
+  },
+
+  // Activities
+  activities: {
+    list: (tripId: string, params?: { day_id?: string; is_backup?: boolean }) =>
+      getApi().get(`/travel/trips/${tripId}/activities`, { params }),
+    get: (tripId: string, activityId: string) =>
+      getApi().get(`/travel/trips/${tripId}/activities/${activityId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/activities`, data),
+    update: (tripId: string, activityId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/activities/${activityId}`, data),
+    delete: (tripId: string, activityId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/activities/${activityId}`),
+    reorder: (tripId: string, dayId: string, activityIds: string[]) =>
+      getApi().put(`/travel/trips/${tripId}/activities/reorder`, {
+        day_id: dayId,
+        activity_ids: activityIds,
+      }),
+    moveToDay: (tripId: string, activityId: string, newDayId: string) =>
+      getApi().patch(`/travel/trips/${tripId}/activities/${activityId}/move`, {
+        day_id: newDayId,
+      }),
+    toggleBackup: (tripId: string, activityId: string) =>
+      getApi().patch(`/travel/trips/${tripId}/activities/${activityId}/toggle-backup`),
+    fetchGooglePlaces: (tripId: string, activityId: string) =>
+      getApi().post(`/travel/trips/${tripId}/activities/${activityId}/fetch-google`),
+  },
+
+  // Media
+  media: {
+    list: (tripId: string, params?: { parent_type?: string; parent_id?: string }) =>
+      getApi().get(`/travel/trips/${tripId}/media`, { params }),
+    get: (tripId: string, mediaId: string) =>
+      getApi().get(`/travel/trips/${tripId}/media/${mediaId}`),
+    create: (tripId: string, data: unknown) =>
+      getApi().post(`/travel/trips/${tripId}/media`, data),
+    createBulk: (tripId: string, mediaItems: unknown[]) =>
+      getApi().post(`/travel/trips/${tripId}/media/bulk`, { media: mediaItems }),
+    update: (tripId: string, mediaId: string, data: unknown) =>
+      getApi().put(`/travel/trips/${tripId}/media/${mediaId}`, data),
+    delete: (tripId: string, mediaId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/media/${mediaId}`),
+    reorder: (tripId: string, parentType: string, parentId: string, mediaIds: string[]) =>
+      getApi().put(`/travel/trips/${tripId}/media/reorder`, {
+        parent_type: parentType,
+        parent_id: parentId,
+        media_ids: mediaIds,
+      }),
+  },
+
+  // Sharing
+  sharing: {
+    list: (tripId: string) => getApi().get(`/travel/trips/${tripId}/sharing`),
+    add: (tripId: string, data: { email: string; permission?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/sharing`, data),
+    update: (tripId: string, shareId: string, data: { permission: string }) =>
+      getApi().put(`/travel/trips/${tripId}/sharing/${shareId}`, data),
+    remove: (tripId: string, shareId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/sharing/${shareId}`),
+    makePublic: (tripId: string, data?: { slug?: string; password?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/sharing/public`, data || {}),
+    makePrivate: (tripId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/sharing/public`),
+    getPublic: (slug: string, password?: string) =>
+      getApi().get(`/travel/public/${slug}`, { params: password ? { password } : undefined }),
+  },
+
+  // Calendar Sync
+  calendar: {
+    syncTrip: (tripId: string, data?: { calendar_id?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/calendar/sync`, data || {}),
+    unsyncTrip: (tripId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/calendar/sync`),
+    syncActivity: (tripId: string, activityId: string, data?: { calendar_id?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/activities/${activityId}/calendar/sync`, data || {}),
+    unsyncActivity: (tripId: string, activityId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/activities/${activityId}/calendar/sync`),
+  },
+
+  // Packing
+  packing: {
+    get: (tripId: string) => getApi().get(`/travel/trips/${tripId}/packing`),
+    update: (tripId: string, checklist: unknown[]) =>
+      getApi().put(`/travel/trips/${tripId}/packing`, { checklist }),
+    toggleItem: (tripId: string, itemIndex: number) =>
+      getApi().patch(`/travel/trips/${tripId}/packing/toggle`, { item_index: itemIndex }),
+    addItem: (tripId: string, item: { item: string; category?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/packing`, item),
+    removeItem: (tripId: string, itemIndex: number) =>
+      getApi().delete(`/travel/trips/${tripId}/packing/${itemIndex}`),
+  },
+
+  // Settings (Family Profile, Claude Instructions)
+  // Part of the trip import workflow - see docs/travel-module-prd.md
+  settings: {
+    get: () => getApi().get("/travel/settings"),
+    update: (data: {
+      claude_instructions?: string;
+      family_profile?: unknown;
+      output_template?: unknown;
+    }) => getApi().put("/travel/settings", data),
+    updateClaudeInstructions: (claude_instructions: string) =>
+      getApi().patch("/travel/settings/claude-instructions", { claude_instructions }),
+    updateFamilyProfile: (family_profile: unknown) =>
+      getApi().patch("/travel/settings/family-profile", { family_profile }),
+  },
+
+  // Import (JSON from Claude research)
+  // Part of the trip import workflow - see docs/travel-module-prd.md
+  import: {
+    validate: (payload: unknown) =>
+      getApi().post("/travel/import/validate", payload),
+    import: (data: { payload: unknown; options?: unknown }) =>
+      getApi().post("/travel/import", data),
+    getTemplate: () => getApi().get("/travel/import/template"),
+  },
+
+  // Research Items
+  // Part of the trip import workflow - see docs/travel-module-prd.md
+  researchItems: {
+    list: (tripId: string, params?: {
+      status?: string;
+      item_type?: string;
+      priority?: string;
+      segment_id?: string;
+      assigned_day?: number;
+    }) => getApi().get(`/travel/trips/${tripId}/research-items`, { params }),
+    get: (id: string) => getApi().get(`/travel/research-items/${id}`),
+    update: (id: string, data: unknown) =>
+      getApi().patch(`/travel/research-items/${id}`, data),
+    delete: (id: string) => getApi().delete(`/travel/research-items/${id}`),
+    bulkUpdate: (ids: string[], updates: unknown) =>
+      getApi().post("/travel/research-items/bulk-update", { ids, updates }),
+    importToActivity: (id: string, dayId: string) =>
+      getApi().post(`/travel/research-items/${id}/import-to-activity`, { day_id: dayId }),
+    // Phase 2: Expansion (calls Claude API)
+    expand: (id: string) =>
+      getApi().post(`/travel/research-items/${id}/expand`),
+    expandBulk: (ids: string[]) =>
+      getApi().post("/travel/research-items/expand-bulk", { ids }),
+  },
+};
+
 // Re-export types
 export type { AxiosInstance } from 'axios';

@@ -14,6 +14,7 @@ import {
   userLinksApi,
   eightSleepApi,
   journalApi,
+  travelApi,
 } from "./index";
 import type {
   Biomarker,
@@ -52,6 +53,36 @@ import type {
   JournalPrompt,
   JournalTagCount,
   OnThisDayEntry,
+  Trip,
+  TripFlight,
+  TripDriving,
+  TripSegment,
+  TripAccommodation,
+  TripDay,
+  TripActivity,
+  TripMedia,
+  TripSharing,
+  CreateTripRequest,
+  CreateTripFlightRequest,
+  CreateTripDrivingRequest,
+  CreateTripSegmentRequest,
+  CreateTripAccommodationRequest,
+  CreateTripDayRequest,
+  CreateTripActivityRequest,
+  CreateTripMediaRequest,
+  FetchGooglePlacesResponse,
+  // Travel Settings & Import types (trip import workflow - see docs/travel-module-prd.md)
+  TravelSettings,
+  TripResearchItem,
+  TripImportPayload,
+  TripImportOptions,
+  TripImportResult,
+  TripImportValidationResult,
+  UpdateResearchItemRequest,
+  ResearchItemStatus,
+  ResearchItemPriority,
+  // Phase 2 Expansion types
+  ExpansionOutput,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1494,4 +1525,1585 @@ export function formatJournalDate(dateString: string): string {
     day: "numeric",
     year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
   });
+}
+
+// ============================================
+// Travel Hooks
+// ============================================
+
+// Trip Hooks
+export function useTrips(params?: {
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: ["travel", "trips", params],
+    queryFn: async () => {
+      const response = await travelApi.trips.list(params);
+      return response.data.data as Trip[];
+    },
+  });
+}
+
+export function useTrip(id: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", id],
+    queryFn: async () => {
+      const response = await travelApi.trips.get(id);
+      return response.data.data as Trip;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useTripFull(id: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", id, "full"],
+    queryFn: async () => {
+      const response = await travelApi.trips.getFull(id);
+      return response.data.data as Trip & {
+        flights: TripFlight[];
+        driving: TripDriving[];
+        segments: TripSegment[];
+        accommodations: TripAccommodation[];
+        days: TripDay[];
+        activities: TripActivity[];
+        media: TripMedia[];
+        sharing: TripSharing[];
+      };
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCreateTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateTripRequest) => {
+      const response = await travelApi.trips.create(data);
+      return response.data.data as Trip;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+    },
+  });
+}
+
+export function useUpdateTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<Trip> }) => {
+      const response = await travelApi.trips.update(id, data);
+      return response.data.data as Trip;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id] });
+    },
+  });
+}
+
+export function useDeleteTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await travelApi.trips.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+    },
+  });
+}
+
+export function useDuplicateTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await travelApi.trips.duplicate(id);
+      return response.data.data as Trip;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+    },
+  });
+}
+
+export function useUpdateTripStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const response = await travelApi.trips.updateStatus(id, status);
+      return response.data.data as Trip;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id] });
+    },
+  });
+}
+
+// Flight Hooks
+export function useTripFlights(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "flights"],
+    queryFn: async () => {
+      const response = await travelApi.flights.list(tripId);
+      return response.data.data as TripFlight[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useCreateTripFlight() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripFlightRequest }) => {
+      const response = await travelApi.flights.create(tripId, data);
+      return response.data.data as TripFlight;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripFlight() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      flightId,
+      data,
+    }: {
+      tripId: string;
+      flightId: string;
+      data: Partial<TripFlight>;
+    }) => {
+      const response = await travelApi.flights.update(tripId, flightId, data);
+      return response.data.data as TripFlight;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripFlight() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, flightId }: { tripId: string; flightId: string }) => {
+      await travelApi.flights.delete(tripId, flightId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Driving Hooks
+export function useTripDriving(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "driving"],
+    queryFn: async () => {
+      const response = await travelApi.driving.list(tripId);
+      return response.data.data as TripDriving[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useCreateTripDriving() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripDrivingRequest }) => {
+      const response = await travelApi.driving.create(tripId, data);
+      return response.data.data as TripDriving;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripDriving() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      drivingId,
+      data,
+    }: {
+      tripId: string;
+      drivingId: string;
+      data: Partial<TripDriving>;
+    }) => {
+      const response = await travelApi.driving.update(tripId, drivingId, data);
+      return response.data.data as TripDriving;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripDriving() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, drivingId }: { tripId: string; drivingId: string }) => {
+      await travelApi.driving.delete(tripId, drivingId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Segment Hooks
+export function useTripSegments(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "segments"],
+    queryFn: async () => {
+      const response = await travelApi.segments.list(tripId);
+      return response.data.data as TripSegment[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useCreateTripSegment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripSegmentRequest }) => {
+      const response = await travelApi.segments.create(tripId, data);
+      return response.data.data as TripSegment;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripSegment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      segmentId,
+      data,
+    }: {
+      tripId: string;
+      segmentId: string;
+      data: Partial<TripSegment>;
+    }) => {
+      const response = await travelApi.segments.update(tripId, segmentId, data);
+      return response.data.data as TripSegment;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripSegment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, segmentId }: { tripId: string; segmentId: string }) => {
+      await travelApi.segments.delete(tripId, segmentId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useReorderTripSegments() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, segmentIds }: { tripId: string; segmentIds: string[] }) => {
+      await travelApi.segments.reorder(tripId, segmentIds);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Accommodation Hooks
+export function useTripAccommodations(tripId: string, segmentId?: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "accommodations", segmentId],
+    queryFn: async () => {
+      const response = await travelApi.accommodations.list(tripId, { segment_id: segmentId });
+      return response.data.data as TripAccommodation[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useCreateTripAccommodation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripAccommodationRequest }) => {
+      const response = await travelApi.accommodations.create(tripId, data);
+      return response.data.data as TripAccommodation;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripAccommodation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      accommodationId,
+      data,
+    }: {
+      tripId: string;
+      accommodationId: string;
+      data: Partial<TripAccommodation>;
+    }) => {
+      const response = await travelApi.accommodations.update(tripId, accommodationId, data);
+      return response.data.data as TripAccommodation;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripAccommodation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, accommodationId }: { tripId: string; accommodationId: string }) => {
+      await travelApi.accommodations.delete(tripId, accommodationId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Day Hooks
+export function useTripDays(tripId: string, segmentId?: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "days", segmentId],
+    queryFn: async () => {
+      const response = await travelApi.days.list(tripId, { segment_id: segmentId });
+      return response.data.data as TripDay[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useTripDay(tripId: string, dayId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "days", dayId],
+    queryFn: async () => {
+      const response = await travelApi.days.get(tripId, dayId);
+      return response.data.data as TripDay;
+    },
+    enabled: !!tripId && !!dayId,
+  });
+}
+
+export function useCreateTripDay() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripDayRequest }) => {
+      const response = await travelApi.days.create(tripId, data);
+      return response.data.data as TripDay;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripDay() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      dayId,
+      data,
+    }: {
+      tripId: string;
+      dayId: string;
+      data: Partial<TripDay>;
+    }) => {
+      const response = await travelApi.days.update(tripId, dayId, data);
+      return response.data.data as TripDay;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripDay() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, dayId }: { tripId: string; dayId: string }) => {
+      await travelApi.days.delete(tripId, dayId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useReorderTripDays() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, dayIds }: { tripId: string; dayIds: string[] }) => {
+      await travelApi.days.reorder(tripId, dayIds);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useGenerateTripDays() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tripId: string) => {
+      const response = await travelApi.days.generateFromDates(tripId);
+      return response.data.data as TripDay[];
+    },
+    onSuccess: (_, tripId) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId] });
+    },
+  });
+}
+
+// Activity Hooks
+export function useTripActivities(tripId: string, dayId?: string, isBackup?: boolean) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "activities", dayId, isBackup],
+    queryFn: async () => {
+      const response = await travelApi.activities.list(tripId, {
+        day_id: dayId,
+        is_backup: isBackup,
+      });
+      return response.data.data as TripActivity[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useTripActivity(tripId: string, activityId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "activities", activityId],
+    queryFn: async () => {
+      const response = await travelApi.activities.get(tripId, activityId);
+      return response.data.data as TripActivity;
+    },
+    enabled: !!tripId && !!activityId,
+  });
+}
+
+export function useCreateTripActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripActivityRequest }) => {
+      const response = await travelApi.activities.create(tripId, data);
+      return response.data.data as TripActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      activityId,
+      data,
+    }: {
+      tripId: string;
+      activityId: string;
+      data: Partial<TripActivity>;
+    }) => {
+      const response = await travelApi.activities.update(tripId, activityId, data);
+      return response.data.data as TripActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, activityId }: { tripId: string; activityId: string }) => {
+      await travelApi.activities.delete(tripId, activityId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useReorderTripActivities() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      dayId,
+      activityIds,
+    }: {
+      tripId: string;
+      dayId: string;
+      activityIds: string[];
+    }) => {
+      await travelApi.activities.reorder(tripId, dayId, activityIds);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useMoveActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      activityId,
+      newDayId,
+    }: {
+      tripId: string;
+      activityId: string;
+      newDayId: string;
+    }) => {
+      const response = await travelApi.activities.moveToDay(tripId, activityId, newDayId);
+      return response.data.data as TripActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useToggleActivityBackup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, activityId }: { tripId: string; activityId: string }) => {
+      const response = await travelApi.activities.toggleBackup(tripId, activityId);
+      return response.data.data as TripActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Google Places Fetch Hooks
+export function useFetchGooglePlacesForActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      activityId,
+    }: {
+      tripId: string;
+      activityId: string;
+    }) => {
+      const response = await travelApi.activities.fetchGooglePlaces(tripId, activityId);
+      return response.data.data as FetchGooglePlacesResponse;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "activities"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
+    },
+  });
+}
+
+export function useFetchGooglePlacesForSegment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      segmentId,
+    }: {
+      tripId: string;
+      segmentId: string;
+    }) => {
+      const response = await travelApi.segments.fetchGooglePlaces(tripId, segmentId);
+      return response.data.data as FetchGooglePlacesResponse;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "segments"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
+    },
+  });
+}
+
+export function useApproveTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      mediaId,
+      approved,
+    }: {
+      tripId: string;
+      mediaId: string;
+      approved: boolean;
+    }) => {
+      const response = await travelApi.media.update(tripId, mediaId, { approved });
+      return response.data.data as TripMedia;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Media Hooks
+export function useTripMedia(tripId: string, parentType?: string, parentId?: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "media", parentType, parentId],
+    queryFn: async () => {
+      const response = await travelApi.media.list(tripId, {
+        parent_type: parentType,
+        parent_id: parentId,
+      });
+      return response.data.data as TripMedia[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useCreateTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: CreateTripMediaRequest }) => {
+      const response = await travelApi.media.create(tripId, data);
+      return response.data.data as TripMedia;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useCreateTripMediaBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, media }: { tripId: string; media: CreateTripMediaRequest[] }) => {
+      const response = await travelApi.media.createBulk(tripId, media);
+      return response.data.data as TripMedia[];
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUpdateTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      mediaId,
+      data,
+    }: {
+      tripId: string;
+      mediaId: string;
+      data: Partial<TripMedia>;
+    }) => {
+      const response = await travelApi.media.update(tripId, mediaId, data);
+      return response.data.data as TripMedia;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useDeleteTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, mediaId }: { tripId: string; mediaId: string }) => {
+      await travelApi.media.delete(tripId, mediaId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useReorderTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      parentType,
+      parentId,
+      mediaIds,
+    }: {
+      tripId: string;
+      parentType: string;
+      parentId: string;
+      mediaIds: string[];
+    }) => {
+      await travelApi.media.reorder(tripId, parentType, parentId, mediaIds);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Sharing Hooks
+export function useTripSharing(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "sharing"],
+    queryFn: async () => {
+      const response = await travelApi.sharing.list(tripId);
+      return response.data.data as TripSharing[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useAddTripShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      email,
+      permission,
+    }: {
+      tripId: string;
+      email: string;
+      permission?: string;
+    }) => {
+      const response = await travelApi.sharing.add(tripId, { email, permission });
+      return response.data.data as TripSharing;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "sharing"] });
+    },
+  });
+}
+
+export function useUpdateTripShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      shareId,
+      permission,
+    }: {
+      tripId: string;
+      shareId: string;
+      permission: string;
+    }) => {
+      const response = await travelApi.sharing.update(tripId, shareId, { permission });
+      return response.data.data as TripSharing;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "sharing"] });
+    },
+  });
+}
+
+export function useRemoveTripShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, shareId }: { tripId: string; shareId: string }) => {
+      await travelApi.sharing.remove(tripId, shareId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "sharing"] });
+    },
+  });
+}
+
+export function useMakeTripPublic() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      slug,
+      password,
+    }: {
+      tripId: string;
+      slug?: string;
+      password?: string;
+    }) => {
+      const response = await travelApi.sharing.makePublic(tripId, { slug, password });
+      return response.data.data as Trip;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useMakeTripPrivate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tripId: string) => {
+      await travelApi.sharing.makePrivate(tripId);
+    },
+    onSuccess: (_, tripId) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId] });
+    },
+  });
+}
+
+export function usePublicTrip(slug: string, password?: string) {
+  return useQuery({
+    queryKey: ["travel", "public", slug],
+    queryFn: async () => {
+      const response = await travelApi.sharing.getPublic(slug, password);
+      return response.data.data as Trip;
+    },
+    enabled: !!slug,
+  });
+}
+
+// Calendar Sync Hooks
+export function useSyncTripToCalendar() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, calendarId }: { tripId: string; calendarId?: string }) => {
+      const response = await travelApi.calendar.syncTrip(tripId, { calendar_id: calendarId });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUnsyncTripFromCalendar() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tripId: string) => {
+      await travelApi.calendar.unsyncTrip(tripId);
+    },
+    onSuccess: (_, tripId) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId] });
+    },
+  });
+}
+
+export function useSyncActivityToCalendar() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      activityId,
+      calendarId,
+    }: {
+      tripId: string;
+      activityId: string;
+      calendarId?: string;
+    }) => {
+      const response = await travelApi.calendar.syncActivity(tripId, activityId, {
+        calendar_id: calendarId,
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useUnsyncActivityFromCalendar() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, activityId }: { tripId: string; activityId: string }) => {
+      await travelApi.calendar.unsyncActivity(tripId, activityId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+// Packing Hooks
+export function useTripPacking(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "packing"],
+    queryFn: async () => {
+      const response = await travelApi.packing.get(tripId);
+      return response.data.data as Array<{ item: string; checked: boolean; category?: string }>;
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useUpdateTripPacking() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      checklist,
+    }: {
+      tripId: string;
+      checklist: Array<{ item: string; checked: boolean; category?: string }>;
+    }) => {
+      const response = await travelApi.packing.update(tripId, checklist);
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "packing"] });
+    },
+  });
+}
+
+export function useTogglePackingItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, itemIndex }: { tripId: string; itemIndex: number }) => {
+      const response = await travelApi.packing.toggleItem(tripId, itemIndex);
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "packing"] });
+    },
+  });
+}
+
+export function useAddPackingItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      item,
+      category,
+    }: {
+      tripId: string;
+      item: string;
+      category?: string;
+    }) => {
+      const response = await travelApi.packing.addItem(tripId, { item, category });
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "packing"] });
+    },
+  });
+}
+
+export function useRemovePackingItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, itemIndex }: { tripId: string; itemIndex: number }) => {
+      await travelApi.packing.removeItem(tripId, itemIndex);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "packing"] });
+    },
+  });
+}
+
+// Travel helper functions
+export function getTripStatusColor(status: string): string {
+  switch (status) {
+    case "planning":
+      return "#3B82F6"; // blue
+    case "confirmed":
+      return "#22C55E"; // green
+    case "in_progress":
+      return "#F59E0B"; // amber
+    case "completed":
+      return "#6B7280"; // gray
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getTripStatusLabel(status: string): string {
+  switch (status) {
+    case "planning":
+      return "Planning";
+    case "confirmed":
+      return "Confirmed";
+    case "in_progress":
+      return "In Progress";
+    case "completed":
+      return "Completed";
+    default:
+      return status;
+  }
+}
+
+export function getActivityTypeIcon(type: string): string {
+  switch (type) {
+    case "hike":
+      return "🥾";
+    case "beach":
+      return "🏖️";
+    case "restaurant":
+      return "🍽️";
+    case "museum":
+      return "🏛️";
+    case "transport":
+      return "🚗";
+    case "activity":
+      return "⭐";
+    case "shopping":
+      return "🛍️";
+    case "viewpoint":
+      return "📸";
+    case "nightlife":
+      return "🍸";
+    default:
+      return "📍";
+  }
+}
+
+export function getTimeBlockLabel(block: string): string {
+  switch (block) {
+    case "morning":
+      return "Morning";
+    case "midday":
+      return "Midday";
+    case "afternoon":
+      return "Afternoon";
+    case "sunset":
+      return "Sunset";
+    case "evening":
+      return "Evening";
+    default:
+      return block;
+  }
+}
+
+export function formatTripDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function formatTripDateRange(startDate: string, endDate: string): string {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = sameYear && start.getMonth() === end.getMonth();
+
+  if (sameMonth) {
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.getDate()}, ${end.getFullYear()}`;
+  } else if (sameYear) {
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${end.getFullYear()}`;
+  } else {
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  }
+}
+
+export function calculateTripDuration(startDate: string, endDate: string): number {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays + 1; // Include both start and end days
+}
+
+// ============================================
+// Travel Settings & Import Hooks
+// Part of the trip import workflow - see docs/travel-module-prd.md
+// ============================================
+
+/**
+ * Get user's travel settings (Claude instructions, family profile, output template)
+ */
+export function useTravelSettings() {
+  return useQuery({
+    queryKey: ["travel-settings"],
+    queryFn: async () => {
+      const response = await travelApi.settings.get();
+      return response.data.data as TravelSettings | null;
+    },
+  });
+}
+
+/**
+ * Update travel settings
+ */
+export function useUpdateTravelSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      claude_instructions?: string;
+      family_profile?: unknown;
+      output_template?: unknown;
+    }) => {
+      const response = await travelApi.settings.update(data);
+      return response.data.data as TravelSettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel-settings"] });
+    },
+  });
+}
+
+/**
+ * Update only Claude instructions
+ */
+export function useUpdateClaudeInstructions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (claude_instructions: string) => {
+      const response = await travelApi.settings.updateClaudeInstructions(claude_instructions);
+      return response.data.data as TravelSettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel-settings"] });
+    },
+  });
+}
+
+/**
+ * Update only family profile
+ */
+export function useUpdateFamilyProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (family_profile: unknown) => {
+      const response = await travelApi.settings.updateFamilyProfile(family_profile);
+      return response.data.data as TravelSettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["travel-settings"] });
+    },
+  });
+}
+
+/**
+ * Validate import payload before importing
+ */
+export function useValidateImport() {
+  return useMutation({
+    mutationFn: async (payload: TripImportPayload) => {
+      const response = await travelApi.import.validate(payload);
+      return response.data as TripImportValidationResult;
+    },
+  });
+}
+
+/**
+ * Import research JSON from Claude
+ */
+export function useImportTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      payload,
+      options,
+    }: {
+      payload: TripImportPayload;
+      options?: TripImportOptions;
+    }) => {
+      const response = await travelApi.import.import({ payload, options });
+      return response.data as TripImportResult;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trip", result.trip_id] });
+      queryClient.invalidateQueries({ queryKey: ["trip-segments", result.trip_id] });
+      queryClient.invalidateQueries({ queryKey: ["trip-days", result.trip_id] });
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", result.trip_id] });
+    },
+  });
+}
+
+/**
+ * Get import template
+ */
+export function useImportTemplate() {
+  return useQuery({
+    queryKey: ["travel-import-template"],
+    queryFn: async () => {
+      const response = await travelApi.import.getTemplate();
+      return response.data;
+    },
+  });
+}
+
+// ============================================
+// Research Items Hooks
+// Part of the trip import workflow - see docs/travel-module-prd.md
+// ============================================
+
+/**
+ * Get research items for a trip
+ */
+export function useTripResearchItems(
+  tripId: string,
+  params?: {
+    status?: ResearchItemStatus;
+    item_type?: string;
+    priority?: ResearchItemPriority;
+    segment_id?: string;
+    assigned_day?: number;
+  }
+) {
+  return useQuery({
+    queryKey: ["trip-research-items", tripId, params],
+    queryFn: async () => {
+      const response = await travelApi.researchItems.list(tripId, params);
+      return response.data.data as TripResearchItem[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+/**
+ * Get a single research item
+ */
+export function useTripResearchItem(id: string) {
+  return useQuery({
+    queryKey: ["trip-research-item", id],
+    queryFn: async () => {
+      const response = await travelApi.researchItems.get(id);
+      return response.data.data as TripResearchItem;
+    },
+    enabled: !!id,
+  });
+}
+
+/**
+ * Update a research item
+ */
+export function useUpdateResearchItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      updates,
+    }: {
+      id: string;
+      updates: UpdateResearchItemRequest;
+    }) => {
+      const response = await travelApi.researchItems.update(id, updates);
+      return response.data.data as TripResearchItem;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", data.trip_id] });
+      queryClient.invalidateQueries({ queryKey: ["trip-research-item", data.id] });
+    },
+  });
+}
+
+/**
+ * Delete a research item
+ */
+export function useDeleteResearchItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, tripId }: { id: string; tripId: string }) => {
+      await travelApi.researchItems.delete(id);
+      return { id, tripId };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", data.tripId] });
+    },
+  });
+}
+
+/**
+ * Bulk update research items
+ */
+export function useBulkUpdateResearchItems() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      updates,
+      tripId,
+    }: {
+      ids: string[];
+      updates: UpdateResearchItemRequest;
+      tripId: string;
+    }) => {
+      const response = await travelApi.researchItems.bulkUpdate(ids, updates);
+      return { data: response.data.data, tripId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", result.tripId] });
+    },
+  });
+}
+
+/**
+ * Import a research item as an activity
+ */
+export function useImportResearchItemToActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      dayId,
+      tripId,
+    }: {
+      id: string;
+      dayId: string;
+      tripId: string;
+    }) => {
+      const response = await travelApi.researchItems.importToActivity(id, dayId);
+      return { ...response.data, tripId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", result.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["trip-activities", result.tripId] });
+    },
+  });
+}
+
+// Research Item utility functions
+
+export function getResearchItemStatusColor(status: ResearchItemStatus): string {
+  switch (status) {
+    case "unprocessed":
+      return "#9CA3AF"; // gray
+    case "reviewing":
+      return "#F59E0B"; // amber
+    case "approved":
+      return "#22C55E"; // green
+    case "expanded":
+      return "#3B82F6"; // blue
+    case "imported":
+      return "#6366F1"; // indigo
+    case "rejected":
+      return "#EF4444"; // red
+    case "deferred":
+      return "#8B5CF6"; // violet
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getResearchItemStatusLabel(status: ResearchItemStatus): string {
+  switch (status) {
+    case "unprocessed":
+      return "Unprocessed";
+    case "reviewing":
+      return "Reviewing";
+    case "approved":
+      return "Approved";
+    case "expanded":
+      return "Expanded";
+    case "imported":
+      return "Imported";
+    case "rejected":
+      return "Rejected";
+    case "deferred":
+      return "Deferred";
+    default:
+      return status;
+  }
+}
+
+export function getResearchItemPriorityColor(priority: ResearchItemPriority): string {
+  switch (priority) {
+    case "must_do":
+      return "#EF4444"; // red
+    case "recommended":
+      return "#F59E0B"; // amber
+    case "optional":
+      return "#22C55E"; // green
+    case "backup":
+      return "#6B7280"; // gray
+    case "if_time":
+      return "#9CA3AF"; // light gray
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getResearchItemPriorityLabel(priority: ResearchItemPriority): string {
+  switch (priority) {
+    case "must_do":
+      return "Must Do";
+    case "recommended":
+      return "Recommended";
+    case "optional":
+      return "Optional";
+    case "backup":
+      return "Backup";
+    case "if_time":
+      return "If Time";
+    default:
+      return priority;
+  }
+}
+
+// ============================================
+// Phase 2 Expansion Hooks
+// Transforms research items into rich narrative content via Claude API
+// See docs/travel-module-prd.md and HOW-IT-WORKS.md
+// ============================================
+
+/**
+ * Expand a single research item using Claude API
+ * Generates deep_dive_content, kid_engagement, visit_script, photo_guide
+ */
+export function useExpandResearchItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      tripId,
+    }: {
+      id: string;
+      tripId: string;
+    }) => {
+      const response = await travelApi.researchItems.expand(id);
+      return { ...response.data, tripId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", result.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["trip-research-item", result.data?.id] });
+    },
+  });
+}
+
+/**
+ * Expand multiple research items in bulk
+ */
+export function useExpandResearchItemsBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      tripId,
+    }: {
+      ids: string[];
+      tripId: string;
+    }) => {
+      const response = await travelApi.researchItems.expandBulk(ids);
+      return { ...response.data, tripId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["trip-research-items", result.tripId] });
+    },
+  });
+}
+
+/**
+ * Type guard to check if a research item has been expanded
+ */
+export function isResearchItemExpanded(item: TripResearchItem): boolean {
+  return !!(item.deep_dive_content || item.expanded_at);
+}
+
+/**
+ * Get the expansion output from a research item (if expanded)
+ */
+export function getExpansionOutput(item: TripResearchItem): ExpansionOutput | null {
+  if (!isResearchItemExpanded(item)) {
+    return null;
+  }
+
+  return {
+    deep_dive_content: item.deep_dive_content || "",
+    kid_engagement: item.kid_engagement || {
+      age_7: [],
+      age_5: [],
+      age_3: [],
+      conversation_starters: [],
+      games: [],
+    },
+    visit_script: item.visit_script || {
+      arrival: "",
+      flow: "",
+      highlight_moments: [],
+      exit_strategy: "",
+    },
+    photo_guide: item.photo_guide || [],
+    practical_details_extended: item.practical_details_extended || {
+      insider_tips: [],
+      warnings: [],
+      money_saving: [],
+      with_stroller: "",
+      bathroom_locations: "",
+      food_nearby: "",
+      rest_spots: "",
+    },
+  };
 }

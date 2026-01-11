@@ -17,6 +17,7 @@ import {
   Moon,
   Sparkles,
   BookOpen,
+  Plane,
 } from "lucide-react";
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { name: "Biomarkers", href: "/biomarkers", icon: Activity },
   { name: "Sleep", href: "/sleep", icon: Moon },
   { name: "Journal", href: "/journal", icon: BookOpen },
+  { name: "Travel", href: "/travel", icon: Plane },
   { name: "Supplements", href: "/supplements", icon: Pill },
   { name: "Facial Products", href: "/facial-products", icon: Sparkles },
   { name: "Equipment", href: "/equipment", icon: Cpu },
