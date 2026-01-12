@@ -424,7 +424,7 @@ FRONTEND_URL=http://localhost:8081
 ```env
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-EXPO_PUBLIC_API_URL=http://localhost:3001
+EXPO_PUBLIC_API_URL=http://localhost:3002
 ```
 
 ---

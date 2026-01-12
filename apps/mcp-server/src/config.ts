@@ -17,7 +17,7 @@ export interface Config {
 }
 
 export function getConfig(): Config {
-  const apiBaseUrl = process.env.SINGULARITY_API_URL || 'http://localhost:3001/api/v1';
+  const apiBaseUrl = process.env.SINGULARITY_API_URL || 'http://localhost:3002/api/v1';
   const apiToken = process.env.SINGULARITY_API_TOKEN || '';
 
   if (!apiToken) {

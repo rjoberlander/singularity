@@ -87,7 +87,7 @@ npm install react-markdown remark-gfm
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+NEXT_PUBLIC_API_URL=http://localhost:3002/api/v1
 ```
 
 ---
@@ -1030,7 +1030,7 @@ apps/web/
 
 ## API Endpoints Reference
 
-All endpoints are at `NEXT_PUBLIC_API_URL` (default: `http://localhost:3001/api/v1`)
+All endpoints are at `NEXT_PUBLIC_API_URL` (default: `http://localhost:3002/api/v1`)
 
 ### Authentication
 - `POST /auth/register` - Register new user

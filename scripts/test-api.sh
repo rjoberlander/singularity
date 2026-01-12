@@ -2,7 +2,7 @@
 # Singularity API Test Script
 # This script tests all API endpoints and seeds mock data
 
-API_URL="http://localhost:3001/api/v1"
+API_URL="http://localhost:3002/api/v1"
 EMAIL="test@singularity.app"
 PASSWORD="Test123!"
 
@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 # 1. Health Check
 # ==========================================
 echo -e "${YELLOW}1. Health Check${NC}"
-curl -s http://localhost:3001/health | jq .
+curl -s http://localhost:3002/health | jq .
 echo ""
 
 # ==========================================

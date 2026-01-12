@@ -206,7 +206,7 @@ test.describe('Portugal Trip Setup', () => {
       const segment = SEGMENTS[i];
       console.log(`Adding segment ${i + 1}/${SEGMENTS.length}: ${segment.name}`);
 
-      const response = await page.request.post(`http://localhost:3001/api/v1/travel/trips/${tripId}/segments`, {
+      const response = await page.request.post(`http://localhost:3002/api/v1/travel/trips/${tripId}/segments`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -227,7 +227,7 @@ test.describe('Portugal Trip Setup', () => {
         console.log(`  Created segment: ${segmentData.id}`);
 
         // Add accommodation for this segment
-        const accomResponse = await page.request.post(`http://localhost:3001/api/v1/travel/trips/${tripId}/accommodations`, {
+        const accomResponse = await page.request.post(`http://localhost:3002/api/v1/travel/trips/${tripId}/accommodations`, {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`

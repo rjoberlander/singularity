@@ -52,7 +52,7 @@ function getYearMonth(dateStr) {
       const token = parsed.access_token;
 
       const response = await page.evaluate(async (token) => {
-        const res = await fetch('http://localhost:3001/api/v1/biomarkers?limit=1000', {
+        const res = await fetch('http://localhost:3002/api/v1/biomarkers?limit=1000', {
           headers: { 'Authorization': 'Bearer ' + token }
         });
         return res.json();

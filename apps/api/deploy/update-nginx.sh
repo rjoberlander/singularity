@@ -16,9 +16,9 @@ cat "$NGINX_CONF"
 # Use sed to insert after the first 'server {' line
 sudo sed -i '/server {/a\
 \
-    # API routes - proxy to Express backend on port 3001\
+    # API routes - proxy to Express backend on port 3002\
     location /api {\
-        proxy_pass http://localhost:3001;\
+        proxy_pass http://localhost:3002;\
         proxy_http_version 1.1;\
         proxy_set_header Upgrade $http_upgrade;\
         proxy_set_header Connection '"'"'upgrade'"'"';\

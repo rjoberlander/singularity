@@ -5,7 +5,7 @@ test('debug API authentication', async ({ page }) => {
   const requests: { url: string; headers: Record<string, string> }[] = [];
 
   page.on('request', request => {
-    if (request.url().includes('localhost:3001')) {
+    if (request.url().includes('localhost:3002')) {
       requests.push({
         url: request.url(),
         headers: request.headers()
@@ -14,7 +14,7 @@ test('debug API authentication', async ({ page }) => {
   });
 
   page.on('response', async response => {
-    if (response.url().includes('localhost:3001')) {
+    if (response.url().includes('localhost:3002')) {
       console.log(`API Response: ${response.status()} ${response.url()}`);
       if (response.status() === 401) {
         try {

@@ -57,7 +57,7 @@ interface AccessToken {
   created_at: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002/api/v1";
 
 export function AIConnectors() {
   const [tokens, setTokens] = useState<AccessToken[]>([]);

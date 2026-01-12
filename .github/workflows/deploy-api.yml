@@ -53,15 +53,15 @@ jobs:
             pm2 list
             echo "All Node.js processes:"
             ps aux | grep node | grep -v grep || echo "No node processes"
-            echo "Process on port 3001:"
-            sudo lsof -i :3001 2>/dev/null || echo "No lsof output"
+            echo "Process on port 3002:"
+            sudo lsof -i :3002 2>/dev/null || echo "No lsof output"
             # Stop ALL PM2 apps
             pm2 kill
-            # Kill any node process running on port 3001
-            sudo fuser -k 3001/tcp 2>/dev/null || true
+            # Kill any node process running on port 3002
+            sudo fuser -k 3002/tcp 2>/dev/null || true
             sleep 3
-            echo "After killing, port 3001:"
-            sudo lsof -i :3001 2>/dev/null || echo "Port 3001 is now free"
+            echo "After killing, port 3002:"
+            sudo lsof -i :3002 2>/dev/null || echo "Port 3002 is now free"
             # Clear Node.js require cache by removing all cached modules
             rm -rf /home/deploy/.pm2/logs/singularity-api* 2>/dev/null || true
             # Start fresh - both API and web
@@ -70,10 +70,10 @@ jobs:
             sleep 5
             echo "PM2 processes after restart:"
             pm2 list
-            echo "Checking port 3001 after start:"
-            lsof -i :3001 2>/dev/null || ss -tlnp 'sport = :3001' 2>/dev/null || echo "No process found"
+            echo "Checking port 3002 after start:"
+            lsof -i :3002 2>/dev/null || ss -tlnp 'sport = :3002' 2>/dev/null || echo "No process found"
             echo "API test response:"
-            curl -s http://localhost:3001/api/v1 | head -c 500 || echo "API not responding"
+            curl -s http://localhost:3002/api/v1 | head -c 500 || echo "API not responding"
             pm2 save
             # Update nginx to proxy /api to Express backend
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh

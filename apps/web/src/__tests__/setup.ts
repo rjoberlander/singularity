@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
 // Mock environment variables
-process.env.NEXT_PUBLIC_API_URL = 'http://localhost:3001/api/v1';
+process.env.NEXT_PUBLIC_API_URL = 'http://localhost:3002/api/v1';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 

@@ -136,7 +136,7 @@ test.describe("Biomarker Duplicate Cleanup", () => {
 
       // Make API call with the token
       const result = await page.evaluate(async ({ data, token }) => {
-        const response = await fetch('http://localhost:3001/api/v1/biomarkers/bulk', {
+        const response = await fetch('http://localhost:3002/api/v1/biomarkers/bulk', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

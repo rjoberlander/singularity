@@ -323,7 +323,7 @@ test.describe('Portugal Trip Activities', () => {
     }
 
     // Get segments
-    const segmentsResponse = await page.request.get(`http://localhost:3001/api/v1/travel/trips/${tripId}/segments`, {
+    const segmentsResponse = await page.request.get(`http://localhost:3002/api/v1/travel/trips/${tripId}/segments`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
@@ -351,7 +351,7 @@ test.describe('Portugal Trip Activities', () => {
 
       for (const dayData of cityActivities) {
         // Create day
-        const dayResponse = await page.request.post(`http://localhost:3001/api/v1/travel/trips/${tripId}/days`, {
+        const dayResponse = await page.request.post(`http://localhost:3002/api/v1/travel/trips/${tripId}/days`, {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
@@ -378,7 +378,7 @@ test.describe('Portugal Trip Activities', () => {
         // Add activities to day
         for (let i = 0; i < dayData.activities.length; i++) {
           const activity = dayData.activities[i];
-          const activityResponse = await page.request.post(`http://localhost:3001/api/v1/travel/trips/${tripId}/activities`, {
+          const activityResponse = await page.request.post(`http://localhost:3002/api/v1/travel/trips/${tripId}/activities`, {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`

@@ -53,7 +53,7 @@ npm install
 npm run build
 
 # Set environment variables
-export SINGULARITY_API_URL="http://localhost:3001/api/v1"
+export SINGULARITY_API_URL="http://localhost:3002/api/v1"
 export SINGULARITY_API_TOKEN="your-token"
 
 # Run the server
@@ -103,7 +103,7 @@ npm start
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SINGULARITY_API_URL` | API base URL | `http://localhost:3001/api/v1` |
+| `SINGULARITY_API_URL` | API base URL | `http://localhost:3002/api/v1` |
 | `SINGULARITY_API_TOKEN` | Your auth token | (required) |
 | `SINGULARITY_READ_ONLY` | Disable write operations | `false` |
 

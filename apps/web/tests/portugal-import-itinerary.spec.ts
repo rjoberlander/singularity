@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
  */
 
 const TRIP_ID = "814c38ad-c6d4-4811-acbf-6db049e3ede1";
-const API_BASE = "http://localhost:3001/api/v1";
+const API_BASE = "http://localhost:3002/api/v1";
 
 // Segment IDs from the existing trip
 const SEGMENTS = {
@@ -899,7 +899,7 @@ test.describe("Portugal Itinerary Import", () => {
 
     // Get existing days
     const daysResponse = await page.evaluate(async (tripId) => {
-      const res = await fetch(`http://localhost:3001/api/v1/travel/trips/${tripId}/full`, {
+      const res = await fetch(`http://localhost:3002/api/v1/travel/trips/${tripId}/full`, {
         credentials: "include",
       });
       return res.json();
@@ -930,7 +930,7 @@ test.describe("Portugal Itinerary Import", () => {
       if (dayInfo) {
         await page.evaluate(
           async ({ tripId, dayId, theme, title }) => {
-            await fetch(`http://localhost:3001/api/v1/travel/trips/${tripId}/days/${dayId}`, {
+            await fetch(`http://localhost:3002/api/v1/travel/trips/${tripId}/days/${dayId}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
@@ -948,7 +948,7 @@ test.describe("Portugal Itinerary Import", () => {
 
         const result = await page.evaluate(
           async ({ tripId, dayId, activity, sortOrder }) => {
-            const res = await fetch(`http://localhost:3001/api/v1/travel/trips/${tripId}/activities`, {
+            const res = await fetch(`http://localhost:3002/api/v1/travel/trips/${tripId}/activities`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",

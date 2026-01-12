@@ -21,7 +21,7 @@ This document contains all implementation tasks for the Singularity mobile app. 
 - ❌ Missing: Add/Edit forms, AI chat, settings, change log
 
 ### Backend API Reference
-Base URL: `http://localhost:3001/api/v1`
+Base URL: `http://localhost:3002/api/v1`
 All protected routes require `Authorization: Bearer <token>` header.
 
 ---
