@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +34,8 @@ import {
   Timer,
   History,
   Columns,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { TripActivity } from "@singularity/shared-types";
 import {
@@ -89,6 +92,7 @@ export function ActivityDetailContent({
   activity,
   tripId,
 }: ActivityDetailContentProps) {
+  const [hoursExpanded, setHoursExpanded] = useState(false);
   const fetchGoogle = useFetchGooglePlacesForActivity();
   const approveMedia = useApproveTripMedia();
 
@@ -125,28 +129,158 @@ export function ActivityDetailContent({
     }
   };
 
+  const handleApproveAllPhotos = async () => {
+    try {
+      await Promise.all(
+        pendingGooglePhotos.map((photo) =>
+          approveMedia.mutateAsync({ tripId, mediaId: photo.id, approved: true })
+        )
+      );
+      toast.success(`Approved ${pendingGooglePhotos.length} photos`);
+    } catch (error) {
+      toast.error("Failed to approve some photos");
+    }
+  };
+
   return (
-    <div className="p-6">
+    <div className="px-6 py-2">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-1">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-primary/10 rounded-xl">
+          <div className="p-3 bg-primary/10 rounded-xl shrink-0">
             <ActivityTypeIcon type={activity.activity_type || "activity"} />
           </div>
-          <div className="flex-1">
-            <h2 className="text-xl font-semibold">{activity.name}</h2>
-            {activity.location_name && (
-              <p className="flex items-center gap-1 text-muted-foreground mt-1">
-                <MapPin className="h-4 w-4" />
-                {activity.location_name}
-              </p>
-            )}
+          <div className="flex-1 min-w-0">
+            {/* Name + Rating + Book on same line */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {activity.website ? (
+                <a
+                  href={activity.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 hover:text-primary transition-colors"
+                >
+                  <h2 className="text-xl font-semibold">{activity.name}</h2>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                </a>
+              ) : (
+                <h2 className="text-xl font-semibold">{activity.name}</h2>
+              )}
+              {activity.google_rating && (
+                activity.google_maps_url ? (
+                  <a
+                    href={activity.google_maps_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-sm hover:text-primary transition-colors"
+                  >
+                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                    <span className="font-medium">{activity.google_rating}</span>
+                    {activity.google_review_count && (
+                      <span className="text-muted-foreground">
+                        ({activity.google_review_count.toLocaleString()})
+                      </span>
+                    )}
+                    <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                    {activity.google_price_level && (
+                      <PriceLevel level={activity.google_price_level} />
+                    )}
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-sm">
+                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                    <span className="font-medium">{activity.google_rating}</span>
+                    {activity.google_review_count && (
+                      <span className="text-muted-foreground">
+                        ({activity.google_review_count.toLocaleString()})
+                      </span>
+                    )}
+                    {activity.google_price_level && (
+                      <PriceLevel level={activity.google_price_level} />
+                    )}
+                  </div>
+                )
+              )}
+              {activity.booking_url && (
+                <a
+                  href={activity.booking_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-primary hover:underline"
+                >
+                  <Ticket className="h-3.5 w-3.5" />
+                  Book
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+            {/* Address + Phone */}
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              {(activity.location_name || activity.address) && (
+                <a
+                  href={activity.google_maps_url || `https://maps.google.com/maps?q=${encodeURIComponent(activity.address || activity.location_name || '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors text-sm"
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span className="hover:underline">
+                    {activity.address || activity.location_name}
+                  </span>
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {activity.phone && (
+                <a
+                  href={`tel:${activity.phone}`}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  {activity.phone}
+                </a>
+              )}
+            </div>
           </div>
+          {/* Hours - collapsible on right */}
+          {activity.opening_hours?.weekday_text && (
+            <div className="shrink-0">
+              <button
+                onClick={() => setHoursExpanded(!hoursExpanded)}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Clock className="h-4 w-4" />
+                <span className="font-medium">Hours</span>
+                {activity.opening_hours.open_now !== undefined && (
+                  <Badge
+                    variant={activity.opening_hours.open_now ? "default" : "secondary"}
+                    className={cn(
+                      "text-xs",
+                      activity.opening_hours.open_now && "bg-green-600"
+                    )}
+                  >
+                    {activity.opening_hours.open_now ? "Open" : "Closed"}
+                  </Badge>
+                )}
+                {hoursExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </button>
+              {hoursExpanded && (
+                <div className="mt-2 text-xs text-muted-foreground space-y-0.5 text-right">
+                  {activity.opening_hours.weekday_text.map((day, i) => (
+                    <div key={i}>{day}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Time Block and Status */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* Time Block, Status, and Google Refresh */}
+      <div className="flex flex-wrap items-center gap-2 mb-1">
         {activity.time_block && (
           <Badge variant="secondary">
             <Clock className="h-3 w-3 mr-1" />
@@ -166,26 +300,48 @@ export function ActivityDetailContent({
             {activity.priority.replace("_", " ")}
           </Badge>
         )}
+        {activity.reservation_required && (
+          <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
+            <Ticket className="h-3 w-3 mr-1" />
+            Reservation Required
+          </Badge>
+        )}
         {activity.confirmation_status === "confirmed" && (
           <Badge variant="default" className="bg-green-600">
             <CheckCircle className="h-3 w-3 mr-1" />
             Confirmed
           </Badge>
         )}
+        {activity.alltrails_url && (
+          <a
+            href={activity.alltrails_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <Mountain className="h-3.5 w-3.5" />
+            AllTrails
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        {activity.google_price_level && !activity.google_rating && (
+          <div className="flex items-center gap-1 text-sm">
+            <PriceLevel level={activity.google_price_level} />
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleFetchGoogle}
+          disabled={fetchGoogle.isPending}
+          className="ml-auto text-muted-foreground hover:text-foreground"
+        >
+          <RefreshCw
+            className={cn("h-3.5 w-3.5 mr-1.5", fetchGoogle.isPending && "animate-spin")}
+          />
+          {activity.photos_fetched ? "Refresh from Google" : "Fetch from Google"}
+        </Button>
       </div>
-
-      {/* Google Data Button */}
-      <Button
-        variant="outline"
-        onClick={handleFetchGoogle}
-        disabled={fetchGoogle.isPending}
-        className="w-full mb-6"
-      >
-        <RefreshCw
-          className={cn("h-4 w-4 mr-2", fetchGoogle.isPending && "animate-spin")}
-        />
-        {activity.photos_fetched ? "Refresh from Google" : "Fetch from Google"}
-      </Button>
 
       {/* Photos Section - User photos first */}
       {userPhotos.length > 0 && (
@@ -218,10 +374,21 @@ export function ActivityDetailContent({
       {/* Pending Google Photos - Need Approval */}
       {pendingGooglePhotos.length > 0 && (
         <div className="mb-6">
-          <h4 className="text-sm font-medium mb-3 flex items-center gap-2 text-amber-600">
-            <AlertCircle className="h-4 w-4" />
-            Pending Approval ({pendingGooglePhotos.length})
-          </h4>
+          <div className="flex items-center gap-3 mb-1">
+            <h4 className="text-sm font-medium flex items-center gap-2 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              Pending Approval ({pendingGooglePhotos.length})
+            </h4>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleApproveAllPhotos}
+              className="text-xs h-7"
+            >
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Approve All
+            </Button>
+          </div>
           <div className="grid grid-cols-3 gap-2">
             {pendingGooglePhotos.map((photo) => (
               <div
@@ -263,49 +430,6 @@ export function ActivityDetailContent({
       )}
 
       <Separator className="my-6" />
-
-      {/* Google Rating & Reviews */}
-      {activity.google_rating && (
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex items-center gap-1">
-            <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
-            <span className="text-lg font-medium">{activity.google_rating}</span>
-          </div>
-          {activity.google_review_count && (
-            <span className="text-muted-foreground">
-              ({activity.google_review_count.toLocaleString()} reviews)
-            </span>
-          )}
-          {activity.google_price_level && (
-            <PriceLevel level={activity.google_price_level} />
-          )}
-        </div>
-      )}
-
-      {/* Opening Hours */}
-      {activity.opening_hours?.weekday_text && (
-        <div className="mb-6">
-          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Hours
-            {activity.opening_hours.open_now !== undefined && (
-              <Badge
-                variant={activity.opening_hours.open_now ? "default" : "secondary"}
-                className={cn(
-                  activity.opening_hours.open_now && "bg-green-600"
-                )}
-              >
-                {activity.opening_hours.open_now ? "Open" : "Closed"}
-              </Badge>
-            )}
-          </h4>
-          <div className="text-sm text-muted-foreground space-y-0.5">
-            {activity.opening_hours.weekday_text.map((day, i) => (
-              <div key={i}>{day}</div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Description */}
       {activity.description && (
@@ -760,74 +884,6 @@ export function ActivityDetailContent({
           </p>
         </div>
       )}
-
-      <Separator className="my-6" />
-
-      {/* Contact & Links */}
-      <div className="space-y-3">
-        {activity.website && (
-          <a
-            href={activity.website}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <Globe className="h-4 w-4" />
-            Website
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        {activity.booking_url && (
-          <a
-            href={activity.booking_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <Calendar className="h-4 w-4" />
-            Book Now
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        {activity.phone && (
-          <a
-            href={`tel:${activity.phone}`}
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <Phone className="h-4 w-4" />
-            {activity.phone}
-          </a>
-        )}
-        {activity.google_maps_url && (
-          <a
-            href={activity.google_maps_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <MapPin className="h-4 w-4" />
-            View on Google Maps
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-        {activity.alltrails_url && (
-          <a
-            href={activity.alltrails_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm text-primary hover:underline"
-          >
-            <Mountain className="h-4 w-4" />
-            AllTrails
-            {activity.alltrails_rating && (
-              <span className="text-muted-foreground">
-                ({activity.alltrails_rating})
-              </span>
-            )}
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
 
       {/* Notes */}
       {activity.notes && (

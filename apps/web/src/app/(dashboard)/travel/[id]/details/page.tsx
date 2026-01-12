@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useMemo, useState, useEffect } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import {
   useTripFull,
   formatTripDate,
@@ -25,6 +25,16 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Slugify a name for URL-friendly format
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 // Convert 24h time to 12h AM/PM format
 function formatTimeAmPm(time: string): string {
@@ -109,12 +119,12 @@ function ActivityPhotoGrid({
   const remainingCount = photosWithActivity.length - 6;
 
   return (
-    <div className="grid grid-cols-3 gap-1 mt-2">
+    <div className="grid grid-cols-3 gap-0.5 mt-1">
       {displayPhotos.map(({ photo, activityId, activityName }, index) => (
         <button
           key={photo.id}
           onClick={() => onPhotoClick(activityId)}
-          className="relative aspect-square rounded overflow-hidden group/photo"
+          className="relative aspect-square rounded-sm overflow-hidden group/photo"
         >
           <img
             src={photo.file_url}
@@ -136,6 +146,8 @@ function ActivityPhotoGrid({
 
 export default function TripDetailsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const tripId = params.id as string;
 
   const { data: trip } = useTripFull(tripId);
@@ -144,6 +156,7 @@ export default function TripDetailsPage() {
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [expandedSegments, setExpandedSegments] = useState<Set<string>>(new Set());
+  const [urlProcessed, setUrlProcessed] = useState(false);
 
   // Find selected items from data
   const selectedActivity = selectedActivityId
@@ -206,6 +219,80 @@ export default function TripDetailsPage() {
     return grouped;
   }, [trip?.media]);
 
+  // Global sorted days list for day1, day2, etc. URLs
+  const allDaysSorted = useMemo(() => {
+    if (!trip?.days) return [];
+    const uniqueDays = new Map<string, typeof trip.days[0]>();
+    for (const day of trip.days) {
+      if (!uniqueDays.has(day.date)) {
+        uniqueDays.set(day.date, day);
+      }
+    }
+    return Array.from(uniqueDays.values()).sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  }, [trip?.days]);
+
+  // Map day ID to global day number (1-indexed)
+  const dayToGlobalNumber = useMemo(() => {
+    const map: Record<string, number> = {};
+    allDaysSorted.forEach((day, index) => {
+      map[day.id] = index + 1;
+    });
+    return map;
+  }, [allDaysSorted]);
+
+  // Update URL when activity is selected
+  const updateUrlForActivity = (activityId: string) => {
+    const activity = trip?.activities?.find((a) => a.id === activityId);
+    if (!activity) return;
+
+    const dayNumber = activity.day_id ? dayToGlobalNumber[activity.day_id] : null;
+    const activitySlug = slugify(activity.name);
+
+    const params = new URLSearchParams();
+    if (dayNumber) params.set("day", `day${dayNumber}`);
+    params.set("activity", activitySlug);
+
+    router.replace(`/travel/${tripId}/details?${params.toString()}`, { scroll: false });
+  };
+
+  // Process URL params on initial load
+  useEffect(() => {
+    if (!trip || urlProcessed) return;
+
+    const dayParam = searchParams.get("day");
+    const activityParam = searchParams.get("activity");
+
+    if (activityParam) {
+      // Find activity by slug
+      const activity = trip.activities?.find(
+        (a) => slugify(a.name) === activityParam
+      );
+
+      if (activity) {
+        // Find which segment contains this activity's day
+        const day = trip.days?.find((d) => d.id === activity.day_id);
+        if (day?.segment_id) {
+          setExpandedSegments(new Set([day.segment_id]));
+        }
+        setSelectedActivityId(activity.id);
+        setSelectedSegmentId(null);
+      }
+    } else if (dayParam) {
+      // Parse day number from "day1", "day2", etc.
+      const dayNumber = parseInt(dayParam.replace("day", ""), 10);
+      if (!isNaN(dayNumber) && dayNumber > 0 && dayNumber <= allDaysSorted.length) {
+        const day = allDaysSorted[dayNumber - 1];
+        if (day?.segment_id) {
+          setExpandedSegments(new Set([day.segment_id]));
+        }
+      }
+    }
+
+    setUrlProcessed(true);
+  }, [trip, searchParams, urlProcessed, allDaysSorted, tripId]);
+
   const toggleSegment = (segmentId: string) => {
     const newExpanded = new Set(expandedSegments);
     if (newExpanded.has(segmentId)) {
@@ -219,11 +306,14 @@ export default function TripDetailsPage() {
   const handleActivityClick = (activityId: string) => {
     setSelectedActivityId(activityId);
     setSelectedSegmentId(null);
+    updateUrlForActivity(activityId);
   };
 
   const handleSegmentClick = (segmentId: string) => {
     setSelectedSegmentId(segmentId);
     setSelectedActivityId(null);
+    // Clear activity from URL when selecting segment
+    router.replace(`/travel/${tripId}/details`, { scroll: false });
   };
 
   // Get all activities for a segment (for photo grid)
@@ -247,11 +337,11 @@ export default function TripDetailsPage() {
   if (!trip) return null;
 
   return (
-    <div className="flex gap-0 h-[calc(100vh-280px)] min-h-[500px]">
-      {/* Left Panel - Itinerary List (40%) */}
-      <div className="w-[40%] border-r bg-muted/20">
+    <div className="flex gap-0 h-[calc(100vh-180px)] min-h-[500px]">
+      {/* Left Panel - Itinerary List */}
+      <div className="w-fit min-w-[280px] max-w-[400px] shrink-0 border-r bg-muted/20">
         <ScrollArea className="h-full">
-          <div className="p-4 space-y-4">
+          <div className="px-0 py-1 space-y-1">
             {trip.segments && trip.segments.length > 0 ? (
               trip.segments.map((segment, index) => {
                 const segmentDays = daysBySegment[segment.id] || [];
@@ -259,32 +349,66 @@ export default function TripDetailsPage() {
                 const segmentActivities = getSegmentActivities(segment.id);
                 const totalActivities = segmentActivities.length;
 
+                const segmentColors = [
+                  { bg: "bg-emerald-600", bgLight: "bg-emerald-600/20" },
+                  { bg: "bg-blue-600", bgLight: "bg-blue-600/20" },
+                  { bg: "bg-amber-600", bgLight: "bg-amber-600/20" },
+                  { bg: "bg-purple-600", bgLight: "bg-purple-600/20" },
+                  { bg: "bg-rose-600", bgLight: "bg-rose-600/20" },
+                  { bg: "bg-cyan-600", bgLight: "bg-cyan-600/20" },
+                  { bg: "bg-orange-600", bgLight: "bg-orange-600/20" },
+                  { bg: "bg-indigo-600", bgLight: "bg-indigo-600/20" },
+                ];
+                const segmentColor = segmentColors[index % segmentColors.length];
+
                 return (
-                  <div key={segment.id} className="space-y-2">
+                  <div key={segment.id} className="space-y-0.5">
                     {/* Segment Header */}
                     <div
                       className={cn(
-                        "p-3 rounded-lg cursor-pointer transition-colors",
+                        "px-2 py-1 rounded cursor-pointer transition-colors",
+                        segmentColor.bgLight,
                         selectedSegmentId === segment.id
-                          ? "bg-primary/10 border border-primary/30"
-                          : "bg-card hover:bg-muted/50 border border-transparent"
+                          ? "border border-primary/30"
+                          : "border border-transparent hover:brightness-110"
                       )}
                       onClick={() => handleSegmentClick(segment.id)}
+                      onDoubleClick={() => toggleSegment(segment.id)}
                     >
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-2">
                         {/* Segment number */}
-                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">
+                        <div className={cn("w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5", segmentColor.bg)}>
                           {index + 1}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
                             <h3 className="font-semibold text-sm">{segment.name}</h3>
+                            <Badge variant="secondary" className="text-xs">
+                              {segmentDays.length} days
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs">
+                              {totalActivities} activities
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-x-2 text-xs text-muted-foreground">
+                            {segment.location_name && (
+                              <span className="flex items-center gap-0.5" title={segment.location_name}>
+                                <MapPin className="h-3 w-3" />
+                                {segment.location_name.length > 12
+                                  ? segment.location_name.slice(0, 12) + "…"
+                                  : segment.location_name}
+                              </span>
+                            )}
+                            <span className="flex items-center gap-0.5">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(segment.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} - {new Date(segment.end_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                            </span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleSegment(segment.id);
                               }}
-                              className="p-1 hover:bg-muted rounded"
+                              className="p-0.5 hover:bg-muted rounded ml-auto"
                             >
                               {isExpanded ? (
                                 <ChevronDown className="h-4 w-4" />
@@ -292,26 +416,6 @@ export default function TripDetailsPage() {
                                 <ChevronRight className="h-4 w-4" />
                               )}
                             </button>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-muted-foreground">
-                            {segment.location_name && (
-                              <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {segment.location_name}
-                              </span>
-                            )}
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {formatTripDate(segment.start_date)} - {formatTripDate(segment.end_date)}
-                            </span>
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            <Badge variant="secondary" className="text-xs">
-                              {segmentDays.length} days
-                            </Badge>
-                            <Badge variant="secondary" className="text-xs">
-                              {totalActivities} activities
-                            </Badge>
                           </div>
 
                           {/* Activity Photos Grid */}
@@ -328,22 +432,32 @@ export default function TripDetailsPage() {
 
                     {/* Expanded Days/Activities */}
                     {isExpanded && segmentDays.length > 0 && (
-                      <div className="ml-11 space-y-2">
+                      <div className="ml-2">
                         {segmentDays.map((day, dayIndex) => {
                           const dayActivities = activitiesByDay[day.id] || [];
+                          const dayOfWeek = new Date(day.date).getDay();
+                          const weekdayColors: Record<number, string> = {
+                            0: "bg-rose-600",    // Sun
+                            1: "bg-blue-600",    // Mon
+                            2: "bg-emerald-600", // Tue
+                            3: "bg-amber-600",   // Wed
+                            4: "bg-purple-600",  // Thu
+                            5: "bg-cyan-600",    // Fri
+                            6: "bg-orange-600",  // Sat
+                          };
+                          const weekdayShort = new Date(day.date).toLocaleDateString("en-US", { weekday: "short" });
                           return (
-                            <div key={day.id} className="space-y-1">
+                            <div key={day.id}>
                               {/* Day Header */}
-                              <div className="flex items-center gap-2 py-1">
-                                <div className="w-5 h-5 rounded bg-muted flex items-center justify-center text-xs font-medium">
-                                  {day.day_number || dayIndex + 1}
+                              <div className="flex items-center gap-1 py-px">
+                                <div className={cn("px-1 py-px rounded text-[10px] font-medium text-white", weekdayColors[dayOfWeek])}>
+                                  {weekdayShort}
                                 </div>
                                 <span className="font-medium text-xs">
                                   {day.title || `Day ${day.day_number || dayIndex + 1}`}
                                 </span>
                                 <span className="text-muted-foreground text-xs">
                                   {new Date(day.date).toLocaleDateString("en-US", {
-                                    weekday: "short",
                                     month: "short",
                                     day: "numeric",
                                   })}
@@ -352,7 +466,7 @@ export default function TripDetailsPage() {
 
                               {/* Activities */}
                               {dayActivities.length > 0 ? (
-                                <div className="space-y-0.5 ml-7">
+                                <div className="ml-5">
                                   {dayActivities.map((activity) => {
                                     const timeInfo = activity.start_time
                                       ? getTimeOfDayInfo(activity.start_time)
@@ -365,7 +479,7 @@ export default function TripDetailsPage() {
                                         key={activity.id}
                                         onClick={() => handleActivityClick(activity.id)}
                                         className={cn(
-                                          "flex items-center gap-2 text-xs py-1.5 px-2 rounded cursor-pointer transition-colors",
+                                          "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors",
                                           selectedActivityId === activity.id
                                             ? "bg-primary/10 border border-primary/30"
                                             : "hover:bg-muted/50"
@@ -382,7 +496,7 @@ export default function TripDetailsPage() {
                                           </span>
                                         )}
                                         {activity.start_time && timeInfo && (
-                                          <span className={cn("shrink-0 flex items-center gap-1", timeInfo.colorClass)}>
+                                          <span className={cn("shrink-0 flex items-center gap-0.5", timeInfo.colorClass)}>
                                             {timeInfo.icon}
                                             {formatTimeAmPm(activity.start_time)}
                                           </span>
@@ -392,7 +506,7 @@ export default function TripDetailsPage() {
                                   })}
                                 </div>
                               ) : (
-                                <p className="text-xs text-muted-foreground italic ml-7 py-1">
+                                <p className="text-xs text-muted-foreground italic ml-5 py-px">
                                   No activities planned
                                 </p>
                               )}
@@ -405,7 +519,7 @@ export default function TripDetailsPage() {
                 );
               })
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
+              <div className="text-center py-4 text-muted-foreground">
                 <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No segments yet</p>
               </div>
@@ -414,8 +528,8 @@ export default function TripDetailsPage() {
         </ScrollArea>
       </div>
 
-      {/* Right Panel - Detail View (60%) */}
-      <div className="w-[60%] bg-background">
+      {/* Right Panel - Detail View */}
+      <div className="flex-1 bg-background">
         <ScrollArea className="h-full">
           {selectedActivity ? (
             <ActivityDetailContent activity={selectedActivity} tripId={tripId} />

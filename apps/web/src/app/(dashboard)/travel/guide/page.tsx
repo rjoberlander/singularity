@@ -1,13 +1,12 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useTravelSettings, useUpdateFamilyProfile } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   Accordion,
@@ -16,744 +15,1028 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import {
   ArrowLeft,
   BookOpen,
-  Settings,
-  Upload,
-  CheckCircle2,
   FileJson,
-  Users,
-  ListChecks,
-  Plane,
-  Zap,
-  Search,
+  Download,
   Map,
-  MessageSquare,
-  Eye,
+  Hotel,
+  Search,
+  Save,
+  Loader2,
+  Users,
+  Calendar,
+  CheckCircle2,
+  Folder,
+  Copy,
+  ArrowDown,
 } from "lucide-react";
+import { toast } from "sonner";
 
-/**
- * Travel Workflow Guide Page - 2-Phase System (v3)
- *
- * The workflow is:
- * Phase 1: Trip Planning (Claude Project 1: Trip Planner) -> trip-skeleton.json
- * Phase 2: Segment Research (Claude Project 2: Research Agent) -> segment-N-research.json (COMPLETE content)
- * DONE: Display beautiful guide in app
- *
- * No expansion phase needed - Phase 2 outputs full narratives, kid scripts, and deep-dives.
- */
 export default function TravelGuidePage() {
+  const { data: settings, isLoading: settingsLoading } = useTravelSettings();
+  const updateFamilyProfile = useUpdateFamilyProfile();
+  const [familyProfile, setFamilyProfile] = useState("");
+  const [profileDirty, setProfileDirty] = useState(false);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (settings?.family_profile) {
+      setFamilyProfile(JSON.stringify(settings.family_profile, null, 2));
+    } else if (!settingsLoading) {
+      setFamilyProfile(getDefaultFamilyProfile());
+    }
+  }, [settings, settingsLoading]);
+
+  const handleDownload = (content: string, filename: string, type: string) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard");
+  };
+
+  const handleSaveFamilyProfile = async () => {
+    try {
+      const parsed = JSON.parse(familyProfile);
+      await updateFamilyProfile.mutateAsync(parsed);
+      setProfileDirty(false);
+      toast.success("Family profile saved");
+      setProfileDialogOpen(false);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        toast.error("Invalid JSON format");
+      } else {
+        toast.error("Failed to save family profile");
+      }
+    }
+  };
+
   return (
-    <div className="container max-w-4xl py-6 space-y-8">
+    <div className="container max-w-5xl py-4 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Link href="/travel">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <BookOpen className="h-6 w-6" />
-              Trip Planning Workflow
-            </h1>
-          </div>
-          <p className="text-muted-foreground ml-12">
-            Two Claude Projects for comprehensive trip planning
-          </p>
-        </div>
-      </div>
-
-      {/* Simple Summary */}
-      <Card className="border-2 border-primary/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            How It Works
-          </CardTitle>
-          <CardDescription>
-            Plan → Research → Display
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="bg-muted/50 rounded-lg p-4 font-mono text-sm overflow-x-auto">
-            <pre className="whitespace-pre">{`PHASE 1: "Let's plan Portugal" (back-and-forth conversation)
-         → trip-skeleton.json
-         → Import: Creates trip + 9 empty segment shells
-
-PHASE 2: "Research Segment 1: Lisbon" (one per segment)
-         → segment-1-research.json (COMPLETE content)
-         → Import: Fills segment with everything
-
-         Repeat for segments 2-9...
-
-DONE: View beautiful guide in your app`}</pre>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Two-Phase Architecture */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Two-Phase Architecture</CardTitle>
-          <CardDescription>
-            Phase 2 outputs COMPLETE content. No expansion phase needed.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-3 gap-4">
-            {/* Phase 1 */}
-            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
-              <div className="flex items-center gap-2 mb-3">
-                <Map className="h-5 w-5 text-blue-500" />
-                <h4 className="font-semibold text-blue-700 dark:text-blue-400">Phase 1: Planning</h4>
-              </div>
-              <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">
-                Claude Project 1: &quot;Trip Planner&quot;
-              </p>
-              <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>• Conversational back-and-forth</li>
-                <li>• Figure out trip structure</li>
-                <li>• Which regions, how many days</li>
-                <li>• May take 2-3 conversations</li>
-              </ul>
-              <div className="mt-3 text-xs font-medium text-blue-600 dark:text-blue-400">
-                Output: trip-skeleton.json
-              </div>
-            </div>
-
-            {/* Phase 2 */}
-            <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="flex items-center gap-2 mb-3">
-                <Search className="h-5 w-5 text-green-500" />
-                <h4 className="font-semibold text-green-700 dark:text-green-400">Phase 2: Research</h4>
-              </div>
-              <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-2">
-                Claude Project 2: &quot;Research Agent&quot;
-              </p>
-              <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>• Deep research per segment</li>
-                <li>• COMPLETE narratives included</li>
-                <li>• Kid scripts for each age</li>
-                <li>• 2000-4000 word histories</li>
-              </ul>
-              <div className="mt-3 text-xs font-medium text-green-600 dark:text-green-400">
-                Output: segment-N-research.json
-              </div>
-            </div>
-
-            {/* Display */}
-            <div className="p-4 rounded-lg bg-purple-500/10 border border-purple-500/20">
-              <div className="flex items-center gap-2 mb-3">
-                <Eye className="h-5 w-5 text-purple-500" />
-                <h4 className="font-semibold text-purple-700 dark:text-purple-400">Display</h4>
-              </div>
-              <p className="text-xs font-medium text-purple-600 dark:text-purple-400 mb-2">
-                Your App
-              </p>
-              <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>• Import JSON once</li>
-                <li>• Everything ready to view</li>
-                <li>• Beautiful travel guide</li>
-                <li>• No additional processing</li>
-              </ul>
-              <div className="mt-3 text-xs font-medium text-purple-600 dark:text-purple-400">
-                Just display the content
-              </div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-sm">
-            <strong className="text-green-700 dark:text-green-400">Key change from v2:</strong>
-            <span className="text-muted-foreground ml-2">
-              Phase 2 now outputs COMPLETE content (500-1000 word deep-dives, full kid scripts).
-              No more &quot;Expand&quot; buttons or Phase 3.
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Two Claude Projects */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            Two Claude Projects Required
-          </CardTitle>
-          <CardDescription>
-            Different purposes require different instructions
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-lg border border-dashed space-y-3">
-              <div className="flex items-center gap-2">
-                <Map className="h-5 w-5 text-blue-500" />
-                <h4 className="font-semibold">Project 1: &quot;Trip Planner&quot;</h4>
-              </div>
-              <div className="text-sm text-muted-foreground space-y-2">
-                <p><strong>Purpose:</strong> Figure out overall trip structure</p>
-                <p><strong>Style:</strong> Conversational, asks questions, proposes options</p>
-                <p><strong>Duration:</strong> May take 2-3 sessions over days</p>
-              </div>
-              <div className="text-xs space-y-1">
-                <div className="font-medium">Files to upload:</div>
-                <ul className="text-muted-foreground">
-                  <li>• TRIP-PLANNER-PROJECT-INSTRUCTIONS.md</li>
-                  <li>• family-travel-profile.json</li>
-                  <li>• trip-skeleton-template.json</li>
-                </ul>
-              </div>
-            </div>
-            <div className="p-4 rounded-lg border border-dashed space-y-3">
-              <div className="flex items-center gap-2">
-                <Search className="h-5 w-5 text-green-500" />
-                <h4 className="font-semibold">Project 2: &quot;Travel Research Agent&quot;</h4>
-              </div>
-              <div className="text-sm text-muted-foreground space-y-2">
-                <p><strong>Purpose:</strong> Deep research + COMPLETE content per segment</p>
-                <p><strong>Style:</strong> Structured output, full narratives</p>
-                <p><strong>Duration:</strong> One conversation per segment</p>
-              </div>
-              <div className="text-xs space-y-1">
-                <div className="font-medium">Files to upload:</div>
-                <ul className="text-muted-foreground">
-                  <li>• RESEARCH-AGENT-INSTRUCTIONS-V3.md</li>
-                  <li>• family-travel-profile.json</li>
-                  <li>• research-output-template-v3-complete.json</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
-            <strong className="text-amber-700 dark:text-amber-400">Why two projects?</strong>
-            <span className="text-muted-foreground ml-2">
-              Trip Planner is conversational and iterative. Research Agent outputs structured, complete content.
-              Mixing them confuses the AI about which mode it&apos;s in.
-            </span>
-          </div>
-          <Link href="/travel/settings">
-            <Button variant="outline" size="sm">
-              <Settings className="h-4 w-4 mr-2" />
-              Download All Files from Settings
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
-
-      {/* What Phase 2 Outputs */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileJson className="h-5 w-5" />
-            What Phase 2 Outputs
-          </CardTitle>
-          <CardDescription>
-            segment-N-research.json contains COMPLETE content ready to display
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2 p-3 rounded-lg bg-muted/50">
-              <h4 className="font-medium">city_info.deep_history</h4>
-              <p className="text-sm text-muted-foreground">
-                2000-4000 words of engaging narrative. Full historical story, not bullet points.
-              </p>
-            </div>
-            <div className="space-y-2 p-3 rounded-lg bg-muted/50">
-              <h4 className="font-medium">deep_dive (per must-do item)</h4>
-              <p className="text-sm text-muted-foreground">
-                500-1000 words: what it is, why it matters, the story, what you&apos;ll see.
-              </p>
-            </div>
-            <div className="space-y-2 p-3 rounded-lg bg-muted/50">
-              <h4 className="font-medium">kid_engagement</h4>
-              <p className="text-sm text-muted-foreground">
-                Actual SCRIPTS for each age (7, 5, 3): sentences to say, games to play.
-              </p>
-            </div>
-            <div className="space-y-2 p-3 rounded-lg bg-muted/50">
-              <h4 className="font-medium">day schedules</h4>
-              <p className="text-sm text-muted-foreground">
-                Specific times (&quot;9:00-11:00am&quot;), not just &quot;morning&quot;.
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 p-3 rounded-lg border border-dashed">
-            <p className="text-sm text-muted-foreground">
-              <strong>The key principle:</strong> The app displays exactly what Claude outputs.
-              Output summaries → app shows summaries. Output full narratives → app shows full narratives.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Quick Links */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link href="/travel/settings">
-          <Card className="h-full hover:border-primary transition-colors cursor-pointer">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Settings className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">Settings</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Download all project files
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/travel/import">
-          <Card className="h-full hover:border-primary transition-colors cursor-pointer">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Upload className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">Import</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Upload skeleton or research JSON
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
+      <div className="flex items-center gap-2">
         <Link href="/travel">
-          <Card className="h-full hover:border-primary transition-colors cursor-pointer">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Plane className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">My Trips</h3>
-                  <p className="text-sm text-muted-foreground">
-                    View and manage your trips
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
         </Link>
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          <BookOpen className="h-5 w-5" />
+          Travel Planning System
+        </h1>
       </div>
 
-      {/* Example Timeline */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Complete Portugal Example</CardTitle>
-          <CardDescription>
-            A 30-day trip with 9 segments
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="bg-muted/50 rounded-lg p-4 font-mono text-xs overflow-x-auto">
-            <pre className="whitespace-pre">{`WEEK 1: Phase 1 - Planning
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Day 1-3: Conversations in Trip Planner project
-         "Let's plan Portugal..."
-         Back and forth on route, segments, logistics
-
-Day 4:   Finalize and download trip-skeleton.json
-         Import to app → Trip created + 9 empty segment shells
-
-
-WEEK 2: Phase 2 - Research Segments 1-3
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Day 1:   New conversation in Research Agent project
-         "Research Segment 1: Lisbon & Belém (June 17-21)"
-         Download segment-1-research.json
-         Import → Segment 1 filled with COMPLETE content
-
-Day 2:   "Research Segment 2: Cascais & Sintra (June 22-24)"
-         → segment-2-research.json → Import
-
-Day 3:   "Research Segment 3: Lagos & Sagres (June 25-29)"
-         → segment-3-research.json → Import
-
-
-WEEK 3: Phase 2 - Research Segments 4-6
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Same pattern...
-
-
-WEEK 4: Phase 2 - Research Segments 7-9
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Same pattern...
-
-
-DONE
-━━━━
-All segments filled with complete content
-View beautiful trip guide in your app
-Make any manual edits/adjustments
-Export to PDF for offline use`}</pre>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Step by Step Guide */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Step-by-Step Workflow</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Accordion type="single" collapsible className="w-full">
-            {/* Step 1: One-Time Setup */}
-            <AccordionItem value="step-1">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    1
-                  </div>
-                  <span>One-Time Setup</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <div className="space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Create Your Family Profile
-                  </h4>
-                  <p className="text-sm text-muted-foreground">
-                    Edit and save your family profile in Settings. This is used by both Claude Projects.
-                  </p>
-                  <Link href="/travel/settings">
-                    <Button variant="outline" size="sm">
-                      <Settings className="h-4 w-4 mr-2" />
-                      Go to Settings
-                    </Button>
-                  </Link>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Map className="h-4 w-4 text-blue-500" />
-                    Set Up &quot;Trip Planner&quot; Project
-                  </h4>
-                  <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                    <li>Go to Claude.ai → Projects → Create New</li>
-                    <li>Name it &quot;Trip Planner&quot;</li>
-                    <li>Paste TRIP-PLANNER-PROJECT-INSTRUCTIONS.md as instructions</li>
-                    <li>Upload: family-travel-profile.json, trip-skeleton-template.json</li>
-                  </ol>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Search className="h-4 w-4 text-green-500" />
-                    Set Up &quot;Travel Research Agent&quot; Project
-                  </h4>
-                  <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                    <li>Go to Claude.ai → Projects → Create New</li>
-                    <li>Name it &quot;Travel Research Agent&quot;</li>
-                    <li>Paste RESEARCH-AGENT-INSTRUCTIONS-V3.md as instructions</li>
-                    <li>Upload: family-travel-profile.json, research-output-template-v3-complete.json</li>
-                  </ol>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* Step 2: Phase 1 - Trip Planning */}
-            <AccordionItem value="step-2">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 font-semibold">
-                    2
-                  </div>
-                  <span>Phase 1: Plan Your Trip</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  In the <strong>Trip Planner</strong> project, have a conversation about your trip:
-                </p>
-                <div className="bg-muted/50 rounded-lg p-3 text-xs font-mono overflow-x-auto">
-                  <pre>
-{`"I want to plan a month in Portugal with my family this summer.
-Flying out of LAX, June 17 - July 17, 2025."`}
-                  </pre>
-                </div>
-                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Claude asks about priorities, must-sees, pace preferences</li>
-                  <li>Proposes 2-3 different itinerary approaches</li>
-                  <li>You go back and forth refining over 1-3 conversations</li>
-                  <li>When finalized, Claude outputs trip-skeleton.json</li>
-                </ul>
-                <div className="p-3 rounded-lg bg-blue-500/10 text-sm">
-                  <strong className="text-blue-700 dark:text-blue-400">Output:</strong>
-                  <span className="text-muted-foreground ml-2">
-                    trip-skeleton.json with trip metadata + 9 segment shells
-                  </span>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* Step 3: Import Skeleton */}
-            <AccordionItem value="step-3">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    3
-                  </div>
-                  <span>Import Trip Skeleton</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                  <li>Download trip-skeleton.json from Claude</li>
-                  <li>Go to Import Page</li>
-                  <li>Select &quot;Trip Skeleton&quot; mode</li>
-                  <li>Upload or paste the JSON</li>
-                  <li>Click Import</li>
-                </ol>
-                <div className="flex items-center gap-2 text-sm">
-                  <FileJson className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Creates: Trip + 9 empty Segment shells (no details yet)
-                  </span>
-                </div>
-                <Link href="/travel/import">
-                  <Button variant="outline" size="sm">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Go to Import
+      {/* Family Profile Card - Above Phases */}
+      <Card className="bg-purple-500/5 border-purple-500/20">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-purple-500/10">
+                <Users className="h-5 w-5 text-purple-500" />
+              </div>
+              <div>
+                <div className="font-medium">Family Travel Profile</div>
+                <div className="text-xs text-muted-foreground">Shared across all phases - upload to each Claude Project</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownload(familyProfile, "family-travel-profile.json", "application/json")}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Download
+              </Button>
+              <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="default" size="sm">
+                    Edit Profile
                   </Button>
-                </Link>
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* Step 4: Phase 2 - Research */}
-            <AccordionItem value="step-4">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 font-semibold">
-                    4
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Family Travel Profile</DialogTitle>
+                    <DialogDescription>
+                      Edit your family profile. This is used by all Claude Projects.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Textarea
+                    value={familyProfile}
+                    onChange={(e) => {
+                      setFamilyProfile(e.target.value);
+                      setProfileDirty(true);
+                    }}
+                    className="font-mono text-xs min-h-[300px]"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDownload(familyProfile, "family-travel-profile.json", "application/json")}
+                    >
+                      <Download className="h-3 w-3 mr-1" />
+                      Download JSON
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveFamilyProfile}
+                      disabled={!profileDirty || updateFamilyProfile.isPending}
+                    >
+                      {updateFamilyProfile.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+                      Save Profile
+                    </Button>
                   </div>
-                  <span>Phase 2: Research Each Segment</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  In the <strong>Travel Research Agent</strong> project, research ONE segment per conversation:
-                </p>
-                <div className="bg-muted/50 rounded-lg p-3 text-xs font-mono overflow-x-auto">
-                  <pre>
-{`Research Segment 1: Lisbon & Belém
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-Trip: Portugal Summer 2025
-Dates: June 17-21, 2025 (5 days, 4 nights)
-Location: Belém district, Lisbon
-Accommodation: Hyatt Regency Lisbon
-
-Theme: Age of Discovery history, iconic Lisbon experiences
-
-Please output segment-1-research.json with COMPLETE content:
-- Full city_info.deep_history (2000-4000 words)
-- 25+ research items with deep-dives (500-1000 words each)
-- Kid engagement SCRIPTS for each age (actual sentences to say)
-- Day-by-day schedules with specific times`}
-                  </pre>
-                </div>
-                <div className="p-3 rounded-lg bg-green-500/10 text-sm">
-                  <strong className="text-green-700 dark:text-green-400">Key:</strong>
-                  <span className="text-muted-foreground ml-2">
-                    One NEW conversation per segment. The JSON contains COMPLETE content - no expansion needed later.
-                  </span>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* Step 5: Import Segment Research */}
-            <AccordionItem value="step-5">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    5
+      {/* Phase Workflow Details - Main Section */}
+      <Accordion type="single" collapsible defaultValue="workflow">
+        <AccordionItem value="workflow" className="border rounded-lg px-4">
+          <AccordionTrigger className="text-sm font-medium py-3">Phase Workflow Details</AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-3">
+                {/* Phase 1: Trip Planning */}
+                <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Map className="h-4 w-4 text-blue-500" />
+                      <div className="font-medium text-blue-700 dark:text-blue-400">Phase 1: Trip Planning</div>
+                    </div>
+                    <div className="text-xs bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded">Light research</div>
                   </div>
-                  <span>Import Segment Research</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                  <li>Download segment-1-research.json from Claude</li>
-                  <li>Go to Import Page</li>
-                  <li>Select &quot;Segment Research → Existing Trip&quot; mode</li>
-                  <li>Choose your trip and the segment shell to fill</li>
-                  <li>Upload and import</li>
-                </ol>
-                <div className="flex items-center gap-2 text-sm">
-                  <FileJson className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Fills: Segment with COMPLETE city_info, days with schedules, 25-30 items with full deep-dives
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Repeat steps 4-5 for each segment (Segment 2, 3, 4...)
-                </p>
-              </AccordionContent>
-            </AccordionItem>
 
-            {/* Step 6: Done */}
-            <AccordionItem value="step-6">
-              <AccordionTrigger>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-500 font-semibold">
-                    6
+                  {/* 3-Column Layout */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* Column 1: Claude */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Claude Project</div>
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        <Folder className="h-6 w-6 text-blue-500" />
+                        <span className="text-sm font-semibold">Trip Planner</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">Create a new Claude Project with this name</p>
+                    </div>
+
+                    {/* Column 2: Files */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Files</div>
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-muted-foreground">Input:</div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getTripPlannerInstructions(), "phase1_trip_planning_instructions.md", "text/markdown")}>
+                            <Download className="h-3 w-3 mr-1" />instructions.md
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getSkeletonTemplate(), "phase1_trip_planning_input_template.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />input-template.json
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-1 pt-1">
+                          <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Output:</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getSkeletonTemplate(), "phase1_trip_planning_output_template.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Column 3: How to Use */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">How to Use</div>
+                      <div className="space-y-2">
+                        <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20">
+                          <div className="text-[10px] font-semibold text-blue-600 mb-1">APP:</div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Import on{" "}
+                            <Link href="/travel" className="text-blue-600 underline hover:text-blue-700">Travel page</Link>
+                            {" "}→ "Import Trip Planning" button
+                          </p>
+                        </div>
+                        <div className="p-2 rounded bg-muted/50 border">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-blue-500">MCP:</span>
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Research my trip to [destination] from [dates]. Use get_phase_context("trip_skeleton", trip_id) to get instructions, then save_phase_output() when done.')}>
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <p className="text-[10px] font-mono text-muted-foreground">
+                            "Research my trip to [destination]"
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <span>View Your Trip Guide</span>
                 </div>
-              </AccordionTrigger>
-              <AccordionContent className="pl-11 space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Once all segments are researched and imported:
-                </p>
-                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>View your complete trip guide in the app</li>
-                  <li>Browse segment overviews with full history narratives</li>
-                  <li>See day-by-day schedules with specific times</li>
-                  <li>Read deep-dives for each must-do activity</li>
-                  <li>Access kid engagement scripts for each age</li>
-                  <li>Make any manual edits or adjustments</li>
+
+                {/* Phase 2: Hotel Research */}
+                <div className="p-4 rounded-lg bg-orange-500/5 border border-orange-500/20">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Hotel className="h-4 w-4 text-orange-500" />
+                      <div className="font-medium text-orange-700 dark:text-orange-400">Phase 2: Hotel Research</div>
+                    </div>
+                    <div className="text-xs bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded">Medium research</div>
+                  </div>
+
+                  {/* 3-Column Layout */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* Column 1: Claude */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Claude Project</div>
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                        <Folder className="h-6 w-6 text-orange-500" />
+                        <span className="text-sm font-semibold">Hotel Research</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">One conversation per segment</p>
+                    </div>
+
+                    {/* Column 2: Files */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Files</div>
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-muted-foreground">Input:</div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelResearchInstructions(), "phase2_hotel_research_instructions.md", "text/markdown")}>
+                            <Download className="h-3 w-3 mr-1" />instructions.md
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getCardInventoryTemplate(), "card-inventory.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />card-inventory.json
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelEvaluationFramework(), "evaluation-framework.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />evaluation-framework.json
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-1 pt-1">
+                          <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Output:</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelOutputTemplate(), "phase2_hotel_research_output_template.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Column 3: How to Use */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">How to Use</div>
+                      <div className="space-y-2">
+                        <div className="p-2 rounded bg-orange-500/10 border border-orange-500/20">
+                          <div className="text-[10px] font-semibold text-orange-600 mb-1">APP:</div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Import on trip detail page → "Import Research" → select segment
+                          </p>
+                        </div>
+                        <div className="p-2 rounded bg-muted/50 border">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-orange-500">MCP:</span>
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Find hotels for segment [N] of my [trip name] trip. Use get_phase_context("hotel_selection", trip_id, segment_id) to get instructions, then save_phase_output() when done.')}>
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <p className="text-[10px] font-mono text-muted-foreground">
+                            "Find hotels for segment [N]"
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 3: Segment Research */}
+                <div className="p-4 rounded-lg bg-green-500/5 border border-green-500/20">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-green-500" />
+                      <div className="font-medium text-green-700 dark:text-green-400">Phase 3: Segment Research</div>
+                    </div>
+                    <div className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded">Heavy research (50+ sources)</div>
+                  </div>
+
+                  {/* 3-Column Layout */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* Column 1: Claude */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Claude Project</div>
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                        <Folder className="h-6 w-6 text-green-500" />
+                        <span className="text-sm font-semibold">Research Agent</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">One conversation per segment. 25-30 items with full narratives.</p>
+                    </div>
+
+                    {/* Column 2: Files */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Files</div>
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-muted-foreground">Input:</div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getResearchAgentInstructions(), "phase3_segment_research_instructions.md", "text/markdown")}>
+                            <Download className="h-3 w-3 mr-1" />instructions.md
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-1 pt-1">
+                          <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Output:</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getResearchOutputTemplate(), "phase3_segment_research_output_template.json", "application/json")}>
+                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Column 3: How to Use */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">How to Use</div>
+                      <div className="space-y-2">
+                        <div className="p-2 rounded bg-green-500/10 border border-green-500/20">
+                          <div className="text-[10px] font-semibold text-green-600 mb-1">APP:</div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Import on trip detail page → "Import Research" → fills segment
+                          </p>
+                        </div>
+                        <div className="p-2 rounded bg-muted/50 border">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-green-500">MCP:</span>
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Research segment [N] for my [trip name] trip. Use get_phase_context("segment_research", trip_id, segment_id) to get instructions, then save_phase_output() when done.')}>
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <p className="text-[10px] font-mono text-muted-foreground">
+                            "Research segment [N] for [trip]"
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 4: Daily Agenda (Coming Soon) */}
+                <div className="p-4 rounded-lg bg-purple-500/5 border border-purple-500/20 opacity-60">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-purple-500" />
+                      <div className="font-medium text-purple-700 dark:text-purple-400">Phase 4: Daily Agenda Assembly</div>
+                    </div>
+                    <div className="text-xs bg-purple-500/10 text-purple-600 px-2 py-0.5 rounded">Coming soon</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-[10px] text-muted-foreground">
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">Purpose</div>
+                      <p>Stitch activities + hotels into time-sequenced daily schedules</p>
+                    </div>
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">Input → Output</div>
+                      <p>Segment research + hotels → segment_agenda.json</p>
+                    </div>
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">MCP</div>
+                      <p className="font-mono">get_phase_context("daily_agenda")</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 5: Final Calibration (Coming Soon) */}
+                <div className="p-4 rounded-lg bg-pink-500/5 border border-pink-500/20 opacity-60">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-pink-500" />
+                      <div className="font-medium text-pink-700 dark:text-pink-400">Phase 5: Final Calibration</div>
+                    </div>
+                    <div className="text-xs bg-pink-500/10 text-pink-600 px-2 py-0.5 rounded">T-14 days</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-[10px] text-muted-foreground">
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">Purpose</div>
+                      <p>Last-mile adjustments before departure</p>
+                    </div>
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">Input → Output</div>
+                      <p>Complete itinerary → Updated agenda with weather/timing</p>
+                    </div>
+                    <div>
+                      <div className="font-medium uppercase tracking-wide mb-1">MCP</div>
+                      <p className="font-mono">get_phase_context("final_calibration")</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* Architecture Diagram */}
+      <Card>
+        <CardContent className="pt-4">
+          <h3 className="font-semibold mb-3">Centralized MCP Architecture</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Custom MCP server connects Claude (Code, Projects, or API) to centralized Supabase database.
+            Eliminates project isolation and enables seamless data flow between phases.
+          </p>
+          <div className="bg-muted/50 rounded-lg p-3 font-mono text-[10px] overflow-x-auto">
+            <pre className="whitespace-pre">{`┌─────────────────────────────────────────────────────────────────────────────┐
+│                              SUPABASE DATABASE                              │
+│                                                                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
+│  │ phase_configs   │  │ trips           │  │ segments        │             │
+│  │ - instructions  │  │ - skeleton      │  │ - research      │             │
+│  │ - input_schema  │  │ - status        │  │ - hotels        │             │
+│  │ - output_schema │  │ - family_id     │  │ - agenda        │             │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
+│                                                                             │
+│  ┌─────────────────┐  ┌─────────────────┐                                  │
+│  │ families        │  │ workflow_logs   │                                  │
+│  │ - profile       │  │ - phase         │                                  │
+│  │ - preferences   │  │ - completed     │                                  │
+│  └─────────────────┘  └─────────────────┘                                  │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │   CUSTOM MCP SERVER   │
+                    │  get_phase_context()  │
+                    │  save_phase_output()  │
+                    │  get_workflow_status()│
+                    └───────────┬───────────┘
+                                │
+          ┌─────────────────────┼─────────────────────┐
+          │                     │                     │
+    ┌─────▼─────┐        ┌──────▼──────┐       ┌─────▼─────┐
+    │  Claude   │        │   Claude    │       │  Claude   │
+    │  Code     │        │   Projects  │       │   API     │
+    │ (Primary) │        │ (Optional)  │       │  (App)    │
+    └───────────┘        └─────────────┘       └───────────┘`}</pre>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Technical Documentation Accordions */}
+      <Accordion type="multiple" className="space-y-2">
+        {/* Database Schema */}
+        <AccordionItem value="schema" className="border rounded-lg px-4">
+          <AccordionTrigger className="text-sm font-medium py-3">Supabase Schema</AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="space-y-3">
+              <div className="bg-muted/50 rounded-lg p-3 font-mono text-[10px] overflow-x-auto">
+                <div className="font-medium text-xs mb-1 text-foreground">families</div>
+                <pre>{`id UUID PRIMARY KEY
+name TEXT NOT NULL
+profile JSONB NOT NULL  -- adults[], children[], home_base, preferences`}</pre>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 font-mono text-[10px] overflow-x-auto">
+                <div className="font-medium text-xs mb-1 text-foreground">phase_configs</div>
+                <pre>{`phase_id TEXT UNIQUE  -- 'trip_skeleton', 'segment_research', 'hotel_selection', etc.
+phase_number INTEGER
+instructions TEXT      -- Full instruction markdown
+input_schema JSONB
+output_schema JSONB
+requires_deep_research BOOLEAN
+depends_on TEXT[]      -- Array of phase_ids that must complete first`}</pre>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 font-mono text-[10px] overflow-x-auto">
+                <div className="font-medium text-xs mb-1 text-foreground">trips</div>
+                <pre>{`family_id UUID REFERENCES families(id)
+name, destination_country, start_date, end_date
+skeleton JSONB         -- Trip skeleton output from Phase 1
+status TEXT            -- 'planning', 'researching', 'complete'
+current_phase TEXT`}</pre>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 font-mono text-[10px] overflow-x-auto">
+                <div className="font-medium text-xs mb-1 text-foreground">segments</div>
+                <pre>{`trip_id UUID REFERENCES trips(id)
+segment_number INTEGER, name, region, start_day, end_day
+
+-- Phase 2 output
+hotels JSONB, hotels_status TEXT, selected_hotel_id, hotels_completed_at
+
+-- Phase 3 output
+research JSONB, research_status TEXT, research_completed_at
+
+-- Phase 4 output
+agenda JSONB, agenda_status TEXT, agenda_completed_at`}</pre>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* For Claude Code */}
+        <AccordionItem value="claude-code" className="border rounded-lg px-4">
+          <AccordionTrigger className="text-sm font-medium py-3">For Claude Code (System Context)</AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="space-y-4 text-xs">
+              <div>
+                <p className="font-medium mb-2">Travel Module Database Tables:</p>
+                <ul className="text-muted-foreground space-y-1 ml-3">
+                  <li>• <code className="bg-muted px-1 rounded">trips</code> - Main trip records with dates, status, skeleton</li>
+                  <li>• <code className="bg-muted px-1 rounded">trip_segments</code> - Regions/cities within a trip</li>
+                  <li>• <code className="bg-muted px-1 rounded">trip_days</code> - Individual days with schedules</li>
+                  <li>• <code className="bg-muted px-1 rounded">trip_activities</code> - Confirmed itinerary items</li>
+                  <li>• <code className="bg-muted px-1 rounded">trip_research_items</code> - Research before approval</li>
                 </ul>
-                <div className="p-3 rounded-lg bg-purple-500/10 text-sm">
-                  <strong className="text-purple-700 dark:text-purple-400">That&apos;s it!</strong>
-                  <span className="text-muted-foreground ml-2">
-                    No expansion phase. Everything is ready to view after import.
-                  </span>
+              </div>
+              <div>
+                <p className="font-medium mb-2">Key API Endpoints:</p>
+                <ul className="text-muted-foreground space-y-1 ml-3">
+                  <li>• <code className="bg-muted px-1 rounded">POST /api/v1/travel/import</code> - Import segment research</li>
+                  <li>• <code className="bg-muted px-1 rounded">POST /api/v1/travel/import/hotels</code> - Import hotel research</li>
+                  <li>• <code className="bg-muted px-1 rounded">GET /api/v1/travel/trips/:id</code> - Get full trip data</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium mb-2">Import Flow:</p>
+                <ul className="text-muted-foreground space-y-1 ml-3">
+                  <li>• <strong>Skeleton import:</strong> Creates trip + empty segment shells</li>
+                  <li>• <strong>Hotel import:</strong> Adds research_items with item_type='hotel' to segment</li>
+                  <li>• <strong>Segment import:</strong> Fills segment with days, activities, research items</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium mb-2">Claude Code Commands:</p>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[10px]">
+                  <pre>{`"What's the status of the Portugal trip?"  → get_workflow_status()
+"Research segment 3 for Portugal"          → get_phase_context() → execute → save_phase_output()
+"Create trip skeleton for [destination]"   → Phase 1
+"Find hotels for segment [N]"              → Phase 2
+"Research segment [N] for [trip]"          → Phase 3
+"Build daily agenda for segment [N]"       → Phase 4`}</pre>
                 </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </CardContent>
-      </Card>
-
-      {/* Checklist */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ListChecks className="h-5 w-5" />
-            Setup Checklist
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <h4 className="font-medium flex items-center gap-2">
-                <Map className="h-4 w-4 text-blue-500" />
-                Trip Planner Project
-              </h4>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Create Claude Project &quot;Trip Planner&quot;
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Paste TRIP-PLANNER-PROJECT-INSTRUCTIONS.md
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Upload family-travel-profile.json
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Upload trip-skeleton-template.json
-                  </span>
-                </li>
-              </ul>
+              </div>
             </div>
-            <div className="space-y-3">
-              <h4 className="font-medium flex items-center gap-2">
-                <Search className="h-4 w-4 text-green-500" />
-                Research Agent Project
-              </h4>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Create Claude Project &quot;Travel Research Agent&quot;
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Paste RESEARCH-AGENT-INSTRUCTIONS-V3.md
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Upload family-travel-profile.json
-                  </span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Upload research-output-template-v3-complete.json
-                  </span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Time Investment */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Time Investment</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 font-medium">Activity</th>
-                  <th className="text-left py-2 font-medium">Time</th>
-                  <th className="text-left py-2 font-medium">Frequency</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b">
-                  <td className="py-2 text-muted-foreground">Phase 1 conversation</td>
-                  <td className="py-2">2-3 hours</td>
-                  <td className="py-2">Once per trip</td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-2 text-muted-foreground">Phase 2 per segment</td>
-                  <td className="py-2">30-45 min</td>
-                  <td className="py-2">Once per segment</td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-2 text-muted-foreground">Import to app</td>
-                  <td className="py-2">2 min</td>
-                  <td className="py-2">Once per segment</td>
-                </tr>
-                <tr>
-                  <td className="py-2 font-medium">Total for 30-day trip</td>
-                  <td className="py-2 font-medium">~10 hours</td>
-                  <td className="py-2 text-muted-foreground">Spread over weeks</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
+}
+
+// ============ Template Content Functions ============
+
+function getDefaultFamilyProfile(): string {
+  return JSON.stringify({
+    family_name: "Your Family",
+    adults: [
+      { name: "Parent 1", role: "parent" },
+      { name: "Parent 2", role: "parent" }
+    ],
+    children: [
+      { name: "Child 1", birth_date: "2018-01-01", age_at_trip: 7, interests: ["animals", "swimming"] }
+    ],
+    home_base: {
+      city: "Los Angeles",
+      airport: "LAX",
+      timezone: "America/Los_Angeles"
+    },
+    travel_style: {
+      pace: "moderate",
+      accommodation_preference: "hotels_with_pools",
+      dining: "mix_of_local_and_familiar",
+      activities: ["beaches", "nature", "cultural_sites", "kid_friendly"]
+    },
+    constraints: {
+      max_driving_per_day: "3 hours",
+      need_rest_days: true,
+      rest_day_frequency: "every 4-5 days"
+    },
+    loyalty_programs: {
+      hotels: ["Marriott Bonvoy", "Hilton Honors"],
+      airlines: ["United MileagePlus"]
+    }
+  }, null, 2);
+}
+
+function getTripPlannerInstructions(): string {
+  return `# Trip Planner - Project Instructions
+
+## Your Role
+You are a travel planning assistant helping families plan multi-week trips. Your job is to have a conversation about their trip and output a trip-skeleton.json when finalized.
+
+## Conversation Flow
+1. **Discovery** - Ask about dates, must-sees, pace preferences, what they want to avoid
+2. **Options** - Present 2-3 different itinerary approaches with trade-offs
+3. **Refinement** - Adjust based on feedback
+4. **Finalization** - Output trip-skeleton.json
+
+## What You Consider
+- Driving distances (max 3 hours/day with kids)
+- Rest days every 4-5 days
+- Don't front-load or back-load highlights
+- Weather patterns by region
+- Logistics (car rentals, flights, ferries)
+- Don't cluster similar experiences (beach, beach, beach)
+
+## Output Format
+When finalized, output \`trip-skeleton.json\` with:
+- Trip metadata (name, dates, traveler count, destination)
+- Array of segment shells (name, dates, theme, key_experiences)
+- Logistics summary
+- NO detailed research - just structure
+
+## Important
+- Don't research specific restaurants/activities yet - that's Phase 3
+- key_experiences are just anchors, not researched items
+- Be opinionated but flexible
+- Reference the family profile for context
+- Think about the WHOLE trip - each segment affects others`;
+}
+
+function getHotelResearchInstructions(): string {
+  return `# Hotel Research Agent - Project Instructions
+
+## Your Role
+Research and score hotel options for a trip segment. Output structured JSON with 2-4 options per segment.
+
+## Scoring Framework (100 points)
+- **Luxury/Upgrade Potential** (30pts) - Suite availability, status benefits
+- **Points Value** (20pts) - Cents per point, category bonuses
+- **Location** (20pts) - Walkability, proximity to activities
+- **Amenities** (15pts) - Pool, breakfast, parking, kid-friendly
+- **Space** (15pts) - Room size, connecting rooms, kitchen
+
+## What to Research
+- Room categories and upgrade paths
+- Points vs cash pricing (calculate CPP)
+- Location relative to key sites (walking distance matters)
+- Family-specific amenities (pool, breakfast, cribs)
+- Recent reviews (last 6 months) - especially from families
+
+## Output Format
+Output \`segment-N-hotels.json\` with:
+- metadata (trip, segment, dates, nights)
+- hotels array with detailed scores and booking info
+- summary with top recommendation and reasoning
+
+## Pick Types
+- BEST_OVERALL - Best balance of all factors
+- BEST_VALUE - Best points redemption value
+- BEST_LUXURY - Premium experience
+- BEST_LOCATION - Ideal positioning`;
+}
+
+function getResearchAgentInstructions(): string {
+  return `# Travel Research Agent - Project Instructions (v3)
+
+## Your Role
+Deep research for ONE segment at a time. Output COMPLETE content - no expansion phase.
+The JSON you output will be imported directly into the database and displayed in the app.
+
+**If you output summaries, the app shows summaries. Output full narratives = app shows full narratives.**
+
+## Research Depth
+- 50+ sources per segment
+- Official sites, TripAdvisor, blogs, AllTrails, local food blogs
+- Recent reviews (last 6-12 months)
+- Cross-reference multiple sources for accuracy
+
+## What You Output
+\`segment-N-research.json\` with COMPLETE content:
+
+### 1. city_info.deep_history (2000-4000 words)
+Full narrative history, not bullet points. Written engagingly like a tour guide briefing.
+Organized into titled sections, each explaining relevance to what they'll see.
+
+### 2. days array with SPECIFIC times
+"9:00-11:00am" not "morning". Include activity notes and tips.
+
+### 3. deep_dive for must_do items (500-1000 words each)
+- what_it_is: 1-2 sentence summary
+- why_it_matters: 200-400 word narrative on significance
+- the_story: 300-600 word origin/history story
+- what_youll_see: Detailed highlights with descriptions
+- interesting_facts: 5-10 fascinating details
+
+### 4. kid_engagement with ACTUAL SCRIPTS
+Real sentences to say to each child by age:
+- "Count how many different things you can find carved in stone — ropes, anchors, shells"
+- "Look at the ceiling! Does it look like trees growing up and spreading out?"
+- "Can you find a stone lion? A stone elephant?"
+
+## Item Types
+restaurant, hike, attraction, beach, activity, viewpoint, neighborhood
+
+## Priority Levels
+- must_do: Essential, don't miss (8-10 per segment)
+- recommended: Great if time allows (10-15 per segment)
+- optional: Nice to have (5-8 per segment)`;
+}
+
+function getSkeletonTemplate(): string {
+  return JSON.stringify({
+    trip: {
+      name: "Trip Name",
+      destination_country: "Country",
+      destination_country_code: "XX",
+      start_date: "2025-06-01",
+      end_date: "2025-06-30",
+      total_days: 30,
+      total_nights: 29,
+      traveler_count: 5,
+      status: "planning",
+      overview: "Brief trip overview describing the vision and highlights",
+      route_description: "Route summary: City A → City B → City C",
+      logistics: {
+        flights: { outbound: "LAX → LIS", return: "LIS → LAX" },
+        car_rental: { pickup: "Lisbon Airport", dropoff: "Lisbon Airport" }
+      },
+      budget: { estimated_total: "$X,XXX", per_day: "$XXX" },
+      pacing_notes: "Notes about trip pacing and rest days"
+    },
+    segments: [
+      {
+        segment_number: 1,
+        name: "Segment Name",
+        region: "Region/Area",
+        start_date: "2025-06-01",
+        end_date: "2025-06-05",
+        nights: 4,
+        days: 5,
+        theme: "What this segment is about",
+        why_here: "Why this place matters for the trip",
+        key_experiences: ["Experience 1", "Experience 2", "Experience 3"],
+        location: {
+          location_name: "City Name",
+          country: "Country",
+          latitude: 0.0,
+          longitude: 0.0,
+          timezone: "Europe/Lisbon"
+        },
+        accommodation: { strategy: "Notes about where to stay" },
+        driving: { from_previous: "2.5 hours from previous segment" },
+        priority: "high",
+        notes: "Any special notes for this segment"
+      }
+    ]
+  }, null, 2);
+}
+
+function getHotelOutputTemplate(): string {
+  return JSON.stringify({
+    metadata: {
+      trip_name: "Trip Name",
+      segment_number: 1,
+      segment_name: "Segment Name",
+      dates: { check_in: "2025-06-01", check_out: "2025-06-05" },
+      nights: 4,
+      generated_at: "2025-01-01T00:00:00Z"
+    },
+    segment_context: {
+      location: "City, Country",
+      key_activities: ["Activity 1", "Activity 2"],
+      priorities: ["Pool for kids", "Walking distance to old town"]
+    },
+    hotels: [
+      {
+        name: "Hotel Name",
+        pick_type: "BEST_OVERALL",
+        brand: "Brand Name",
+        loyalty_program: "Program Name",
+        category: "Category Level",
+        location: {
+          address: "Full address",
+          neighborhood: "Neighborhood name",
+          lat: 0.0,
+          lng: 0.0,
+          walking_to_center: "10 min"
+        },
+        scores: {
+          overall_score: 8.5,
+          luxury_upgrade: 8,
+          points_value: 9,
+          location: 8,
+          amenities: 8,
+          space: 8
+        },
+        pricing: {
+          points_per_night: 50000,
+          cash_per_night: 250,
+          total_points: 200000,
+          total_cash: 1000,
+          cpp: 0.5
+        },
+        room_recommendation: "Room type recommendation",
+        upgrade_potential: "Notes about upgrade possibilities",
+        family_amenities: ["Pool", "Breakfast included", "Cribs available"],
+        why_recommended: "Detailed explanation of why this hotel",
+        booking_notes: "Any booking tips or warnings"
+      }
+    ],
+    summary: {
+      top_recommendation: {
+        hotel_name: "Hotel Name",
+        reason: "Why this is the top pick"
+      },
+      alternatives_summary: "Brief on why you might choose alternatives"
+    }
+  }, null, 2);
+}
+
+function getResearchOutputTemplate(): string {
+  return JSON.stringify({
+    metadata: {
+      trip_name: "Trip Name",
+      segment_number: 1,
+      segment_name: "Segment Name",
+      dates: { start: "2025-06-01", end: "2025-06-05" },
+      total_days: 5,
+      generated_at: "2025-01-01T00:00:00Z",
+      version: "3.0"
+    },
+    segment: {
+      name: "Segment Name",
+      city_info: {
+        deep_history: {
+          sections: [
+            { title: "Section Title", content: "2000-4000 words of narrative history...", relevance: "Why this matters for their visit" }
+          ]
+        },
+        culture: { summary: "Cultural context and tips" },
+        practical: { best_time_to_visit: "", weather: "", local_tips: [] }
+      },
+      packing_additions: ["Items specific to this segment"]
+    },
+    research_items: [
+      {
+        item_type: "attraction",
+        name: "Item Name",
+        category: "Category",
+        priority: "must_do",
+        why_relevant: "Why this matters for this family",
+        location: { name: "", address: "", lat: 0, lng: 0, google_maps_url: "" },
+        practical: {
+          hours: "9am-6pm",
+          duration: "2-3 hours",
+          cost: "$XX per adult",
+          reservation_required: true,
+          booking_url: ""
+        },
+        deep_dive: {
+          what_it_is: "1-2 sentence summary",
+          why_it_matters: { content: "200-400 word narrative on significance" },
+          the_story: { content: "300-600 word origin/history story" },
+          what_youll_see: [{ area: "Area name", highlights: ["Highlight 1", "Highlight 2"] }],
+          interesting_facts: ["Fact 1", "Fact 2"]
+        },
+        kid_engagement: {
+          parker: { age_at_trip: 7, scripts: ["Script for 7-year-old"] },
+          charlotte: { age_at_trip: 5, scripts: ["Script for 5-year-old"] },
+          xander: { age_at_trip: 3, scripts: ["Script for 3-year-old"] }
+        },
+        photo_spots: [{ shot: "Shot description", where: "Location", when: "Best time" }],
+        tips: ["Tip 1", "Tip 2"]
+      }
+    ],
+    days: [
+      {
+        day_number: 1,
+        date: "2025-06-01",
+        title: "Day Title",
+        theme: "Day theme",
+        schedule: [
+          { time: "9:00-11:00am", activity_name: "Activity Name", location: "Location", notes: "Tips" }
+        ],
+        meals: {
+          breakfast: { recommendation: "", notes: "" },
+          lunch: { recommendation: "", notes: "" },
+          dinner: { recommendation: "", notes: "" }
+        }
+      }
+    ]
+  }, null, 2);
+}
+
+function getCardInventoryTemplate(): string {
+  return JSON.stringify({
+    _file_info: {
+      name: "Card Inventory",
+      version: "1.0",
+      description: "Credit cards, points balances, and elite status for hotel research"
+    },
+    credit_cards: {
+      active: [
+        {
+          card_name: "Chase Sapphire Reserve",
+          issuer: "Chase",
+          annual_fee: 550,
+          primary_use: "Travel, Dining (3x)",
+          hotel_benefits: [
+            "Chase Travel Portal at 1.5 cpp",
+            "Transfer to Hyatt 1:1",
+            "Transfer to Marriott 1:1 (poor value)"
+          ],
+          notes: "Primary travel card"
+        }
+      ],
+      recommended_to_add: [
+        {
+          card_name: "Amex Platinum Personal",
+          why_recommended: "FHR access, Marriott Gold, Hilton Gold (free breakfast)"
+        }
+      ]
+    },
+    points_balances: {
+      _note: "UPDATE THESE VALUES before each hotel research session",
+      chase_ultimate_rewards: {
+        balance: "UPDATE_ME",
+        transfer_partners_for_hotels: ["Hyatt 1:1 (best)", "Marriott 1:1 (poor)", "IHG 1:1 (ok)"],
+        portal_value: "1.5 cpp via CSR"
+      },
+      marriott_bonvoy: { balance: "UPDATE_ME" },
+      hyatt: { balance: "UPDATE_ME" },
+      hilton_honors: { balance: "UPDATE_ME" }
+    },
+    elite_status: {
+      marriott_bonvoy: { current_status: "Base Member" },
+      hyatt: { current_status: "Base Member" },
+      hilton_honors: { current_status: "Base Member" }
+    },
+    booking_strategy_summary: {
+      priority_order: [
+        "1. FHR for luxury properties - breakfast + credit + upgrade",
+        "2. Hyatt via Chase UR transfer - best cpp value (1.7-2.0+ cpp)",
+        "3. Hilton with Gold status - free breakfast adds significant value",
+        "4. Chase Portal at 1.5 cpp - flexible, good for non-chain boutiques",
+        "5. Cash - when points don't make sense"
+      ]
+    }
+  }, null, 2);
+}
+
+function getHotelEvaluationFramework(): string {
+  return JSON.stringify({
+    _file_info: {
+      name: "Hotel Evaluation Framework",
+      version: "1.0",
+      description: "Scoring criteria and weights for comparing hotel options",
+      key_priorities: [
+        "Room upgrades and views are EXTREMELY important",
+        "Absolutely do NOT want courtyard-facing rooms",
+        "Pool is required but doesn't need to be fancy"
+      ]
+    },
+    evaluation_categories: {
+      loyalty_and_value: {
+        weight: 0.20,
+        description: "Points value, elite benefits, and redemption efficiency",
+        scoring: { "10": "2.0+ cpp or FHR with full benefits", "6": "1.3-1.7 cpp", "2": "<1.0 cpp" }
+      },
+      luxury_and_upgrade_potential: {
+        weight: 0.30,
+        description: "THIS IS THE MOST IMPORTANT CATEGORY. Property tier and upgrade likelihood.",
+        scoring: { "10": "True luxury with high upgrade probability", "6": "Upscale, standard upgrades", "2": "Budget tier, no upgrades" }
+      },
+      amenities_quality: {
+        weight: 0.15,
+        description: "Pool (REQUIRED), dining, facilities",
+        must_haves: ["Pool (non-negotiable)", "A/C"]
+      },
+      location: {
+        weight: 0.20,
+        description: "Proximity to activities, neighborhood quality"
+      },
+      space_and_comfort: {
+        weight: 0.15,
+        description: "Room size, sleeping configuration for 5"
+      }
+    },
+    pick_type_labels: [
+      { label: "BEST_OVERALL", description: "Highest weighted score" },
+      { label: "BEST_VALUE", description: "Best cpp or points efficiency" },
+      { label: "BEST_LUXURY", description: "Highest luxury score" },
+      { label: "CASH_BACKUP", description: "Best cash option if points don't work" }
+    ],
+    cpp_reference: {
+      hyatt: { poor: "<1.3", average: "1.5-1.7", good: "1.7-2.0", excellent: "2.0+" },
+      marriott: { poor: "<0.6", average: "0.7-0.8", good: "0.85-1.0", excellent: "1.0+" },
+      hilton: { poor: "<0.4", average: "0.5", good: "0.55-0.65", excellent: "0.7+" }
+    }
+  }, null, 2);
 }

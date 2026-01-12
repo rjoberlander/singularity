@@ -65,6 +65,31 @@ interface GooglePlaceResult {
     longText?: string;
     shortText?: string;
   }>;
+  // Extended fields
+  editorialSummary?: { text: string };
+  accessibilityOptions?: {
+    wheelchairAccessibleEntrance?: boolean;
+    wheelchairAccessibleParking?: boolean;
+    wheelchairAccessibleRestroom?: boolean;
+    wheelchairAccessibleSeating?: boolean;
+  };
+  goodForChildren?: boolean;
+  goodForGroups?: boolean;
+  reservable?: boolean;
+  servesBreakfast?: boolean;
+  servesLunch?: boolean;
+  servesDinner?: boolean;
+  servesBrunch?: boolean;
+  servesVegetarianFood?: boolean;
+  dineIn?: boolean;
+  takeout?: boolean;
+  delivery?: boolean;
+  outdoorSeating?: boolean;
+  servesBeer?: boolean;
+  servesWine?: boolean;
+  servesCocktails?: boolean;
+  liveMusic?: boolean;
+  allowsDogs?: boolean;
 }
 
 const router = Router();
@@ -115,9 +140,27 @@ router.get('/trips', authenticateUser, async (req: Request, res: Response): Prom
       });
     }
 
+    // Fetch preview photos for each trip (4 approved photos per trip)
+    const tripsWithPhotos = await Promise.all(
+      (data || []).map(async (trip) => {
+        const { data: photos } = await supabase
+          .from('trip_media')
+          .select('file_url')
+          .eq('trip_id', trip.id)
+          .or('approved.eq.true,approved.is.null')
+          .order('created_at', { ascending: false })
+          .limit(4);
+
+        return {
+          ...trip,
+          preview_photos: photos?.map(p => p.file_url) || []
+        };
+      })
+    );
+
     res.json({
       success: true,
-      data: data || [],
+      data: tripsWithPhotos,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -1495,12 +1538,29 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
       console.error('Segment update error:', updateError);
     }
 
-    // Fetch and store photos (up to 5)
+    // Fetch and store photos (up to 40, deduped by content hash)
     let photosAdded = 0;
-    const photos = place.photos?.slice(0, 5) || [];
+    let photosSkipped = 0;
+    const photos = place.photos?.slice(0, 40) || [];
+
+    // Get existing photo references AND content hashes to avoid duplicates
+    const { data: existingPhotos } = await supabase
+      .from('trip_media')
+      .select('google_photo_reference, content_hash')
+      .eq('parent_type', 'segment')
+      .eq('parent_id', segmentId);
+
+    const existingRefs = new Set(existingPhotos?.map(p => p.google_photo_reference).filter(Boolean) || []);
+    const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
 
     for (const photo of photos) {
       try {
+        // Skip if we already have this photo reference
+        if (existingRefs.has(photo.name)) {
+          photosSkipped++;
+          continue;
+        }
+
         // Fetch photo from Google
         const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${GOOGLE_PLACES_API_KEY}&maxWidthPx=1600`;
         const photoResponse = await fetch(photoUrl);
@@ -1509,6 +1569,15 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
 
         const photoBuffer = await photoResponse.arrayBuffer();
         const photoBytes = new Uint8Array(photoBuffer);
+
+        // Compute content hash to detect identical images with different reference IDs
+        const contentHash = crypto.createHash('sha256').update(photoBytes).digest('hex');
+
+        // Skip if we already have this exact image content
+        if (existingHashes.has(contentHash)) {
+          photosSkipped++;
+          continue;
+        }
 
         // Upload to Supabase Storage
         const filename = `google_${photo.name.replace(/\//g, '_')}.jpg`;
@@ -1531,7 +1600,7 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
           .from('singularity-uploads')
           .getPublicUrl(storagePath);
 
-        // Create TripMedia record
+        // Create TripMedia record with google_photo_reference and content_hash for dedup
         const attribution = photo.authorAttributions?.[0];
         await supabase
           .from('trip_media')
@@ -1547,9 +1616,14 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
             is_google_sourced: true,
             approved: null,
             google_attribution_name: attribution?.displayName,
-            google_attribution_uri: attribution?.uri
+            google_attribution_uri: attribution?.uri,
+            google_photo_reference: photo.name,
+            content_hash: contentHash
           });
 
+        // Add to existing sets to prevent duplicates within same batch
+        existingRefs.add(photo.name);
+        existingHashes.add(contentHash);
         photosAdded++;
 
         // Small delay to avoid rate limiting
@@ -1559,13 +1633,18 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
       }
     }
 
+    const photoMessage = photosSkipped > 0
+      ? `${photosAdded} photos added, ${photosSkipped} duplicates skipped.`
+      : `${photosAdded} photos added.`;
+
     res.json({
       success: true,
       data: {
         google_place_id: place.id,
         data: updateData,
         photos_added: photosAdded,
-        message: `Fetched data from Google Places. ${photosAdded} photos added.`
+        photos_skipped: photosSkipped,
+        message: `Fetched data from Google Places. ${photoMessage}`
       },
       timestamp: new Date().toISOString()
     });
@@ -2784,7 +2863,38 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.regularOpeningHours,places.photos,places.formattedAddress,places.location,places.websiteUri,places.nationalPhoneNumber'
+        'X-Goog-FieldMask': [
+          'places.id',
+          'places.displayName',
+          'places.rating',
+          'places.userRatingCount',
+          'places.priceLevel',
+          'places.regularOpeningHours',
+          'places.photos',
+          'places.formattedAddress',
+          'places.location',
+          'places.websiteUri',
+          'places.nationalPhoneNumber',
+          'places.editorialSummary',
+          'places.accessibilityOptions',
+          'places.goodForChildren',
+          'places.goodForGroups',
+          'places.reservable',
+          'places.servesBreakfast',
+          'places.servesLunch',
+          'places.servesDinner',
+          'places.servesBrunch',
+          'places.servesVegetarianFood',
+          'places.dineIn',
+          'places.takeout',
+          'places.delivery',
+          'places.outdoorSeating',
+          'places.servesBeer',
+          'places.servesWine',
+          'places.servesCocktails',
+          'places.liveMusic',
+          'places.allowsDogs'
+        ].join(',')
       },
       body: JSON.stringify({
         textQuery: searchQuery,
@@ -2836,13 +2946,33 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
     }
 
     // Update activity with Google data
-    const updateData: Partial<TripActivity> = {
+    const updateData: Record<string, unknown> = {
       google_place_id: place.id,
       google_rating: place.rating,
       google_review_count: place.userRatingCount,
       google_price_level: place.priceLevel ? priceLevelMap[place.priceLevel] : undefined,
       opening_hours: openingHours,
-      photos_fetched: true
+      photos_fetched: true,
+      // Extended Google Places fields
+      google_editorial_summary: place.editorialSummary?.text,
+      wheelchair_accessible: place.accessibilityOptions?.wheelchairAccessibleEntrance ?? place.accessibilityOptions?.wheelchairAccessibleSeating,
+      good_for_children: place.goodForChildren,
+      good_for_groups: place.goodForGroups,
+      reservable: place.reservable,
+      serves_breakfast: place.servesBreakfast,
+      serves_lunch: place.servesLunch,
+      serves_dinner: place.servesDinner,
+      serves_brunch: place.servesBrunch,
+      serves_vegetarian: place.servesVegetarianFood,
+      dine_in: place.dineIn,
+      takeout: place.takeout,
+      delivery: place.delivery,
+      outdoor_seating: place.outdoorSeating,
+      serves_beer: place.servesBeer,
+      serves_wine: place.servesWine,
+      serves_cocktails: place.servesCocktails,
+      live_music: place.liveMusic,
+      allows_dogs: place.allowsDogs
     };
 
     // Add optional fields if not already set
@@ -2869,12 +2999,30 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       console.error('Activity update error:', updateError);
     }
 
-    // Fetch and store photos (up to 5)
+    // Fetch and store photos (up to 40, deduped by content hash)
     let photosAdded = 0;
-    const photos = place.photos?.slice(0, 5) || [];
+    let photosSkipped = 0;
+    const photos = place.photos?.slice(0, 40) || [];
+    console.log(`[Google Photos] Activity: Place has ${place.photos?.length || 0} photos available, processing ${photos.length}`);
+
+    // Get existing photo references AND content hashes to avoid duplicates
+    const { data: existingPhotos } = await supabase
+      .from('trip_media')
+      .select('google_photo_reference, content_hash')
+      .eq('parent_type', 'activity')
+      .eq('parent_id', activityId);
+
+    const existingRefs = new Set(existingPhotos?.map(p => p.google_photo_reference).filter(Boolean) || []);
+    const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
 
     for (const photo of photos) {
       try {
+        // Skip if we already have this photo reference
+        if (existingRefs.has(photo.name)) {
+          photosSkipped++;
+          continue;
+        }
+
         // Fetch photo from Google
         const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${GOOGLE_PLACES_API_KEY}&maxWidthPx=1600`;
         const photoResponse = await fetch(photoUrl);
@@ -2883,6 +3031,15 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
 
         const photoBuffer = await photoResponse.arrayBuffer();
         const photoBytes = new Uint8Array(photoBuffer);
+
+        // Compute content hash to detect identical images with different reference IDs
+        const contentHash = crypto.createHash('sha256').update(photoBytes).digest('hex');
+
+        // Skip if we already have this exact image content
+        if (existingHashes.has(contentHash)) {
+          photosSkipped++;
+          continue;
+        }
 
         // Upload to Supabase Storage
         const filename = `google_${photo.name.replace(/\//g, '_')}.jpg`;
@@ -2905,7 +3062,7 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
           .from('singularity-uploads')
           .getPublicUrl(storagePath);
 
-        // Create TripMedia record
+        // Create TripMedia record with google_photo_reference and content_hash for dedup
         const attribution = photo.authorAttributions?.[0];
         await supabase
           .from('trip_media')
@@ -2921,9 +3078,14 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
             is_google_sourced: true,
             approved: null,
             google_attribution_name: attribution?.displayName,
-            google_attribution_uri: attribution?.uri
+            google_attribution_uri: attribution?.uri,
+            google_photo_reference: photo.name,
+            content_hash: contentHash
           });
 
+        // Add to existing sets to prevent duplicates within same batch
+        existingRefs.add(photo.name);
+        existingHashes.add(contentHash);
         photosAdded++;
 
         // Small delay to avoid rate limiting
@@ -2933,13 +3095,18 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       }
     }
 
+    const photoMessage = photosSkipped > 0
+      ? `${photosAdded} photos added, ${photosSkipped} duplicates skipped.`
+      : `${photosAdded} photos added.`;
+
     res.json({
       success: true,
       data: {
         google_place_id: place.id,
         data: updateData,
         photos_added: photosAdded,
-        message: `Fetched data from Google Places. ${photosAdded} photos added.`
+        photos_skipped: photosSkipped,
+        message: `Fetched data from Google Places. ${photoMessage}`
       },
       timestamp: new Date().toISOString()
     });

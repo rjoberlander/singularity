@@ -24,6 +24,8 @@ import {
   TripResearchItem,
   UpdateResearchItemRequest,
   ExpansionOutput,
+  HotelResearchPayload,
+  HotelOption,
 } from '@singularity/shared-types';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -726,6 +728,187 @@ router.post('/import/validate', async (req: Request, res: Response): Promise<any
       error: error.message,
       warnings: [],
       summary: { research_items: 0, days: 0, items_with_source: 0, items_by_type: {}, items_by_priority: {} },
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/import/hotels
+ *
+ * Import hotel research options as research items.
+ * Part of the Phase 2 hotel research workflow.
+ */
+router.post('/import/hotels', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { payload, trip_id, segment_id } = req.body as {
+      payload: HotelResearchPayload;
+      trip_id: string;
+      segment_id: string;
+    };
+
+    if (!payload || !trip_id || !segment_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'payload, trip_id, and segment_id are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Verify trip belongs to user
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id, name')
+      .eq('id', trip_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found or access denied',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Verify segment belongs to trip
+    const { data: segment, error: segmentError } = await supabase
+      .from('trip_segments')
+      .select('id, name')
+      .eq('id', segment_id)
+      .eq('trip_id', trip_id)
+      .single();
+
+    if (segmentError || !segment) {
+      return res.status(404).json({
+        success: false,
+        error: 'Segment not found or does not belong to this trip',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const errors: string[] = [];
+    let createdCount = 0;
+
+    // Convert hotel options to research items with item_type='hotel'
+    for (const hotel of payload.hotels) {
+      const researchItem = {
+        trip_id: trip_id,
+        segment_id: segment_id,
+        item_type: 'hotel',
+        name: hotel.name,
+        status: 'unprocessed',
+        priority: hotel.pick_type === 'BEST_OVERALL' ? 'must_do' :
+                  hotel.pick_type === 'BEST_VALUE' ? 'should_do' :
+                  hotel.pick_type === 'BEST_LUXURY' ? 'should_do' : 'could_do',
+        category: 'accommodation',
+
+        // Location
+        location_name: hotel.location?.neighborhood,
+        address: hotel.location?.address,
+        latitude: hotel.location?.latitude,
+        longitude: hotel.location?.longitude,
+
+        // Ratings
+        rating: hotel.ratings?.overall_score,
+        review_count: hotel.ratings?.review_count,
+        review_summary: hotel.ratings?.family_sentiment,
+
+        // Cost
+        cost_estimate_text: hotel.pricing?.cash_rate_per_night
+          ? `${hotel.pricing.cash_rate_per_night}${hotel.pricing.currency ? ` ${hotel.pricing.currency}` : ''}/night`
+          : hotel.pricing?.points_option?.points_per_night
+            ? `${hotel.pricing.points_option.points_per_night.toLocaleString()} ${hotel.pricing.points_option.program || 'points'}/night`
+            : undefined,
+        booking_url: hotel.pricing?.booking_url,
+        website: hotel.source_url,
+
+        // Hotel-specific data stored in raw_data JSONB
+        raw_data: {
+          hotel_research: {
+            // Property info
+            brand: hotel.brand,
+            chain: hotel.chain,
+            property_type: hotel.property_type,
+            star_rating: hotel.star_rating,
+
+            // Classification
+            pick_type: hotel.pick_type,
+            redemption_type: hotel.redemption_type,
+            recommendation_reason: hotel.recommendation_reason,
+
+            // Evaluation scores
+            scores: hotel.scores,
+
+            // Pricing details
+            pricing: hotel.pricing,
+
+            // Benefits
+            elite_benefits: hotel.elite_benefits,
+            fhr_benefits: hotel.pricing?.fhr,
+
+            // Family assessment
+            family_assessment: hotel.family_assessment,
+
+            // Pros/Cons/Risks
+            pros: hotel.pros,
+            cons: hotel.cons,
+            risks: hotel.risks,
+
+            // Booking
+            booking_instructions: hotel.booking_instructions,
+          },
+        },
+
+        // Why relevant
+        why_relevant: `${hotel.pick_type}: ${hotel.recommendation_reason || 'Hotel option for this segment'}`,
+
+        // Source
+        source_name: hotel.source_name || 'Hotel Research Agent',
+        source_url: hotel.source_url || hotel.pricing?.booking_url,
+      };
+
+      const { error: insertError } = await supabase
+        .from('trip_research_items')
+        .insert(researchItem);
+
+      if (insertError) {
+        errors.push(`Failed to import ${hotel.name}: ${insertError.message}`);
+      } else {
+        createdCount++;
+      }
+    }
+
+    // Update segment to note hotel research is done
+    await supabase
+      .from('trip_segments')
+      .update({
+        accommodation: {
+          hotel_research_imported: true,
+          hotel_count: payload.hotels.length,
+          summary: payload.summary,
+          imported_at: new Date().toISOString(),
+        },
+      })
+      .eq('id', segment_id);
+
+    return res.json({
+      success: errors.length === 0,
+      trip_id,
+      segment_id,
+      created: {
+        research_items: createdCount,
+      },
+      errors: errors.length > 0 ? errors : undefined,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    console.error('Hotel import error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
     });
   }
 });

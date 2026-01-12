@@ -2511,3 +2511,225 @@ export interface UpdateResearchItemRequest {
   notes?: string;
   tags?: string[];
 }
+
+// ============================================================================
+// Hotel Research Types (Phase 2 - Hotel Research Agent)
+// ============================================================================
+
+export type HotelRedemptionType = 'POINTS' | 'FHR' | 'THC' | 'PORTAL' | 'CASH' | 'CERT';
+export type HotelPickType = 'BEST_OVERALL' | 'BEST_VALUE' | 'BEST_LUXURY' | 'CASH_BACKUP';
+export type HotelPropertyType = 'hotel' | 'resort' | 'vacation_rental' | 'boutique' | 'apartment' | 'pousada' | 'quinta';
+
+export interface HotelEvaluationScores {
+  loyalty_and_value: {
+    score: number;  // 1-10
+    notes: string;
+    cpp?: number;  // cents per point
+    benefits_applied?: string[];
+  };
+  luxury_and_upgrade_potential: {
+    score: number;  // 1-10
+    notes: string;
+    upgrade_likelihood?: string;
+    view_risk?: string;
+  };
+  amenities_quality: {
+    score: number;  // 1-10
+    notes: string;
+    pool_verified: boolean;
+    pool_details?: string;
+  };
+  location: {
+    score: number;  // 1-10
+    notes: string;
+    distance_to_attractions?: string;
+    neighborhood?: string;
+  };
+  space_and_comfort: {
+    score: number;  // 1-10
+    notes: string;
+    max_occupancy?: number;
+    room_size_sqm?: number;
+    bed_configuration?: string;
+  };
+  overall_score: number;  // Weighted average
+}
+
+export interface HotelPointsOption {
+  program: string;  // Hyatt, Marriott, Hilton, etc.
+  points_per_night: number;
+  total_points: number;
+  cpp: number;
+  fifth_night_free?: boolean;
+  transfer_from?: string;  // e.g., "Chase UR"
+  transfer_ratio?: string;  // e.g., "1:1"
+}
+
+export interface HotelFHRBenefits {
+  available: boolean;
+  rate_per_night?: string;
+  total_rate?: string;
+  benefits?: string[];
+  effective_rate?: string;  // After benefits calculated
+  property_credit?: string;
+  breakfast_value?: string;
+  upgrade_value?: string;
+}
+
+export interface HotelOption {
+  // Identity
+  name: string;
+  brand?: string;
+  chain?: string;
+  property_type: HotelPropertyType;
+  star_rating?: number;
+
+  // Classification
+  redemption_type: HotelRedemptionType;
+  pick_type: HotelPickType;
+  recommendation_reason: string;
+
+  // Location
+  location: {
+    address?: string;
+    neighborhood?: string;
+    city: string;
+    latitude?: number;
+    longitude?: number;
+    google_maps_url?: string;
+    distance_to_center?: string;
+    walkability_notes?: string;
+  };
+
+  // Ratings & Reviews
+  ratings: {
+    overall_score?: number;
+    source?: string;
+    review_count?: number;
+    family_sentiment?: string;
+    upgrade_reputation?: string;
+    recent_issues?: string[];
+  };
+
+  // Pricing
+  pricing: {
+    cash_rate_per_night?: string;
+    cash_total?: string;
+    currency?: string;
+    points_option?: HotelPointsOption;
+    fhr?: HotelFHRBenefits;
+    best_booking_method?: string;
+    booking_url?: string;
+  };
+
+  // Family Assessment
+  family_assessment: {
+    room_size_notes?: string;
+    connecting_rooms?: boolean;
+    cribs_available?: boolean;
+    kid_friendly_amenities?: string[];
+    pool: {
+      exists: boolean;
+      type?: 'indoor' | 'outdoor' | 'both' | 'rooftop';
+      kid_pool?: boolean;
+      notes?: string;
+    };
+    breakfast_included?: boolean;
+    kitchen_facilities?: string;
+    laundry?: boolean;
+    parking?: string;
+    overall_family_verdict?: string;
+  };
+
+  // Evaluation
+  scores: HotelEvaluationScores;
+
+  // Pros/Cons
+  pros: string[];
+  cons: string[];
+  risks?: string[];
+
+  // Booking
+  booking_instructions?: string[];
+  elite_benefits?: string[];
+
+  // Sources
+  source_url?: string;
+  source_name?: string;
+  additional_sources?: Array<{ url: string; name: string }>;
+}
+
+export interface HotelResearchMetadata {
+  trip_name: string;
+  segment_number: number;
+  segment_name: string;
+  dates: {
+    check_in: string;
+    check_out: string;
+  };
+  nights: number;
+  generated_at: string;
+  version: string;
+}
+
+export interface HotelResearchSegmentContext {
+  location_name: string;
+  region: string;
+  theme?: string;
+  budget_approach: 'splurge' | 'standard' | 'economize' | 'flexible';
+  loyalty_preference?: string;
+  neighborhood_recommendations?: string[];
+  key_experiences?: string[];
+  must_haves?: string[];
+  nice_to_haves?: string[];
+  notes?: string;
+}
+
+export interface HotelResearchSummary {
+  top_recommendation: {
+    hotel_name: string;
+    reason: string;
+    booking_method: HotelRedemptionType;
+  };
+  budget_pick?: {
+    hotel_name: string;
+    reason: string;
+  };
+  points_pick?: {
+    hotel_name: string;
+    program: string;
+    cpp: number;
+  };
+  luxury_pick?: {
+    hotel_name: string;
+    reason: string;
+  };
+  decision_factors?: string[];
+  booking_priority_note?: string;
+}
+
+export interface HotelResearchPayload {
+  metadata: HotelResearchMetadata;
+  segment_context: HotelResearchSegmentContext;
+  hotels: HotelOption[];
+  summary: HotelResearchSummary;
+  comparison_table?: {
+    headers: string[];
+    rows: Array<Record<string, string>>;
+  };
+}
+
+export interface HotelResearchImportOptions {
+  trip_id: string;
+  segment_id: string;
+}
+
+export interface HotelResearchImportResult {
+  success: boolean;
+  trip_id: string;
+  segment_id: string;
+  created: {
+    research_items: number;
+  };
+  errors?: string[];
+}

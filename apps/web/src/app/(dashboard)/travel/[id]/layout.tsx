@@ -55,9 +55,11 @@ import {
   Layers,
   FileText,
   Clock,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { TripSettingsSheet } from "@/components/travel/TripSettingsSheet";
 
 const TABS = [
   { value: "details", label: "Details", icon: FileText, href: "/details" },
@@ -79,6 +81,7 @@ export default function TripDetailLayout({
   const tripId = params.id as string;
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
 
   const { data: trip, isLoading, error } = useTripFull(tripId);
   const deleteTrip = useDeleteTrip();
@@ -96,14 +99,14 @@ export default function TripDetailLayout({
   const getTransportIcon = (type?: string) => {
     switch (type) {
       case "flying":
-        return <Plane className="h-5 w-5" />;
+        return <Plane className="h-4 w-4" />;
       case "driving":
-        return <Car className="h-5 w-5" />;
+        return <Car className="h-4 w-4" />;
       case "both":
         return (
-          <div className="flex gap-1">
-            <Plane className="h-5 w-5" />
-            <Car className="h-5 w-5" />
+          <div className="flex gap-0.5">
+            <Plane className="h-4 w-4" />
+            <Car className="h-4 w-4" />
           </div>
         );
       default:
@@ -150,32 +153,34 @@ export default function TripDetailLayout({
   const currentTab = getCurrentTab();
 
   return (
-    <div className="container max-w-6xl py-6 space-y-6">
+    <div className="container max-w-6xl py-2 space-y-2">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link href="/travel">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-bold">{trip.name}</h1>
-            <Badge
-              style={{
-                backgroundColor: getTripStatusColor(trip.status),
-                color: "white",
-              }}
-            >
-              {getTripStatusLabel(trip.status)}
-            </Badge>
-          </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Link href="/travel">
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <h1 className="text-2xl font-bold">{trip.name}</h1>
+          <Badge
+            style={{
+              backgroundColor: getTripStatusColor(trip.status),
+              color: "white",
+            }}
+          >
+            {getTripStatusLabel(trip.status)}
+          </Badge>
           {trip.description && (
-            <p className="text-muted-foreground ml-12">{trip.description}</p>
+            <span className="text-muted-foreground text-sm ml-2">{trip.description}</span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" onClick={() => setShowSettingsSheet(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import Research
+          </Button>
           <Button variant="outline" size="sm">
             <Share2 className="h-4 w-4 mr-2" />
             Share
@@ -191,9 +196,9 @@ export default function TripDetailLayout({
                 <Edit className="h-4 w-4 mr-2" />
                 Edit Trip
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
+              <DropdownMenuItem onClick={() => setShowSettingsSheet(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import Research
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -210,11 +215,11 @@ export default function TripDetailLayout({
 
       {/* Trip Overview Card */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+        <CardContent className="py-3 px-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {/* Destination */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                 <MapPin className="h-4 w-4" />
                 Destination
               </div>
@@ -225,8 +230,8 @@ export default function TripDetailLayout({
             </div>
 
             {/* Dates */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                 <Calendar className="h-4 w-4" />
                 Dates
               </div>
@@ -239,19 +244,19 @@ export default function TripDetailLayout({
             </div>
 
             {/* Transport */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                 {getTransportIcon(trip.transportation_type) || <Plane className="h-4 w-4" />}
                 Transportation
               </div>
               <p className="font-medium capitalize">
-                {trip.transportation_type || "Not set"}
+                {trip.transportation_type || "Not Set"}
               </p>
             </div>
 
             {/* Travelers */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                 <Users className="h-4 w-4" />
                 Travelers
               </div>
@@ -259,8 +264,8 @@ export default function TripDetailLayout({
             </div>
 
             {/* Created */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                 <Clock className="h-4 w-4" />
                 Created
               </div>
@@ -288,7 +293,7 @@ export default function TripDetailLayout({
 
       {/* Tab Navigation */}
       <div className="border-b">
-        <nav className="flex gap-1" aria-label="Tabs">
+        <nav className="flex gap-0" aria-label="Tabs">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const href = `/travel/${tripId}${tab.href}`;
@@ -299,7 +304,7 @@ export default function TripDetailLayout({
                 key={tab.value}
                 href={href}
                 className={cn(
-                  "inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors",
                   isActive
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
@@ -338,6 +343,14 @@ export default function TripDetailLayout({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Settings Sheet for Importing Research */}
+      <TripSettingsSheet
+        tripId={tripId}
+        tripName={trip.name}
+        open={showSettingsSheet}
+        onOpenChange={setShowSettingsSheet}
+      />
     </div>
   );
 }

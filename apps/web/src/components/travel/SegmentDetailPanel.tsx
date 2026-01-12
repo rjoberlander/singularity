@@ -96,6 +96,19 @@ export function SegmentDetailPanel({
     }
   };
 
+  const handleApproveAllPhotos = async () => {
+    try {
+      await Promise.all(
+        pendingGooglePhotos.map((photo) =>
+          approveMedia.mutateAsync({ tripId, mediaId: photo.id, approved: true })
+        )
+      );
+      toast.success(`Approved ${pendingGooglePhotos.length} photos`);
+    } catch (error) {
+      toast.error("Failed to approve some photos");
+    }
+  };
+
   if (!segment) return null;
 
   // Calculate days in segment
@@ -185,10 +198,21 @@ export function SegmentDetailPanel({
             {/* Pending Google Photos - Need Approval */}
             {pendingGooglePhotos.length > 0 && (
               <div className="mb-4">
-                <h4 className="text-sm font-medium mb-2 flex items-center gap-2 text-amber-600">
-                  <AlertCircle className="h-4 w-4" />
-                  Pending Approval ({pendingGooglePhotos.length})
-                </h4>
+                <div className="flex items-center gap-3 mb-2">
+                  <h4 className="text-sm font-medium flex items-center gap-2 text-amber-600">
+                    <AlertCircle className="h-4 w-4" />
+                    Pending Approval ({pendingGooglePhotos.length})
+                  </h4>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleApproveAllPhotos}
+                    className="text-xs h-7"
+                  >
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Approve All
+                  </Button>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   {pendingGooglePhotos.map((photo) => (
                     <div

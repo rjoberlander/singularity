@@ -50,12 +50,12 @@ import {
   Filter,
   X,
   BookOpen,
-  Settings,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Trip, TripStatus } from "@singularity/shared-types";
 import { cn } from "@/lib/utils";
+import { TripSkeletonImportSheet } from "@/components/travel/TripSkeletonImportSheet";
 
 const STATUS_OPTIONS: { value: TripStatus; label: string }[] = [
   { value: "planning", label: "Planning" },
@@ -69,6 +69,7 @@ export default function TravelPage() {
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<TripStatus | null>(null);
   const [deleteTripId, setDeleteTripId] = useState<string | null>(null);
+  const [showImportSheet, setShowImportSheet] = useState(false);
 
   // Fetch data
   const { data: trips, isLoading } = useTrips({
@@ -161,11 +162,12 @@ export default function TravelPage() {
   };
 
   const renderTripCard = (trip: Trip) => (
-    <div
+    <Link
       key={trip.id}
-      className="group relative bg-card rounded-lg border overflow-hidden hover:shadow-md transition-shadow"
+      href={`/travel/${trip.id}`}
+      className="group relative bg-card rounded-lg border overflow-hidden hover:shadow-md transition-shadow block"
     >
-      {/* Cover Image */}
+      {/* Cover Image Grid */}
       <div className="relative h-40 bg-muted">
         {trip.cover_image_url ? (
           <img
@@ -173,9 +175,24 @@ export default function TravelPage() {
             alt={trip.name}
             className="w-full h-full object-cover"
           />
+        ) : (trip as Trip & { preview_photos?: string[] }).preview_photos?.length ? (
+          <div className="grid grid-cols-2 grid-rows-2 h-full gap-0.5">
+            {(trip as Trip & { preview_photos?: string[] }).preview_photos!.slice(0, 4).map((url, i) => (
+              <img
+                key={i}
+                src={url}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ))}
+          </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <MapPin className="h-12 w-12 text-muted-foreground/30" />
+          <div className="grid grid-cols-2 grid-rows-2 h-full gap-0.5">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="bg-muted-foreground/5 flex items-center justify-center">
+                {i === 0 && <MapPin className="h-8 w-8 text-muted-foreground/20" />}
+              </div>
+            ))}
           </div>
         )}
         {/* Status Badge */}
@@ -200,11 +217,9 @@ export default function TravelPage() {
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <Link href={`/travel/${trip.id}`}>
-              <h3 className="font-semibold truncate hover:text-primary transition-colors">
-                {trip.name}
-              </h3>
-            </Link>
+            <h3 className="font-semibold truncate group-hover:text-primary transition-colors">
+              {trip.name}
+            </h3>
             {trip.destination && (
               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                 <MapPin className="h-3 w-3" />
@@ -215,31 +230,33 @@ export default function TravelPage() {
           </div>
 
           {/* Actions Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => router.push(`/travel/${trip.id}`)}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleDuplicateTrip(trip.id)}>
-                <Copy className="h-4 w-4 mr-2" />
-                Duplicate
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setDeleteTripId(trip.id)}
-                className="text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div onClick={(e) => e.preventDefault()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => router.push(`/travel/${trip.id}`)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleDuplicateTrip(trip.id)}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setDeleteTripId(trip.id)}
+                  className="text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/* Dates */}
@@ -258,42 +275,8 @@ export default function TravelPage() {
             <span>{trip.traveler_count} travelers</span>
           </div>
         )}
-
-        {/* Status Change */}
-        <div className="mt-3 pt-3 border-t flex items-center justify-between">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="text-xs">
-                Change Status
-                <ChevronRight className="h-3 w-3 ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {STATUS_OPTIONS.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() => handleStatusChange(trip.id, option.value)}
-                  disabled={trip.status === option.value}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full mr-2"
-                    style={{ backgroundColor: getTripStatusColor(option.value) }}
-                  />
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Link href={`/travel/${trip.id}`}>
-            <Button variant="ghost" size="sm" className="text-xs">
-              View Details
-              <ChevronRight className="h-3 w-3 ml-1" />
-            </Button>
-          </Link>
-        </div>
       </div>
-    </div>
+    </Link>
   );
 
   const renderTripGroup = (status: string, trips: Trip[]) => {
@@ -309,7 +292,7 @@ export default function TravelPage() {
           <h2 className="font-semibold text-lg">{getTripStatusLabel(status)}</h2>
           <Badge variant="secondary">{trips.length}</Badge>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {trips.map(renderTripCard)}
         </div>
       </div>
@@ -323,7 +306,7 @@ export default function TravelPage() {
           <Skeleton className="h-8 w-32" />
           <Skeleton className="h-10 w-32" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <Skeleton key={i} className="h-72 rounded-lg" />
           ))}
@@ -344,22 +327,14 @@ export default function TravelPage() {
           <p className="text-muted-foreground">Plan and organize your trips</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowImportSheet(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import Trip Planning
+          </Button>
           <Link href="/travel/guide">
             <Button variant="outline" size="sm">
               <BookOpen className="h-4 w-4 mr-2" />
               Guide
-            </Button>
-          </Link>
-          <Link href="/travel/settings">
-            <Button variant="outline" size="sm">
-              <Settings className="h-4 w-4 mr-2" />
-              Settings
-            </Button>
-          </Link>
-          <Link href="/travel/import">
-            <Button variant="outline" size="sm">
-              <Upload className="h-4 w-4 mr-2" />
-              Import
             </Button>
           </Link>
           <Link href="/travel/new">
@@ -469,6 +444,12 @@ export default function TravelPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Trip Skeleton Import Sheet */}
+      <TripSkeletonImportSheet
+        open={showImportSheet}
+        onOpenChange={setShowImportSheet}
+      />
     </div>
   );
 }
