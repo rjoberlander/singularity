@@ -334,7 +334,11 @@ export function SegmentDetailPanel({
                   <Building2 className="h-4 w-4" />
                   Culture
                 </h4>
-                <p className="text-sm text-muted-foreground">{segment.city_info.culture}</p>
+                <p className="text-sm text-muted-foreground">
+                  {typeof segment.city_info.culture === 'string'
+                    ? segment.city_info.culture
+                    : segment.city_info.culture.overview || 'No culture overview available'}
+                </p>
               </div>
             )}
 
@@ -433,7 +437,14 @@ export function SegmentDetailPanel({
                   Deep History
                 </h4>
                 <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-                  {segment.city_info.deep_history}
+                  {typeof segment.city_info.deep_history === 'string'
+                    ? segment.city_info.deep_history
+                    : segment.city_info.deep_history.sections?.map((section, idx) => (
+                        <div key={idx} className="mb-3">
+                          <strong className="block text-foreground">{section.title}</strong>
+                          <span>{section.content}</span>
+                        </div>
+                      )) || 'No history content available'}
                 </div>
               </div>
             )}
