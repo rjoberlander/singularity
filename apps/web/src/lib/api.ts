@@ -1,7 +1,7 @@
 import { initializeApi } from "@singularity/shared-api";
 import { createClient } from "./supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002/api/v1";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002/api/v1";
 
 // Initialize the shared API client with web-specific auth
 const api = initializeApi({

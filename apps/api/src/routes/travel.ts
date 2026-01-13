@@ -28,6 +28,7 @@ import {
   TripSharing,
 } from '@singularity/shared-types';
 import crypto from 'crypto';
+import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService';
 
 // Import travel import & settings routes (see docs/travel-module-prd.md for workflow)
 import travelImportRoutes from './travel-import';
@@ -4360,6 +4361,465 @@ router.delete('/trips/:tripId/activities/:activityId/calendar/sync', authenticat
     });
   } catch (error) {
     console.error('DELETE /travel/trips/:tripId/activities/:activityId/calendar/sync error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// =============================================
+// SCHEDULE ASSEMBLY (Phase 4)
+// =============================================
+
+interface ScheduleItem {
+  time_start: string; // HH:MM format
+  time_end: string;
+  event_type: 'activity' | 'meal' | 'transit' | 'buffer' | 'logistics';
+  title: string;
+  description?: string;
+  notes?: string;
+  tips?: string[];
+  location_name?: string;
+  location_address?: string;
+  location_lat?: number;
+  location_lng?: number;
+  google_maps_url?: string;
+  // Transit-specific
+  travel_mode?: 'walking' | 'driving' | 'transit' | 'taxi' | 'ferry';
+  travel_minutes?: number;
+  travel_distance_km?: number;
+  travel_from_name?: string;
+  travel_to_name?: string;
+  // Cost & Booking
+  cost_estimate?: number;
+  cost_currency?: string;
+  booking_required?: boolean;
+  booking_url?: string;
+  // Link to research
+  research_item_id?: string;
+}
+
+interface DaySchedule {
+  day_id: string;
+  date: string;
+  items: ScheduleItem[];
+}
+
+/**
+ * POST /api/v1/travel/trips/:tripId/assemble-schedule
+ * Assemble a 15-minute precision daily schedule from Phase 2 (hotels) and Phase 3 (activities) data
+ */
+router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+
+    // 1. Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 2. Get trip days
+    const { data: days } = await supabase
+      .from('trip_days')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('date', { ascending: true });
+
+    if (!days || days.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No days found for this trip. Please generate days first.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 3. Get segments
+    const { data: segments } = await supabase
+      .from('trip_segments')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('start_date', { ascending: true });
+
+    // 4. Get accommodations
+    const { data: accommodations } = await supabase
+      .from('trip_accommodations')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('check_in_date', { ascending: true });
+
+    // 5. Get activities (research items converted to activities)
+    const { data: activities } = await supabase
+      .from('trip_activities')
+      .select('*')
+      .eq('trip_id', tripId)
+      .eq('is_backup', false)
+      .order('sort_order', { ascending: true });
+
+    // 6. Get research items (for additional context)
+    const { data: researchItems } = await supabase
+      .from('trip_research_items')
+      .select('*')
+      .eq('trip_id', tripId)
+      .eq('is_approved', true);
+
+    // 7. Delete existing schedule items for this trip (full rebuild)
+    await supabase
+      .from('daily_schedule_items')
+      .delete()
+      .eq('trip_id', tripId);
+
+    // 8. Prepare context for AI schedule generation
+    const scheduleContext = {
+      trip: {
+        name: trip.name,
+        start_date: trip.start_date,
+        end_date: trip.end_date,
+        destination: trip.destination,
+        traveler_count: trip.traveler_count
+      },
+      days: days.map((d: any) => ({
+        id: d.id,
+        date: d.date,
+        day_number: d.day_number,
+        segment_id: d.segment_id,
+        theme: d.theme || d.agenda_notes
+      })),
+      segments: (segments || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        start_date: s.start_date,
+        end_date: s.end_date,
+        primary_location: s.primary_location
+      })),
+      accommodations: (accommodations || []).map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        check_in_date: a.check_in_date,
+        check_out_date: a.check_out_date,
+        check_in_time: a.check_in_time || '15:00',
+        check_out_time: a.check_out_time || '11:00',
+        address: a.address,
+        latitude: a.latitude,
+        longitude: a.longitude
+      })),
+      activities: (activities || []).map((a: any) => ({
+        id: a.id,
+        day_id: a.day_id,
+        name: a.name,
+        description: a.description,
+        activity_type: a.activity_type,
+        time_block: a.time_block,
+        start_time: a.start_time,
+        duration_minutes: a.duration_minutes || 60,
+        location_name: a.location_name,
+        location_address: a.location_address,
+        latitude: a.latitude,
+        longitude: a.longitude,
+        cost_estimate: a.cost_estimate,
+        booking_required: a.booking_required,
+        booking_url: a.booking_url
+      })),
+      research: (researchItems || []).map((r: any) => ({
+        id: r.id,
+        segment_id: r.segment_id,
+        day_id: r.day_id,
+        name: r.name,
+        category: r.category,
+        time_block: r.time_block,
+        duration_hours: r.duration_hours,
+        location_name: r.location_name,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        cost_estimate: r.cost_estimate,
+        google_maps_url: r.google_maps_url,
+        tips: r.tips
+      }))
+    };
+
+    // 9. Call Claude API to generate the schedule
+    // Get user's API key using AIAPIKeyService
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+
+    if (!keyData) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const anthropicApiKey = keyData.api_key;
+
+    const systemPrompt = `You are a travel itinerary assembly assistant. Your task is to take trip data (days, activities, accommodations) and create a detailed 15-minute precision daily schedule.
+
+RULES:
+1. All times must be in 24-hour HH:MM format (e.g., "09:00", "14:30")
+2. Round all times to 15-minute increments (00, 15, 30, 45)
+3. Account for travel time between locations (estimate based on driving/walking)
+4. Include buffer time between activities (15-30 min)
+5. Add logical transit events between activities at different locations
+6. Consider meal times (breakfast 7-9 AM, lunch 12-2 PM, dinner 6-8 PM)
+7. Add hotel check-in and check-out logistics events on appropriate days
+8. Keep activities within reasonable hours (8 AM - 10 PM unless specified)
+
+OUTPUT FORMAT: Return a JSON array of day schedules with this exact structure:
+[
+  {
+    "day_id": "uuid-of-the-day",
+    "date": "YYYY-MM-DD",
+    "items": [
+      {
+        "time_start": "HH:MM",
+        "time_end": "HH:MM",
+        "event_type": "activity|meal|transit|buffer|logistics",
+        "title": "Event title",
+        "description": "Optional description",
+        "location_name": "Optional location",
+        "travel_mode": "walking|driving|transit|taxi|ferry",
+        "travel_minutes": 15,
+        "research_item_id": "optional-uuid-if-linked-to-research"
+      }
+    ]
+  }
+]
+
+Return ONLY valid JSON, no markdown or other text.`;
+
+    const userPrompt = `Create a detailed 15-minute precision daily schedule for this trip:
+
+${JSON.stringify(scheduleContext, null, 2)}
+
+Generate a schedule that:
+1. Assigns specific times to each activity based on their time_block (morning, afternoon, evening) and duration
+2. Adds transit events between activities at different locations
+3. Includes hotel check-in on arrival days and check-out on departure days
+4. Adds meal breaks if not already included in activities
+5. Includes reasonable buffer time between packed activities
+
+Return the complete schedule as a JSON array.`;
+
+    // Call Claude API
+    const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        messages: [
+          { role: 'user', content: userPrompt }
+        ],
+        system: systemPrompt
+      })
+    });
+
+    if (!claudeResponse.ok) {
+      const errorData = await claudeResponse.json() as { error?: { message?: string } };
+      console.error('Claude API error:', errorData);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate schedule with AI',
+        details: errorData.error?.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const claudeData = await claudeResponse.json() as { content: Array<{ text?: string }> };
+    let scheduleJson: DaySchedule[];
+
+    try {
+      // Extract JSON from response
+      const responseText = claudeData.content[0]?.text || '';
+      // Try to find JSON in the response (handle potential markdown wrapping)
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        throw new Error('No JSON array found in response');
+      }
+      scheduleJson = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error('Failed to parse schedule JSON:', parseError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse AI-generated schedule',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 10. Insert schedule items into database
+    const scheduleItems: any[] = [];
+    let sortOrder = 0;
+
+    // Build set of valid research item IDs to validate AI-generated IDs
+    const validResearchItemIds = new Set(
+      (researchItems || []).map((r: any) => r.id)
+    );
+
+    for (const daySchedule of scheduleJson) {
+      const day = days.find((d: any) => d.id === daySchedule.day_id || d.date === daySchedule.date);
+      if (!day) continue;
+
+      const segment = segments?.find((s: any) => s.id === day.segment_id);
+
+      for (const item of daySchedule.items) {
+        // Validate research_item_id - only use it if it exists in our valid set
+        const researchItemId = item.research_item_id && validResearchItemIds.has(item.research_item_id)
+          ? item.research_item_id
+          : null;
+
+        scheduleItems.push({
+          trip_id: tripId,
+          day_id: day.id,
+          segment_id: segment?.id || null,
+          time_start: item.time_start,
+          time_end: item.time_end,
+          event_type: item.event_type,
+          title: item.title,
+          description: item.description || null,
+          notes: item.notes || null,
+          tips: item.tips || null,
+          location_name: item.location_name || null,
+          location_address: item.location_address || null,
+          location_lat: item.location_lat || null,
+          location_lng: item.location_lng || null,
+          google_maps_url: item.google_maps_url || null,
+          travel_mode: item.travel_mode || null,
+          travel_minutes: item.travel_minutes || null,
+          travel_distance_km: item.travel_distance_km || null,
+          travel_from_name: item.travel_from_name || null,
+          travel_to_name: item.travel_to_name || null,
+          research_item_id: researchItemId,
+          cost_estimate: item.cost_estimate || null,
+          cost_currency: item.cost_currency || 'EUR',
+          booking_required: item.booking_required || false,
+          booking_url: item.booking_url || null,
+          sort_order: sortOrder++
+        });
+      }
+
+      // Update day assembly status
+      await supabase
+        .from('trip_days')
+        .update({
+          assembly_status: 'assembled',
+          assembly_summary: {
+            total_events: daySchedule.items.length,
+            total_transit_mins: daySchedule.items
+              .filter((i: ScheduleItem) => i.event_type === 'transit')
+              .reduce((sum: number, i: ScheduleItem) => sum + (i.travel_minutes || 0), 0),
+            earliest_start: daySchedule.items[0]?.time_start,
+            latest_end: daySchedule.items[daySchedule.items.length - 1]?.time_end
+          }
+        })
+        .eq('id', day.id);
+    }
+
+    // Batch insert schedule items
+    if (scheduleItems.length > 0) {
+      const { error: insertError } = await supabase
+        .from('daily_schedule_items')
+        .insert(scheduleItems);
+
+      if (insertError) {
+        console.error('Error inserting schedule items:', insertError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to save schedule items',
+          details: insertError.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Schedule assembled successfully',
+      data: {
+        days_scheduled: scheduleJson.length,
+        total_items: scheduleItems.length
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/assemble-schedule error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/trips/:tripId/schedule
+ * Get assembled daily schedule items for a trip
+ */
+router.get('/trips/:tripId/schedule', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+
+    // Verify trip access
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get schedule items
+    const { data: scheduleItems, error: itemsError } = await supabase
+      .from('daily_schedule_items')
+      .select(`
+        *,
+        day:trip_days(id, date, day_number),
+        segment:trip_segments(id, name)
+      `)
+      .eq('trip_id', tripId)
+      .order('day_id')
+      .order('sort_order');
+
+    if (itemsError) {
+      return res.status(500).json({
+        success: false,
+        error: itemsError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: scheduleItems || [],
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('GET /travel/trips/:tripId/schedule error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

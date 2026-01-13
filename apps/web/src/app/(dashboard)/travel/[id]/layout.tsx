@@ -11,7 +11,9 @@ import {
   getTripStatusLabel,
   formatTripDateRange,
   calculateTripDuration,
+  API_URL,
 } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +58,8 @@ import {
   FileText,
   Clock,
   Upload,
+  Wand2,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -82,6 +86,8 @@ export default function TripDetailLayout({
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  const [showAssembleDialog, setShowAssembleDialog] = useState(false);
+  const [isAssembling, setIsAssembling] = useState(false);
 
   const { data: trip, isLoading, error } = useTripFull(tripId);
   const deleteTrip = useDeleteTrip();
@@ -93,6 +99,37 @@ export default function TripDetailLayout({
       router.push("/travel");
     } catch (error) {
       toast.error("Failed to delete trip");
+    }
+  };
+
+  const handleAssembleSchedule = async () => {
+    setIsAssembling(true);
+    try {
+      // Get auth token for API call
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/trips/${tripId}/assemble-schedule`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to assemble schedule");
+      }
+
+      toast.success("Schedule assembled! View it in the Itinerary tab.");
+      setShowAssembleDialog(false);
+      // Navigate to itinerary tab to see results
+      router.push(`/travel/${tripId}/itinerary`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to assemble schedule");
+    } finally {
+      setIsAssembling(false);
     }
   };
 
@@ -177,6 +214,15 @@ export default function TripDetailLayout({
         </div>
 
         <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAssembleDialog(true)}
+            className="border-purple-500/50 text-purple-600 hover:bg-purple-500/10 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+          >
+            <Wand2 className="h-4 w-4 mr-2" />
+            Assemble Schedule
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowSettingsSheet(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Import Research
@@ -339,6 +385,56 @@ export default function TripDetailLayout({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Assemble Schedule Confirmation Dialog */}
+      <AlertDialog open={showAssembleDialog} onOpenChange={setShowAssembleDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-primary" />
+              Assemble Daily Schedule
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>
+                This will use AI to create a detailed day-by-day schedule with 15-minute
+                precision, including travel times between activities.
+              </p>
+              <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
+                <div className="font-medium text-foreground">What happens:</div>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>Pulls your hotel selection (Phase 2)</li>
+                  <li>Pulls your activities and research (Phase 3)</li>
+                  <li>Calculates travel times via Google Maps</li>
+                  <li>Creates 15-min precision schedules</li>
+                </ul>
+              </div>
+              <p className="text-amber-600 dark:text-amber-400 font-medium">
+                ⚠️ This will replace any existing assembled schedule.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isAssembling}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleAssembleSchedule}
+              disabled={isAssembling}
+              className="bg-primary"
+            >
+              {isAssembling ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Assembling...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Assemble Schedule
+                </>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

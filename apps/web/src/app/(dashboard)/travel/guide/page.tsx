@@ -39,8 +39,11 @@ import {
   Folder,
   Copy,
   ArrowDown,
+  FileText,
+  Edit3,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TemplateEditorSheet } from "@/components/travel/TemplateEditorSheet";
 
 export default function TravelGuidePage() {
   const { data: settings, isLoading: settingsLoading } = useTravelSettings();
@@ -48,6 +51,41 @@ export default function TravelGuidePage() {
   const [familyProfile, setFamilyProfile] = useState("");
   const [profileDirty, setProfileDirty] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+
+  // Template editor state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [selectedPhase, setSelectedPhase] = useState<{ number: number; name: string } | null>(null);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>("");
+
+  // MCP prompt dialog state
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [mcpPromptContent, setMcpPromptContent] = useState("");
+  const [mcpPromptPhase, setMcpPromptPhase] = useState("");
+
+  const openTemplateEditor = (phaseNumber: number, phaseName: string, templateKey: string) => {
+    setSelectedPhase({ number: phaseNumber, name: phaseName });
+    setSelectedTemplateKey(templateKey);
+    setEditorOpen(true);
+  };
+
+  const openMcpPrompt = (phase: number) => {
+    const prompts: Record<number, { content: string; name: string }> = {
+      1: { content: getMcpPromptPhase1(), name: "Phase 1: Trip Planning" },
+      2: { content: getMcpPromptPhase2(), name: "Phase 2: Hotel Research" },
+      3: { content: getMcpPromptPhase3(), name: "Phase 3: Activity Research" },
+    };
+    const prompt = prompts[phase];
+    if (prompt) {
+      setMcpPromptContent(prompt.content);
+      setMcpPromptPhase(prompt.name);
+      setMcpDialogOpen(true);
+    }
+  };
+
+  const copyMcpPrompt = () => {
+    navigator.clipboard.writeText(mcpPromptContent);
+    toast.success("MCP prompt copied to clipboard");
+  };
 
   useEffect(() => {
     if (settings?.family_profile) {
@@ -208,11 +246,8 @@ export default function TravelGuidePage() {
                       <div className="space-y-1">
                         <div className="text-[10px] text-muted-foreground">Input:</div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getTripPlannerInstructions(), "phase1_trip_planning_instructions.md", "text/markdown")}>
-                            <Download className="h-3 w-3 mr-1" />instructions.md
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getSkeletonTemplate(), "phase1_trip_planning_input_template.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />input-template.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(1, "Trip Planning", "instructions")}>
+                            <FileText className="h-3 w-3 mr-1" />instructions.md
                           </Button>
                         </div>
                         <div className="flex items-center gap-1 pt-1">
@@ -220,8 +255,8 @@ export default function TravelGuidePage() {
                           <span className="text-[10px] text-muted-foreground">Output:</span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getSkeletonTemplate(), "phase1_trip_planning_output_template.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(1, "Trip Planning", "skeleton-template")}>
+                            <FileJson className="h-3 w-3 mr-1" />skeleton-template.json
                           </Button>
                         </div>
                       </div>
@@ -239,15 +274,19 @@ export default function TravelGuidePage() {
                             {" "}→ "Import Trip Planning" button
                           </p>
                         </div>
-                        <div className="p-2 rounded bg-muted/50 border">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-semibold text-blue-500">MCP:</span>
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Research my trip to [destination] from [dates]. Use get_phase_context("trip_skeleton", trip_id) to get instructions, then save_phase_output() when done.')}>
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <p className="text-[10px] font-mono text-muted-foreground">
-                            "Research my trip to [destination]"
+                        <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20">
+                          <div className="text-[10px] font-semibold text-blue-500 mb-1">Claude Project Instructions:</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-[10px] justify-between"
+                            onClick={() => openMcpPrompt(1)}
+                          >
+                            <span>Copy to Claude Project</span>
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          <p className="text-[9px] text-muted-foreground mt-1">
+                            Paste into Claude Project's Instructions field. Claude will fetch your family profile + templates directly from Supabase via MCP.
                           </p>
                         </div>
                       </div>
@@ -283,14 +322,14 @@ export default function TravelGuidePage() {
                       <div className="space-y-1">
                         <div className="text-[10px] text-muted-foreground">Input:</div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelResearchInstructions(), "phase2_hotel_research_instructions.md", "text/markdown")}>
-                            <Download className="h-3 w-3 mr-1" />instructions.md
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(2, "Hotel Research", "instructions")}>
+                            <FileText className="h-3 w-3 mr-1" />instructions.md
                           </Button>
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getCardInventoryTemplate(), "card-inventory.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />card-inventory.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(2, "Hotel Research", "card-inventory")}>
+                            <FileJson className="h-3 w-3 mr-1" />card-inventory.json
                           </Button>
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelEvaluationFramework(), "evaluation-framework.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />evaluation-framework.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(2, "Hotel Research", "evaluation-framework")}>
+                            <FileJson className="h-3 w-3 mr-1" />evaluation-framework.json
                           </Button>
                         </div>
                         <div className="flex items-center gap-1 pt-1">
@@ -298,8 +337,8 @@ export default function TravelGuidePage() {
                           <span className="text-[10px] text-muted-foreground">Output:</span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getHotelOutputTemplate(), "phase2_hotel_research_output_template.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(2, "Hotel Research", "output-template")}>
+                            <FileJson className="h-3 w-3 mr-1" />output-template.json
                           </Button>
                         </div>
                       </div>
@@ -315,15 +354,19 @@ export default function TravelGuidePage() {
                             Import on trip detail page → "Import Research" → select segment
                           </p>
                         </div>
-                        <div className="p-2 rounded bg-muted/50 border">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-semibold text-orange-500">MCP:</span>
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Find hotels for segment [N] of my [trip name] trip. Use get_phase_context("hotel_selection", trip_id, segment_id) to get instructions, then save_phase_output() when done.')}>
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <p className="text-[10px] font-mono text-muted-foreground">
-                            "Find hotels for segment [N]"
+                        <div className="p-2 rounded bg-orange-500/10 border border-orange-500/20">
+                          <div className="text-[10px] font-semibold text-orange-500 mb-1">Claude Project Instructions:</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-[10px] justify-between"
+                            onClick={() => openMcpPrompt(2)}
+                          >
+                            <span>Copy to Claude Project</span>
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          <p className="text-[9px] text-muted-foreground mt-1">
+                            Paste into Claude Project's Instructions field. Claude will fetch trip data + hotel templates directly from Supabase via MCP.
                           </p>
                         </div>
                       </div>
@@ -359,8 +402,8 @@ export default function TravelGuidePage() {
                       <div className="space-y-1">
                         <div className="text-[10px] text-muted-foreground">Input:</div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getResearchAgentInstructions(), "phase3_segment_research_instructions.md", "text/markdown")}>
-                            <Download className="h-3 w-3 mr-1" />instructions.md
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(3, "Activity Research", "instructions")}>
+                            <FileText className="h-3 w-3 mr-1" />instructions.md
                           </Button>
                         </div>
                         <div className="flex items-center gap-1 pt-1">
@@ -368,8 +411,8 @@ export default function TravelGuidePage() {
                           <span className="text-[10px] text-muted-foreground">Output:</span>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => handleDownload(getResearchOutputTemplate(), "phase3_segment_research_output_template.json", "application/json")}>
-                            <Download className="h-3 w-3 mr-1" />output-template.json
+                          <Button variant="outline" size="sm" className="h-6 text-[10px] justify-start px-2" onClick={() => openTemplateEditor(3, "Activity Research", "output-template")}>
+                            <FileJson className="h-3 w-3 mr-1" />output-template.json
                           </Button>
                         </div>
                       </div>
@@ -385,15 +428,19 @@ export default function TravelGuidePage() {
                             Import on trip detail page → "Import Research" → fills segment
                           </p>
                         </div>
-                        <div className="p-2 rounded bg-muted/50 border">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-semibold text-green-500">MCP:</span>
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleCopy('Research segment [N] for my [trip name] trip. Use get_phase_context("segment_research", trip_id, segment_id) to get instructions, then save_phase_output() when done.')}>
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <p className="text-[10px] font-mono text-muted-foreground">
-                            "Research segment [N] for [trip]"
+                        <div className="p-2 rounded bg-red-500/10 border border-red-500/20">
+                          <div className="text-[10px] font-semibold text-red-500 mb-1">Claude Project Instructions:</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-[10px] justify-between"
+                            onClick={() => openMcpPrompt(3)}
+                          >
+                            <span>Copy to Claude Project</span>
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          <p className="text-[9px] text-muted-foreground mt-1">
+                            Paste into Claude Project's Instructions field. Claude will fetch trip + segment data + research templates directly from Supabase via MCP.
                           </p>
                         </div>
                       </div>
@@ -401,52 +448,58 @@ export default function TravelGuidePage() {
                   </div>
                 </div>
 
-                {/* Phase 4: Daily Agenda (Coming Soon) */}
-                <div className="p-4 rounded-lg bg-purple-500/5 border border-purple-500/20 opacity-60">
-                  <div className="flex items-start justify-between mb-3">
+                {/* Phase 4: Daily Assembly - AUTOMATED BY APP */}
+                <div className="p-4 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-purple-500" />
-                      <div className="font-medium text-purple-700 dark:text-purple-400">Phase 4: Daily Agenda Assembly</div>
+                      <div className="font-medium text-purple-700 dark:text-purple-400">Phase 4: Daily Assembly</div>
                     </div>
-                    <div className="text-xs bg-purple-500/10 text-purple-600 px-2 py-0.5 rounded">Coming soon</div>
+                    <div className="text-xs bg-purple-500/10 text-purple-600 px-2 py-0.5 rounded">Automated by App</div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 text-[10px] text-muted-foreground">
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">Purpose</div>
-                      <p>Stitch activities + hotels into time-sequenced daily schedules</p>
-                    </div>
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">Input → Output</div>
-                      <p>Segment research + hotels → segment_agenda.json</p>
-                    </div>
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">MCP</div>
-                      <p className="font-mono">get_phase_context("daily_agenda")</p>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Phase 5: Final Calibration (Coming Soon) */}
-                <div className="p-4 rounded-lg bg-pink-500/5 border border-pink-500/20 opacity-60">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-pink-500" />
-                      <div className="font-medium text-pink-700 dark:text-pink-400">Phase 5: Final Calibration</div>
+                  {/* Different layout - App Automated */}
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Unlike Phases 1-3, this phase is <span className="font-semibold text-purple-500">fully automated</span> by the app.
+                      No Claude Project needed — the app combines your Phase 2 hotel and Phase 3 research data to generate
+                      precise 15-minute schedules with travel times.
+                    </p>
+
+                    {/* How it works */}
+                    <div className="grid grid-cols-4 gap-3">
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
+                        <div className="text-2xl mb-1">📥</div>
+                        <div className="text-[10px] font-semibold text-purple-600">1. Pull Data</div>
+                        <p className="text-[9px] text-muted-foreground mt-1">Reads Phase 2 hotel + Phase 3 activities from database</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
+                        <div className="text-2xl mb-1">🗺️</div>
+                        <div className="text-[10px] font-semibold text-purple-600">2. Calculate Travel</div>
+                        <p className="text-[9px] text-muted-foreground mt-1">Google Maps API computes walking/driving times between locations</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
+                        <div className="text-2xl mb-1">⏱️</div>
+                        <div className="text-[10px] font-semibold text-purple-600">3. Build Schedule</div>
+                        <p className="text-[9px] text-muted-foreground mt-1">Creates 15-min precision day-by-day itinerary</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
+                        <div className="text-2xl mb-1">📅</div>
+                        <div className="text-[10px] font-semibold text-purple-600">4. Sync Calendar</div>
+                        <p className="text-[9px] text-muted-foreground mt-1">Exports all events to Google Calendar with details</p>
+                      </div>
                     </div>
-                    <div className="text-xs bg-pink-500/10 text-pink-600 px-2 py-0.5 rounded">T-14 days</div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-[10px] text-muted-foreground">
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">Purpose</div>
-                      <p>Last-mile adjustments before departure</p>
-                    </div>
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">Input → Output</div>
-                      <p>Complete itinerary → Updated agenda with weather/timing</p>
-                    </div>
-                    <div>
-                      <div className="font-medium uppercase tracking-wide mb-1">MCP</div>
-                      <p className="font-mono">get_phase_context("final_calibration")</p>
+
+                    {/* Action button placeholder */}
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-dashed border-purple-500/30 bg-purple-500/5">
+                      <div>
+                        <div className="text-sm font-medium text-purple-600">Ready to assemble?</div>
+                        <p className="text-[10px] text-muted-foreground">Complete Phase 2 (hotel) and Phase 3 (research) first, then click "Assemble Schedule" on your trip page.</p>
+                      </div>
+                      <Button variant="outline" size="sm" disabled className="text-purple-600 border-purple-500/30">
+                        <Calendar className="h-3 w-3 mr-1" />
+                        Coming Soon
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -594,7 +647,141 @@ agenda JSONB, agenda_status TEXT, agenda_completed_at`}</pre>
             </div>
           </AccordionContent>
         </AccordionItem>
+
+        {/* Claude Desktop MCP Setup */}
+        <AccordionItem value="claude-setup" className="border rounded-lg px-4">
+          <AccordionTrigger className="text-sm font-medium py-3">Claude Desktop MCP Setup</AccordionTrigger>
+          <AccordionContent className="pb-4">
+            <div className="space-y-4 text-xs">
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                <p className="text-sm font-medium text-blue-600 mb-2">Supabase MCP uses OAuth authentication</p>
+                <p className="text-muted-foreground">
+                  Claude Desktop will prompt you to log in to your Supabase account via browser when you first connect.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Prerequisites:</p>
+                <ul className="text-muted-foreground space-y-1 ml-3">
+                  <li>• Claude Desktop app installed</li>
+                  <li>• Supabase account (you'll login via browser)</li>
+                </ul>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 1: Create MCP Config File</p>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[10px]">
+                  <pre>{`# File location (Mac):
+~/Library/Application Support/Claude/claude_desktop_config.json
+
+# File location (Windows):
+%APPDATA%\\Claude\\claude_desktop_config.json
+
+# Content (uses mcp-remote proxy for OAuth):
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.supabase.com/mcp?project_ref=fcsiqoebtpfhzreamotp"
+      ]
+    }
+  }
+}`}</pre>
+                </div>
+                <p className="text-muted-foreground mt-2 ml-3">
+                  Note: <code className="bg-muted px-1 rounded">fcsiqoebtpfhzreamotp</code> is this project's Supabase ID. The <code className="bg-muted px-1 rounded">mcp-remote</code> package bridges Claude Desktop to Supabase's remote MCP server.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 2: Restart Claude Desktop</p>
+                <p className="text-muted-foreground ml-3">Quit completely (Cmd+Q / Alt+F4) and reopen Claude Desktop</p>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 3: Authenticate</p>
+                <p className="text-muted-foreground ml-3">
+                  When you first ask Claude to use Supabase, a browser window will open for OAuth login. Grant access to your Supabase account.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 4: Verify Connection</p>
+                <p className="text-muted-foreground ml-3">
+                  Check the MCP server icon (hammer) in Claude Desktop - "supabase" should appear in the list of connected servers.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 5: Test MCP Connection</p>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[10px]">
+                  <pre>{`# In Claude Desktop, try:
+"List my Supabase tables"
+"Query: SELECT * FROM trips LIMIT 1"`}</pre>
+                </div>
+              </div>
+
+              <div>
+                <p className="font-medium mb-2">Step 6: Setup Claude Projects</p>
+                <p className="text-muted-foreground ml-3">
+                  Create 3 Claude Projects (Trip Planner, Hotel Research, Activity Research) and paste the MCP prompts from above into each project's Instructions field.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <p className="text-sm font-medium text-amber-600 mb-1">Troubleshooting:</p>
+                <ul className="text-muted-foreground space-y-1 ml-3 text-[10px]">
+                  <li>• "Could not load app settings" error: Make sure JSON is valid and uses "command" not "type: http"</li>
+                  <li>• "Server disconnected": Check that Node.js is installed (needed for npx)</li>
+                  <li>• OAuth popup not appearing: Check browser popup blockers</li>
+                  <li>• Config path Mac: <code className="bg-muted px-1 rounded">~/Library/Application Support/Claude/claude_desktop_config.json</code></li>
+                </ul>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
       </Accordion>
+
+      {/* Template Editor Sheet */}
+      <TemplateEditorSheet
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        phaseNumber={selectedPhase?.number || 0}
+        phaseName={selectedPhase?.name || ""}
+        templateKey={selectedTemplateKey}
+      />
+
+      {/* MCP Prompt Dialog */}
+      <Dialog open={mcpDialogOpen} onOpenChange={setMcpDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileJson className="h-5 w-5 text-primary" />
+              MCP Prompt - {mcpPromptPhase}
+            </DialogTitle>
+            <DialogDescription>
+              Copy this prompt to use with the Supabase MCP server in Claude
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            <pre className="bg-muted p-4 rounded-lg text-xs font-mono whitespace-pre-wrap overflow-x-auto">
+              {mcpPromptContent}
+            </pre>
+          </div>
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setMcpDialogOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={copyMcpPrompt}>
+              <Copy className="h-4 w-4 mr-2" />
+              Copy to Clipboard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1039,4 +1226,114 @@ function getHotelEvaluationFramework(): string {
       hilton: { poor: "<0.4", average: "0.5", good: "0.55-0.65", excellent: "0.7+" }
     }
   }, null, 2);
+}
+
+// Phase 4 (Daily Assembly) is automated by the app - no template functions needed
+
+// ============ MCP Prompt Functions ============
+// These are detailed prompts for use with Supabase MCP server
+
+function getMcpPromptPhase1(): string {
+  return `# Trip Planner - Claude Project Instructions
+
+## Before Starting: Run This ONE Query
+\`\`\`sql
+SELECT
+  (SELECT family_profile FROM travel_settings WHERE user_id = 'b201a860-05a3-4ddc-bb89-4c4271177271') as family_profile,
+  (SELECT jsonb_object_agg(template_key, default_content) FROM travel_guide_template_definitions WHERE phase_number = 1) as templates
+\`\`\`
+
+This returns:
+- **family_profile**: Who's traveling, ages, preferences, loyalty programs
+- **templates**: instructions + skeleton-template format
+
+## Your Role
+Travel planning assistant for multi-week family trips. Conversation → trip skeleton JSON.
+
+## Flow
+1. **Discovery** - destination, dates, must-sees, pace
+2. **Options** - 2-3 approaches with trade-offs
+3. **Refinement** - adjust based on feedback
+4. **Output** - skeleton JSON for import at http://localhost:3000/travel
+
+## Constraints (from family_profile)
+- Max 3hr driving/day with kids
+- Rest days every 4-5 days
+- Don't cluster similar experiences`;
+}
+
+function getMcpPromptPhase2(): string {
+  return `# Hotel Research - Claude Project Instructions
+
+## Getting Trip ID
+User will paste a URL like \`http://localhost:3000/travel/[uuid]\` - extract the UUID as Trip ID.
+
+## Before Starting: Run This ONE Query
+Replace [TRIP_ID] with the UUID from the URL:
+\`\`\`sql
+SELECT
+  (SELECT family_profile FROM travel_settings WHERE user_id = 'b201a860-05a3-4ddc-bb89-4c4271177271') as family_profile,
+  (SELECT jsonb_object_agg(template_key, default_content) FROM travel_guide_template_definitions WHERE phase_number = 2) as templates,
+  (SELECT jsonb_agg(jsonb_build_object('segment_number', segment_number, 'name', name, 'location', location_name, 'nights', nights, 'dates', start_date || ' to ' || end_date, 'accommodation', accommodation) ORDER BY segment_number) FROM trip_segments WHERE trip_id = '[TRIP_ID]') as segments
+\`\`\`
+
+This returns:
+- **family_profile**: Loyalty programs, preferences, family size
+- **templates**: instructions + evaluation-framework + output-template
+- **segments**: All segments with accommodation requirements
+
+## Your Role
+Research 2-4 hotel options per segment. Score on: Luxury/Upgrade (30%), Points Value (20%), Location (20%), Amenities (15%), Space (15%).
+
+## Output
+For each segment: pick_type (BEST_OVERALL, BEST_VALUE, BEST_LUXURY), scores, pricing, reasoning.`;
+}
+
+function getMcpPromptPhase3(): string {
+  return `# Activity Research - Claude Project Instructions
+
+## Getting Trip ID
+User will paste a URL like \`http://localhost:3000/travel/[uuid]\` - extract the UUID as Trip ID.
+
+## Before Starting: Run This ONE Query
+Replace [TRIP_ID] with the UUID from the URL:
+\`\`\`sql
+SELECT
+  (SELECT family_profile FROM travel_settings WHERE user_id = 'b201a860-05a3-4ddc-bb89-4c4271177271') as family_profile,
+  (SELECT jsonb_object_agg(template_key, default_content) FROM travel_guide_template_definitions WHERE phase_number = 3) as templates,
+  (SELECT jsonb_agg(jsonb_build_object(
+    'segment_number', segment_number,
+    'name', name,
+    'location', location_name,
+    'nights', nights,
+    'dates', start_date || ' to ' || end_date,
+    'theme', theme,
+    'why_here', why_here,
+    'key_experiences', key_experiences,
+    'research_status', research_status
+  ) ORDER BY segment_number) FROM trip_segments WHERE trip_id = '[TRIP_ID]') as segments
+\`\`\`
+
+This returns:
+- **family_profile**: Kids' ages, interests, dietary needs
+- **templates**: instructions + output-template format
+- **segments**: All segments with theme, key_experiences, research_status
+
+## Your Role
+Deep research agent for ONE segment at a time. 50+ sources → COMPLETE narratives (no summaries).
+
+## Per Segment Output
+- **8-10 must_do** with full deep_dive (500-1000 words each)
+- **10-15 recommended** items
+- **5-8 optional** items
+
+## Content Requirements (CRITICAL)
+Each must_do needs:
+- **deep_dive.why_it_matters**: 200-400 word narrative
+- **deep_dive.the_story**: 300-600 word history
+- **kid_engagement**: ACTUAL SCRIPTS by age ("Look at the ceiling! Does it look like trees?")
+- **city_info.deep_history**: 2000-4000 words in sections
+
+## Output
+Complete JSON → import at http://localhost:3000/travel/[trip-id] → "Import Research"`;
 }

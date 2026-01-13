@@ -3119,6 +3119,81 @@ export function getExpansionOutput(item: TripResearchItem): ExpansionOutput | nu
 }
 
 // ============================================
+// Travel Schedule Assembly Hooks (Phase 4)
+// 15-minute precision daily schedules with travel times
+// ============================================
+
+/**
+ * Fetch assembled schedule items for a trip
+ */
+export function useTripSchedule(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "schedule"],
+    queryFn: async () => {
+      const response = await travelApi.schedule.get(tripId);
+      return response.data.data as DailyScheduleItem[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+/**
+ * Assemble daily schedule using AI
+ * This replaces any existing schedule with newly generated 15-minute precision items
+ */
+export function useAssembleTripSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tripId: string) => {
+      const response = await travelApi.schedule.assemble(tripId);
+      return response.data;
+    },
+    onSuccess: (_, tripId) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
+    },
+  });
+}
+
+// DailyScheduleItem type for assembled schedule
+export interface DailyScheduleItem {
+  id: string;
+  trip_id: string;
+  day_id: string;
+  segment_id?: string;
+  time_start: string;
+  time_end: string;
+  duration_minutes?: number;
+  event_type: "activity" | "meal" | "transit" | "buffer" | "logistics";
+  title: string;
+  description?: string;
+  notes?: string;
+  tips?: string[];
+  location_name?: string;
+  location_address?: string;
+  location_lat?: number;
+  location_lng?: number;
+  google_maps_url?: string;
+  travel_mode?: "walking" | "driving" | "transit" | "taxi" | "ferry";
+  travel_minutes?: number;
+  travel_distance_km?: number;
+  travel_from_name?: string;
+  travel_to_name?: string;
+  research_item_id?: string;
+  cost_estimate?: number;
+  cost_currency?: string;
+  booking_required?: boolean;
+  booking_url?: string;
+  calendar_sync_status?: string;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+  day?: { id: string; date: string; day_number: number };
+  segment?: { id: string; name: string };
+}
+
+// ============================================
 // Schedule Items Hooks (Exercises & Meals)
 // ============================================
 

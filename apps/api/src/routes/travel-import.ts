@@ -1607,4 +1607,349 @@ router.post('/research-items/expand-bulk', async (req: Request, res: Response): 
   }
 });
 
+// =============================================
+// TRAVEL GUIDE TEMPLATES
+// =============================================
+
+/**
+ * GET /api/v1/travel/guide/phases
+ * Get all travel guide phases
+ */
+router.get('/guide/phases', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { data, error } = await supabase
+      .from('travel_guide_phases')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order');
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/guide/templates/:phaseNumber
+ * Get all templates for a phase (user customized or defaults)
+ */
+router.get('/guide/templates/:phaseNumber', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const phaseNumber = parseInt(req.params.phaseNumber, 10);
+
+    if (isNaN(phaseNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phase number',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Use the helper function to get templates with customization status
+    const { data, error } = await supabase.rpc('get_travel_phase_templates', {
+      p_user_id: userId,
+      p_phase_number: phaseNumber,
+    });
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/guide/templates/:phaseNumber/:templateKey
+ * Get a specific template (user customized or default)
+ */
+router.get('/guide/templates/:phaseNumber/:templateKey', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const phaseNumber = parseInt(req.params.phaseNumber, 10);
+    const templateKey = req.params.templateKey;
+
+    if (isNaN(phaseNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phase number',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Use the helper function to get the template
+    const { data: content, error } = await supabase.rpc('get_travel_template', {
+      p_user_id: userId,
+      p_phase_number: phaseNumber,
+      p_template_key: templateKey,
+    });
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!content) {
+      return res.status(404).json({
+        success: false,
+        error: 'Template not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get template metadata
+    const { data: definition } = await supabase
+      .from('travel_guide_template_definitions')
+      .select('*')
+      .eq('phase_number', phaseNumber)
+      .eq('template_key', templateKey)
+      .single();
+
+    // Check if user has customization
+    const { data: customization } = await supabase
+      .from('travel_guide_templates')
+      .select('id, updated_at')
+      .eq('user_id', userId)
+      .eq('phase_number', phaseNumber)
+      .eq('template_key', templateKey)
+      .single();
+
+    return res.json({
+      success: true,
+      data: {
+        template_key: templateKey,
+        display_name: definition?.display_name || templateKey,
+        filename: definition?.filename || `${templateKey}.json`,
+        content_type: definition?.content_type || 'json',
+        is_input: definition?.is_input ?? true,
+        description: definition?.description,
+        content,
+        is_customized: !!customization,
+        customized_at: customization?.updated_at,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * PUT /api/v1/travel/guide/templates/:phaseNumber/:templateKey
+ * Create or update a user's template customization
+ */
+router.put('/guide/templates/:phaseNumber/:templateKey', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const phaseNumber = parseInt(req.params.phaseNumber, 10);
+    const templateKey = req.params.templateKey;
+    const { content } = req.body;
+
+    if (isNaN(phaseNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phase number',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (content === undefined || content === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'Content is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get template definition to get metadata
+    const { data: definition, error: defError } = await supabase
+      .from('travel_guide_template_definitions')
+      .select('*')
+      .eq('phase_number', phaseNumber)
+      .eq('template_key', templateKey)
+      .single();
+
+    if (defError || !definition) {
+      return res.status(404).json({
+        success: false,
+        error: 'Template definition not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Validate JSON content if content_type is json
+    if (definition.content_type === 'json') {
+      try {
+        JSON.parse(content);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid JSON content',
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Upsert the user's customization
+    const { data, error } = await supabase
+      .from('travel_guide_templates')
+      .upsert(
+        {
+          user_id: userId,
+          phase_number: phaseNumber,
+          template_key: templateKey,
+          display_name: definition.display_name,
+          filename: definition.filename,
+          content_type: definition.content_type,
+          is_input: definition.is_input,
+          content,
+          sort_order: definition.sort_order,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,phase_number,template_key' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * DELETE /api/v1/travel/guide/templates/:phaseNumber/:templateKey
+ * Delete a user's template customization (reverts to default)
+ */
+router.delete('/guide/templates/:phaseNumber/:templateKey', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const phaseNumber = parseInt(req.params.phaseNumber, 10);
+    const templateKey = req.params.templateKey;
+
+    if (isNaN(phaseNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid phase number',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const { error } = await supabase
+      .from('travel_guide_templates')
+      .delete()
+      .eq('user_id', userId)
+      .eq('phase_number', phaseNumber)
+      .eq('template_key', templateKey);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Template customization deleted, reverted to default',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/v1/travel/guide/template-definitions
+ * Get all template definitions (for admin/debugging)
+ */
+router.get('/guide/template-definitions', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { data, error } = await supabase
+      .from('travel_guide_template_definitions')
+      .select('*')
+      .order('phase_number')
+      .order('sort_order');
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 export default router;

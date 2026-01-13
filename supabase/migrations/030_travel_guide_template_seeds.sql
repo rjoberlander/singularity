@@ -2,6 +2,71 @@
 -- Populates template definitions with default content from hardcoded functions
 
 -- =====================================================
+-- FIRST: Add phase 0 to phases table (needed for FK constraint)
+-- =====================================================
+INSERT INTO travel_guide_phases (phase_number, name, description, color, icon, claude_project_name, claude_project_description, sort_order)
+VALUES (0, 'Shared Resources', 'Used by all phases', 'gray', 'folder', NULL, 'Upload to each Claude Project', 0);
+
+-- =====================================================
+-- PHASE 0: Shared Resources (Family Profile)
+-- =====================================================
+INSERT INTO travel_guide_template_definitions
+(phase_number, template_key, display_name, filename, content_type, is_input, description, default_content, sort_order)
+VALUES
+(0, 'family-profile', 'Family Travel Profile', 'family-profile.json', 'json', true,
+ 'Shared family information for all phases - uploaded to each Claude Project',
+ $TEMPLATE${
+  "family_name": "Your Family",
+  "travelers": [
+    {
+      "name": "Parent 1",
+      "role": "parent",
+      "age_at_trip": 35,
+      "interests": ["photography", "history"],
+      "dietary": [],
+      "notes": ""
+    },
+    {
+      "name": "Parent 2",
+      "role": "parent",
+      "age_at_trip": 33,
+      "interests": ["food", "relaxation"],
+      "dietary": [],
+      "notes": ""
+    },
+    {
+      "name": "Child 1",
+      "role": "child",
+      "age_at_trip": 7,
+      "interests": ["animals", "swimming"],
+      "dietary": [],
+      "notes": ""
+    }
+  ],
+  "travel_style": {
+    "pace": "moderate",
+    "accommodation_preference": "quality over quantity",
+    "dining_style": "mix of local spots and nice restaurants",
+    "activity_level": "moderate with rest days"
+  },
+  "logistics": {
+    "home_airport": "LAX",
+    "car_seats_needed": 1,
+    "stroller_needed": false
+  },
+  "preferences": {
+    "must_haves": ["pool access", "kid-friendly activities"],
+    "avoid": ["long drives without breaks", "overly touristy spots"],
+    "nice_to_haves": ["laundry access", "kitchen/kitchenette"]
+  },
+  "loyalty_programs": {
+    "hotels": ["Marriott Bonvoy", "Hilton Honors"],
+    "airlines": ["United MileagePlus"]
+  }
+}$TEMPLATE$,
+ 1);
+
+-- =====================================================
 -- PHASE 1: Trip Planning Templates
 -- =====================================================
 
@@ -451,70 +516,3 @@ VALUES
   ]
 }$TEMPLATE$,
  2);
-
--- =====================================================
--- PHASE 0: Shared Resources (Family Profile)
--- =====================================================
-
--- Note: Family profile is currently stored in travel_settings.family_profile
--- Adding a template definition here for consistency and future MCP access
-
-INSERT INTO travel_guide_template_definitions
-(phase_number, template_key, display_name, filename, content_type, is_input, description, default_content, sort_order)
-VALUES
-(0, 'family-profile', 'Family Travel Profile', 'family-profile.json', 'json', true,
- 'Shared family information for all phases - uploaded to each Claude Project',
- $TEMPLATE${
-  "family_name": "Your Family",
-  "travelers": [
-    {
-      "name": "Parent 1",
-      "role": "parent",
-      "age_at_trip": 35,
-      "interests": ["photography", "history"],
-      "dietary": [],
-      "notes": ""
-    },
-    {
-      "name": "Parent 2",
-      "role": "parent",
-      "age_at_trip": 33,
-      "interests": ["food", "relaxation"],
-      "dietary": [],
-      "notes": ""
-    },
-    {
-      "name": "Child 1",
-      "role": "child",
-      "age_at_trip": 7,
-      "interests": ["animals", "swimming"],
-      "dietary": [],
-      "notes": ""
-    }
-  ],
-  "travel_style": {
-    "pace": "moderate",
-    "accommodation_preference": "quality over quantity",
-    "dining_style": "mix of local spots and nice restaurants",
-    "activity_level": "moderate with rest days"
-  },
-  "logistics": {
-    "home_airport": "LAX",
-    "car_seats_needed": 1,
-    "stroller_needed": false
-  },
-  "preferences": {
-    "must_haves": ["pool access", "kid-friendly activities"],
-    "avoid": ["long drives without breaks", "overly touristy spots"],
-    "nice_to_haves": ["laundry access", "kitchen/kitchenette"]
-  },
-  "loyalty_programs": {
-    "hotels": ["Marriott Bonvoy", "Hilton Honors"],
-    "airlines": ["United MileagePlus"]
-  }
-}$TEMPLATE$,
- 1);
-
--- Add phase 0 entry for shared resources
-INSERT INTO travel_guide_phases (phase_number, name, description, color, icon, claude_project_name, claude_project_description, sort_order)
-VALUES (0, 'Shared Resources', 'Used by all phases', 'gray', 'folder', NULL, 'Upload to each Claude Project', 0);

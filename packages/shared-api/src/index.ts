@@ -825,6 +825,14 @@ export const travelApi = {
     expandBulk: (ids: string[]) =>
       getApi().post("/travel/research-items/expand-bulk", { ids }),
   },
+
+  // Schedule Assembly (Phase 4)
+  schedule: {
+    get: (tripId: string) =>
+      getApi().get(`/travel/trips/${tripId}/schedule`),
+    assemble: (tripId: string) =>
+      getApi().post(`/travel/trips/${tripId}/assemble-schedule`),
+  },
 };
 
 // Re-export types

@@ -6,7 +6,9 @@ import {
   useValidateImport,
   useImportTrip,
   useTripSegments,
+  API_URL,
 } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import {
   Sheet,
   SheetContent,
@@ -235,9 +237,16 @@ export function TripSettingsSheet({
     }
 
     try {
-      const response = await fetch("/api/v1/travel/import/hotels", {
+      // Get auth token for API call
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/import/hotels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
         body: JSON.stringify({
           payload: hotelPayload,
           trip_id: tripId,

@@ -4,13 +4,17 @@ import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   useTripFull,
+  useTripSchedule,
+  useAssembleTripSchedule,
   useGenerateTripDays,
   formatTripDate,
   getActivityTypeIcon,
   getTimeBlockLabel,
+  DailyScheduleItem,
 } from "@/lib/api";
 import { ActivityDetailPanel } from "@/components/travel/ActivityDetailPanel";
 import { SegmentDetailPanel } from "@/components/travel/SegmentDetailPanel";
+import { CalendarWeekView } from "@/components/travel/CalendarWeekView";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -35,6 +39,11 @@ import {
   Utensils,
   Sunset,
   Moon,
+  List,
+  Calendar,
+  Wand2,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -99,7 +108,39 @@ export default function TripItineraryPage() {
   const tripId = params.id as string;
 
   const { data: trip } = useTripFull(tripId);
+  const { data: scheduleItems, refetch: refetchSchedule } = useTripSchedule(tripId);
   const generateDays = useGenerateTripDays();
+  const assembleSchedule = useAssembleTripSchedule();
+  const [isAssembling, setIsAssembling] = useState(false);
+
+  const handleAssembleSchedule = async () => {
+    setIsAssembling(true);
+    try {
+      await assembleSchedule.mutateAsync(tripId);
+      await refetchSchedule();
+      toast.success("Schedule assembled! Your activities now have specific times.");
+    } catch (error: any) {
+      // Extract error message from API response
+      const errorMessage = error?.response?.data?.error
+        || error?.message
+        || "Failed to assemble schedule";
+      toast.error(errorMessage);
+      console.error("Assembly error:", error?.response?.data || error);
+    } finally {
+      setIsAssembling(false);
+    }
+  };
+
+  // Count activities that need scheduling (have day_id but no start_time)
+  const unscheduledActivityCount = useMemo(() => {
+    if (!trip?.activities) return 0;
+    return trip.activities.filter(
+      (a) => !a.is_backup && a.day_id && !a.start_time
+    ).length;
+  }, [trip?.activities]);
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("calendar");
 
   // Panel state for detail views
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
@@ -241,16 +282,113 @@ export default function TripItineraryPage() {
     return grouped;
   }, [trip?.activities]);
 
+  // Transform schedule items or activities to calendar events format
+  const calendarEvents = useMemo(() => {
+    // If we have assembled schedule items, use those
+    if (scheduleItems && scheduleItems.length > 0) {
+      return scheduleItems.map((item: DailyScheduleItem) => ({
+        id: item.id,
+        day_id: item.day_id,
+        date: item.day?.date || "",
+        time_start: item.time_start,
+        time_end: item.time_end,
+        event_type: item.event_type,
+        title: item.title,
+        description: item.description || undefined,
+        location_name: item.location_name || undefined,
+        travel_mode: item.travel_mode,
+        travel_minutes: item.travel_minutes,
+        is_all_day: false,
+      }));
+    }
+
+    // Fallback to activities if no assembled schedule
+    if (!trip?.activities || !trip?.days) return [];
+
+    // Create a map of day_id to date
+    const dayDateMap = new Map(trip.days.map((d) => [d.id, d.date]));
+
+    // Transform activities to ScheduleEvent format
+    return trip.activities
+      .filter((a) => !a.is_backup && a.day_id && a.start_time)
+      .map((activity) => {
+        const date = dayDateMap.get(activity.day_id!) || "";
+        const startTime = activity.start_time || "09:00";
+
+        // Calculate end time based on duration or default to 1 hour
+        const durationMinutes = activity.duration_minutes || 60;
+        const [startHours, startMinutes] = startTime.split(":").map(Number);
+        const endTotalMinutes = startHours * 60 + startMinutes + durationMinutes;
+        const endHours = Math.floor(endTotalMinutes / 60);
+        const endMins = endTotalMinutes % 60;
+        const endTime = `${String(endHours).padStart(2, "0")}:${String(endMins).padStart(2, "0")}`;
+
+        // Map activity_type to event_type
+        let eventType: "activity" | "meal" | "transit" | "buffer" | "logistics" = "activity";
+        const activityType = activity.activity_type?.toLowerCase() || "";
+        if (activityType.includes("meal") || activityType.includes("restaurant") || activityType.includes("food") || activityType.includes("dining")) {
+          eventType = "meal";
+        } else if (activityType.includes("transit") || activityType.includes("drive") || activityType.includes("travel")) {
+          eventType = "transit";
+        } else if (activityType.includes("hotel") || activityType.includes("check")) {
+          eventType = "logistics";
+        }
+
+        return {
+          id: activity.id,
+          day_id: activity.day_id!,
+          date,
+          time_start: startTime,
+          time_end: endTime,
+          event_type: eventType,
+          title: activity.name,
+          description: activity.description || undefined,
+          location_name: activity.location_name || undefined,
+          travel_mode: undefined,
+          travel_minutes: undefined,
+          is_all_day: false,
+        };
+      });
+  }, [scheduleItems, trip?.activities, trip?.days]);
+
   if (!trip) return null;
 
+  // Handler for calendar event clicks
+  const handleCalendarEventClick = (event: { id: string; event_type: string }) => {
+    if (event.event_type !== "transit") {
+      setSelectedActivityId(event.id);
+      setSelectedSegmentId(null);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Full Itinerary</h2>
-          <p className="text-sm text-muted-foreground">
-            Complete day-by-day schedule
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Full Itinerary</h2>
+            <p className="text-sm text-muted-foreground">
+              Complete day-by-day schedule
+            </p>
+          </div>
+          <div className="flex border rounded-md overflow-hidden">
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="sm"
+              className="rounded-none px-3"
+              onClick={() => setViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "calendar" ? "default" : "ghost"}
+              size="sm"
+              className="rounded-none px-3"
+              onClick={() => setViewMode("calendar")}
+            >
+              <Calendar className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="flex gap-2">
           {(!trip.days || trip.days.length === 0) && (
@@ -259,6 +397,20 @@ export default function TripItineraryPage() {
               Generate Days
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={handleAssembleSchedule}
+            disabled={isAssembling}
+            className="border-purple-500/50 text-purple-600 hover:bg-purple-500/10 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+            data-testid="assemble-schedule-btn"
+          >
+            {isAssembling ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Wand2 className="h-4 w-4 mr-2" />
+            )}
+            {isAssembling ? "Assembling..." : `Assemble Schedule${unscheduledActivityCount > 0 ? ` (${unscheduledActivityCount})` : ""}`}
+          </Button>
           <Button>
             <Plus className="h-4 w-4 mr-2" />
             Add Activity
@@ -267,6 +419,49 @@ export default function TripItineraryPage() {
       </div>
 
       {trip.days && trip.days.length > 0 ? (
+        viewMode === "calendar" ? (
+          <>
+            {calendarEvents.length === 0 && (
+              <Card className="mb-4 border-purple-500/30 bg-purple-500/5">
+                <CardContent className="py-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-full bg-purple-500/10">
+                      <Sparkles className="h-5 w-5 text-purple-500" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-medium text-sm">No scheduled events yet</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Your activities from the Details page don't have specific times assigned.
+                        Click <strong className="text-purple-600 dark:text-purple-400">Assemble Schedule</strong> to
+                        have AI create a detailed day-by-day schedule with 15-minute precision.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleAssembleSchedule}
+                      disabled={isAssembling}
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {isAssembling ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Wand2 className="h-4 w-4 mr-2" />
+                      )}
+                      {isAssembling ? "Assembling..." : "Assemble"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            <CalendarWeekView
+              events={calendarEvents}
+              tripStartDate={trip.start_date}
+              tripEndDate={trip.end_date}
+              onEventClick={handleCalendarEventClick}
+              className="h-[calc(100vh-340px)] min-h-[500px]"
+            />
+          </>
+        ) : (
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -423,6 +618,7 @@ export default function TripItineraryPage() {
             </Table>
           </CardContent>
         </Card>
+        )
       ) : (
         <Card>
           <CardContent className="py-12 text-center">
