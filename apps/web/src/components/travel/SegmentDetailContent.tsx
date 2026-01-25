@@ -27,6 +27,9 @@ import {
   Music,
   Palette,
   History,
+  GitBranch,
+  ExternalLink,
+  ArrowLeftRight,
 } from "lucide-react";
 import { TripSegment } from "@singularity/shared-types";
 import {
@@ -400,6 +403,85 @@ export function SegmentDetailContent({
         </div>
       )}
 
+      {/* Route Stops */}
+      {segment.route_stops && segment.route_stops.length > 0 && (
+        <div className="mb-6">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-blue-500" />
+            Possible Stops Along the Way ({segment.route_stops.length})
+          </h4>
+          <div className="space-y-3">
+            {segment.route_stops.map((stop) => (
+              <div key={stop.id} className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{stop.name}</p>
+                    {stop.between && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Between {stop.between.from} → {stop.between.to}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {stop.detour_time && (
+                      <Badge variant="outline" className="text-xs">
+                        +{stop.detour_time}
+                      </Badge>
+                    )}
+                    {stop.visit_duration && (
+                      <Badge variant="secondary" className="text-xs">
+                        {stop.visit_duration}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {stop.reason && (
+                  <p className="text-sm text-muted-foreground mt-2">{stop.reason}</p>
+                )}
+
+                {stop.best_for && stop.best_for.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {stop.best_for.map((item, i) => (
+                      <Badge key={i} variant="outline" className="text-xs bg-white dark:bg-gray-800">
+                        {item}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {stop.skip_if && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                    Skip if: {stop.skip_if}
+                  </p>
+                )}
+
+                {stop.tips && stop.tips.length > 0 && (
+                  <ul className="list-disc list-inside text-xs text-muted-foreground mt-2 space-y-0.5">
+                    {stop.tips.map((tip, i) => (
+                      <li key={i}>{tip}</li>
+                    ))}
+                  </ul>
+                )}
+
+                {stop.location?.google_maps_url && (
+                  <a
+                    href={stop.location.google_maps_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2"
+                  >
+                    <MapPin className="h-3 w-3" />
+                    View on Maps
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* V3 City Info - Intro */}
       {segment.city_info?.intro && (
         <div className="mb-6">
@@ -471,6 +553,11 @@ export function SegmentDetailContent({
                 </div>
               ))}
             </div>
+          ) : typeof segment.city_info.culture === 'object' && 'summary' in segment.city_info.culture ? (
+            // V3 format with just summary
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {(segment.city_info.culture as { summary: string }).summary}
+            </p>
           ) : (
             // Legacy format: string
             <p className="text-sm text-muted-foreground leading-relaxed">{segment.city_info.culture as string}</p>
@@ -605,6 +692,68 @@ export function SegmentDetailContent({
                 </ul>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Segment Alternatives / Backup Options */}
+      {segment.segment_alternatives && segment.segment_alternatives.length > 0 && (
+        <div className="mb-6">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <ArrowLeftRight className="h-4 w-4 text-blue-500" />
+            Backup Options for This Area ({segment.segment_alternatives.length})
+          </h4>
+          <div className="space-y-3">
+            {segment.segment_alternatives.map((alt) => (
+              <div key={alt.id} className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium text-sm">{alt.name}</p>
+                  {alt.priority && (
+                    <Badge
+                      variant={alt.priority === 'must_do' ? 'default' : 'outline'}
+                      className="text-xs shrink-0"
+                    >
+                      {alt.priority.replace('_', ' ')}
+                    </Badge>
+                  )}
+                </div>
+
+                {alt.trigger && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    Use when: {alt.trigger}
+                  </p>
+                )}
+
+                {alt.why_not_scheduled && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {alt.why_not_scheduled}
+                  </p>
+                )}
+
+                {alt.deep_dive?.what_it_is && (
+                  <p className="text-sm text-muted-foreground mt-2">{alt.deep_dive.what_it_is}</p>
+                )}
+
+                {alt.practical?.time_needed && (
+                  <Badge variant="secondary" className="text-xs mt-2">
+                    {alt.practical.time_needed}
+                  </Badge>
+                )}
+
+                {alt.location?.google_maps_url && (
+                  <a
+                    href={alt.location.google_maps_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2"
+                  >
+                    <MapPin className="h-3 w-3" />
+                    View on Maps
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

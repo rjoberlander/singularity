@@ -1037,6 +1037,41 @@ export interface RoutineVersion {
 // Trip status options
 export type TripStatus = 'planning' | 'confirmed' | 'in_progress' | 'completed';
 
+// =============================================
+// ROUTE STOPS & ALTERNATIVES
+// =============================================
+
+// Route stop: a side detour along a driving route between locations
+export interface RouteStop {
+  id: string;
+  name: string;
+  between: { from: string; to: string };  // e.g., { from: "Lisbon", to: "Lagos" }
+  detour_time?: string;   // e.g., "5 min"
+  visit_duration?: string;  // e.g., "30-45 min"
+  reason?: string;  // Why visit this stop
+  best_for?: string[];  // e.g., ["photo op", "stretch break", "quick swim"]
+  skip_if?: string;  // e.g., "running late" or "kids are sleeping"
+  location?: V3Location;
+  tips?: string[];
+}
+
+// Alternative type for activities
+export type AlternativeType = 'direct_replacement' | 'general_option';
+
+// Segment-level alternative (general backups, not linked to specific activity)
+export interface SegmentAlternative {
+  id: string;
+  name: string;
+  item_type: ResearchItemType;
+  trigger?: string;  // When to use this alternative
+  why_not_scheduled?: string;  // Why it's not on main schedule
+  priority?: ResearchItemPriority;
+  practical?: V3Practical;
+  deep_dive?: V3DeepDive;
+  kid_engagement?: V3KidEngagement;
+  location?: V3Location;
+}
+
 // Transportation type options
 export type TripTransportationType = 'flying' | 'driving' | 'both';
 
@@ -1054,6 +1089,20 @@ export type TripMediaParentType = 'trip' | 'segment' | 'day' | 'activity' | 'acc
 
 // Share permission
 export type TripSharePermission = 'view' | 'edit';
+
+// Planning Progress types
+export interface PlanningStepProgress {
+  auto_suggested: boolean;
+  completed: boolean;
+  completed_at?: string;
+}
+
+export interface TripPlanningProgress {
+  basics: PlanningStepProgress;
+  accommodations: PlanningStepProgress;
+  segments: PlanningStepProgress;
+  days_activities: PlanningStepProgress;
+}
 
 // Trip (main container)
 export interface Trip {
@@ -1085,6 +1134,7 @@ export interface Trip {
   public_slug?: string;
   share_password_hash?: string;
   notes?: string;
+  planning_progress?: TripPlanningProgress;
   created_at: string;
   updated_at: string;
   // Populated via joins
@@ -1113,6 +1163,12 @@ export interface CreateTripRequest {
 export interface UpdateTripRequest extends Partial<CreateTripRequest> {
   is_public?: boolean;
   public_slug?: string;
+}
+
+export interface UpdateTripPlanningProgressRequest {
+  step: 'basics' | 'accommodations' | 'segments' | 'days_activities';
+  auto_suggested?: boolean;
+  completed?: boolean;
 }
 
 // Trip Flight
@@ -1264,6 +1320,9 @@ export interface TripSegment {
   local_currency?: string;
   languages?: string[];
   photos_fetched?: boolean;
+  // Route stops and alternatives
+  route_stops?: RouteStop[];
+  segment_alternatives?: SegmentAlternative[];
   // Populated via joins
   days?: TripDay[];
   accommodations?: TripAccommodation[];
@@ -1480,6 +1539,14 @@ export interface TripActivity {
     general?: string[];
   };
   deep_dive_content?: string;  // Long-form tour-guide narrative
+  deep_dive?: {  // Structured deep dive content
+    what_it_is?: string;
+    why_it_matters?: string;
+    the_story?: string;
+    what_youll_see?: Array<{ name: string; description?: string; location_hint?: string }>;
+    interesting_facts?: string[];
+    photo_spots?: Array<{ name: string; tip?: string }>;
+  };
   what_to_see?: Array<{
     name: string;
     description?: string;
@@ -1493,6 +1560,10 @@ export interface TripActivity {
     alternatives?: string;
   };
   warnings?: string[];
+  // Alternative tracking
+  alternative_type?: AlternativeType;  // 'direct_replacement' | 'general_option'
+  alternative_trigger?: string;  // When to use this alternative (e.g., "if rain")
+  why_not_scheduled?: string;  // Why not on main schedule
 }
 
 export interface CreateTripActivityRequest {
@@ -1544,6 +1615,10 @@ export interface CreateTripActivityRequest {
   architecture_notes?: string;
   accessibility_info?: TripActivity['accessibility_info'];
   warnings?: string[];
+  // Alternative tracking
+  alternative_type?: AlternativeType;
+  alternative_trigger?: string;
+  why_not_scheduled?: string;
 }
 
 // Trip Media
@@ -2317,6 +2392,23 @@ export interface TripImportSegment {
     conditions?: string;
     notes?: string;
   };
+  // Route stops and alternatives
+  route_stops?: RouteStop[];
+  alternatives?: Array<{
+    name: string;
+    item_type: string;
+    trigger?: string;
+    why_not_scheduled?: string;
+    priority?: string;
+    replaces?: {
+      scheduled_activity_name?: string;
+      scheduled_activity_id?: string;
+    };
+    practical?: V3Practical;
+    deep_dive?: V3DeepDive;
+    kid_engagement?: V3KidEngagement;
+    location?: V3Location;
+  }>;
 }
 
 export interface TripImportDay {
@@ -2454,6 +2546,24 @@ export interface TripImportPayload {
   segment: TripImportSegment;
   research_items: TripImportResearchItem[];
   days: TripImportDay[];
+  // Route stops and alternatives at root level
+  route_stops?: RouteStop[];
+  alternatives?: Array<{
+    id?: string;
+    name: string;
+    item_type: string;
+    trigger?: string;
+    why_not_scheduled?: string;
+    priority?: string;
+    replaces?: {
+      scheduled_activity_name?: string;
+      scheduled_activity_id?: string;
+    } | null;
+    practical?: V3Practical;
+    deep_dive?: V3DeepDive;
+    kid_engagement?: V3KidEngagement;
+    location?: V3Location;
+  }>;
 }
 
 export interface TripImportOptions {
@@ -2733,3 +2843,63 @@ export interface HotelResearchImportResult {
   };
   errors?: string[];
 }
+
+// ============================================================================
+// SCHEDULE VALIDATION TYPES (Smart Schedule Assembly)
+// ============================================================================
+
+// Validation issue severity levels (all non-blocking)
+export type ValidationIssueSeverity = 'error' | 'warning' | 'suggestion';
+
+// Validation issue categories
+export type ValidationIssueCategory =
+  | 'opening_hours'
+  | 'travel_time'
+  | 'booking'
+  | 'meal_gap'
+  | 'duration'
+  | 'amenity_mismatch'
+  | 'google_data';
+
+// Individual validation issue
+export interface ValidationIssue {
+  severity: ValidationIssueSeverity;
+  category: ValidationIssueCategory;
+  activityId?: string;
+  activityName?: string;
+  scheduleItemId?: string;
+  dayId?: string;
+  date?: string;
+  time?: string;
+  message: string;
+  details?: string;
+  autoFixAvailable?: boolean;
+}
+
+// Overall validation result
+export interface ValidationResult {
+  valid: boolean;
+  canProceed: boolean;
+  issues: ValidationIssue[];
+  summary: {
+    errors: number;
+    warnings: number;
+    suggestions: number;
+  };
+}
+
+// Schedule assembly response (includes validation)
+export interface AssembleScheduleResponse {
+  success: boolean;
+  message: string;
+  data: {
+    days_scheduled: number;
+    total_items: number;
+    activities_enriched?: number;
+    validation?: ValidationResult;
+  };
+  timestamp: string;
+}
+
+// Validation status for daily_schedule_items
+export type ScheduleItemValidationStatus = 'pending' | 'valid' | 'warning' | 'error';

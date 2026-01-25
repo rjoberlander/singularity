@@ -36,6 +36,8 @@ import {
   Columns,
   ChevronDown,
   ChevronUp,
+  ArrowLeftRight,
+  Link2,
 } from "lucide-react";
 import { TripActivity } from "@singularity/shared-types";
 import {
@@ -43,6 +45,7 @@ import {
   useTripMedia,
   useApproveTripMedia,
   getTimeBlockLabel,
+  useTripFull,
 } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -96,6 +99,19 @@ export function ActivityDetailContent({
   const fetchGoogle = useFetchGooglePlacesForActivity();
   const approveMedia = useApproveTripMedia();
 
+  // Get trip data to find alternatives and parent activities
+  const { data: trip } = useTripFull(tripId);
+
+  // Find alternatives for this activity (activities that have this activity as their alternate_to)
+  const alternatives = trip?.activities?.filter(
+    (a) => a.alternate_to_activity_id === activity.id
+  ) || [];
+
+  // If this is an alternative, find the parent activity it replaces
+  const parentActivity = activity.alternate_to_activity_id
+    ? trip?.activities?.find((a) => a.id === activity.alternate_to_activity_id)
+    : null;
+
   // Get media for this activity
   const { data: allMedia } = useTripMedia(tripId, "activity", activity.id);
 
@@ -115,8 +131,12 @@ export function ActivityDetailContent({
       toast.success(
         result.message || `Fetched data from Google. ${result.photos_added} photos added.`
       );
-    } catch (error) {
-      toast.error("Failed to fetch from Google Places");
+    } catch (error: unknown) {
+      console.error("Google Places fetch error:", error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : (error as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to fetch from Google Places";
+      toast.error(errorMessage);
     }
   };
 
@@ -279,6 +299,36 @@ export function ActivityDetailContent({
         </div>
       </div>
 
+      {/* Alternative Banner - shown when viewing an alternative activity */}
+      {activity.is_backup && (
+        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="flex items-start gap-2">
+            <ArrowLeftRight className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
+                This is an Alternative
+              </p>
+              {parentActivity && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                  <Link2 className="h-3 w-3 inline mr-1" />
+                  Replaces: <span className="font-medium">{parentActivity.name}</span>
+                </p>
+              )}
+              {activity.alternative_trigger && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  Use when: {activity.alternative_trigger}
+                </p>
+              )}
+              {activity.why_not_scheduled && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Why not scheduled: {activity.why_not_scheduled}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Time Block, Status, and Google Refresh */}
       <div className="flex flex-wrap items-center gap-2 mb-1">
         {activity.time_block && (
@@ -341,6 +391,60 @@ export function ActivityDetailContent({
           />
           {activity.photos_fetched ? "Refresh from Google" : "Fetch from Google"}
         </Button>
+      </div>
+
+      {/* Data Status Badges */}
+      <div className="flex flex-wrap gap-1.5 mb-4 p-2 bg-muted/30 rounded-lg">
+        {/* Google Data Badge */}
+        {activity.google_place_id ? (
+          <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Google
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="bg-gray-500/10 text-gray-500 border-gray-500/30">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            No Google Data
+          </Badge>
+        )}
+
+        {/* Photos Badge */}
+        {userPhotos.length > 0 && (
+          <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">
+            <Eye className="h-3 w-3 mr-1" />
+            {userPhotos.length} Photos
+          </Badge>
+        )}
+
+        {/* Google Maps Link */}
+        {activity.google_maps_url && (
+          <a href={activity.google_maps_url} target="_blank" rel="noopener noreferrer">
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 cursor-pointer hover:bg-blue-500/20">
+              <MapPin className="h-3 w-3 mr-1" />
+              Maps
+              <ExternalLink className="h-2.5 w-2.5 ml-1" />
+            </Badge>
+          </a>
+        )}
+
+        {/* Urgent Ticket Badge - if reservation required but not confirmed */}
+        {activity.reservation_required && activity.confirmation_status !== "confirmed" && (
+          <Badge variant="destructive" className="animate-pulse">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Book Now!
+          </Badge>
+        )}
+
+        {/* Rating Badge */}
+        {activity.google_rating && (
+          <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+            <Star className="h-3 w-3 mr-1 fill-yellow-500" />
+            {activity.google_rating}
+            {activity.google_review_count && (
+              <span className="text-xs ml-1 opacity-70">({activity.google_review_count.toLocaleString()})</span>
+            )}
+          </Badge>
+        )}
       </div>
 
       {/* Photos Section - User photos first */}
@@ -576,7 +680,7 @@ export function ActivityDetailContent({
                 <History className="h-4 w-4" />
                 The Story
               </h4>
-              <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+              <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
                 {(activity as any).deep_dive.the_story.content}
               </div>
             </div>
@@ -890,6 +994,36 @@ export function ActivityDetailContent({
         <div className="mt-6 p-4 bg-muted rounded-lg">
           <h4 className="text-sm font-medium mb-2">Notes</h4>
           <p className="text-sm text-muted-foreground">{activity.notes}</p>
+        </div>
+      )}
+
+      {/* Alternatives Section - shown when activity has alternatives */}
+      {alternatives.length > 0 && (
+        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2 text-blue-800 dark:text-blue-300">
+            <ArrowLeftRight className="h-4 w-4" />
+            Alternatives ({alternatives.length})
+          </h4>
+          <div className="space-y-3">
+            {alternatives.map((alt) => (
+              <div key={alt.id} className="p-3 bg-white dark:bg-gray-800 rounded-lg">
+                <p className="font-medium text-sm">{alt.name}</p>
+                {alt.alternative_trigger && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    Use when: {alt.alternative_trigger}
+                  </p>
+                )}
+                {alt.why_not_scheduled && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {alt.why_not_scheduled}
+                  </p>
+                )}
+                {alt.description && (
+                  <p className="text-xs text-muted-foreground mt-1">{alt.description}</p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

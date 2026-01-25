@@ -608,6 +608,8 @@ export const travelApi = {
     duplicate: (id: string) => getApi().post(`/travel/trips/${id}/duplicate`),
     updateStatus: (id: string, status: string) =>
       getApi().patch(`/travel/trips/${id}/status`, { status }),
+    updatePlanningProgress: (id: string, data: { step: string; auto_suggested?: boolean; completed?: boolean }) =>
+      getApi().patch(`/travel/trips/${id}/planning-progress`, data),
   },
 
   // Flights
@@ -621,6 +623,8 @@ export const travelApi = {
       getApi().put(`/travel/trips/${tripId}/flights/${flightId}`, data),
     delete: (tripId: string, flightId: string) =>
       getApi().delete(`/travel/trips/${tripId}/flights/${flightId}`),
+    extractFromImage: (tripId: string, data: { image: string; mediaType: string }) =>
+      getApi().post(`/travel/trips/${tripId}/flights/extract`, data),
   },
 
   // Driving
@@ -651,6 +655,8 @@ export const travelApi = {
       getApi().put(`/travel/trips/${tripId}/segments/reorder`, { segment_ids: segmentIds }),
     fetchGooglePlaces: (tripId: string, segmentId: string) =>
       getApi().post(`/travel/trips/${tripId}/segments/${segmentId}/fetch-google`),
+    syncDays: (segmentId: string) =>
+      getApi().post(`/travel/segments/${segmentId}/sync-days`),
   },
 
   // Accommodations
@@ -830,8 +836,13 @@ export const travelApi = {
   schedule: {
     get: (tripId: string) =>
       getApi().get(`/travel/trips/${tripId}/schedule`),
-    assemble: (tripId: string) =>
-      getApi().post(`/travel/trips/${tripId}/assemble-schedule`),
+    assemble: (tripId: string, options?: { validateOnly?: boolean; skipEnrichment?: boolean }) => {
+      const params = new URLSearchParams();
+      if (options?.validateOnly) params.append('validate_only', 'true');
+      if (options?.skipEnrichment) params.append('skip_enrichment', 'true');
+      const queryString = params.toString();
+      return getApi().post(`/travel/trips/${tripId}/assemble-schedule${queryString ? `?${queryString}` : ''}`);
+    },
   },
 };
 

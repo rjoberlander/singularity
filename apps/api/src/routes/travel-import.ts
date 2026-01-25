@@ -322,6 +322,11 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
     if (options.segment_id) {
       segmentId = options.segment_id;
 
+      // Process segment-level alternatives (no replaces field) - alternatives are at root level of payload
+      const segmentAlternatives = payload.alternatives?.filter(
+        (alt: any) => !alt.replaces || (!alt.replaces.scheduled_activity_id && !alt.replaces.scheduled_activity_name)
+      ) || [];
+
       // Update the existing segment with the research data
       const segmentData = {
         name: payload.segment.name,
@@ -342,6 +347,8 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         accommodation: payload.segment.accommodation,  // V3
         driving_from_previous: payload.segment.driving?.from_previous_segment,
         driving_notes: payload.segment.driving?.driving_notes,
+        route_stops: payload.route_stops || null,  // Route stops along driving routes (at payload root level)
+        segment_alternatives: segmentAlternatives.length > 0 ? segmentAlternatives : null,  // General backup activities
         research_status: 'completed',
         updated_at: new Date().toISOString(),
       };
@@ -357,6 +364,11 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         created.segment = true;
       }
     } else if (opts.create_segment) {
+      // Process segment-level alternatives (no replaces field) - alternatives are at root level of payload
+      const segmentAlternativesForCreate = payload.alternatives?.filter(
+        (alt: any) => !alt.replaces || (!alt.replaces.scheduled_activity_id && !alt.replaces.scheduled_activity_name)
+      ) || [];
+
       const segmentData = {
         trip_id: tripId,
         name: payload.segment.name,
@@ -377,6 +389,8 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         accommodation: payload.segment.accommodation,  // V3
         driving_from_previous: payload.segment.driving?.from_previous_segment,
         driving_notes: payload.segment.driving?.driving_notes,
+        route_stops: payload.route_stops || null,  // Route stops along driving routes (at payload root level)
+        segment_alternatives: segmentAlternativesForCreate.length > 0 ? segmentAlternativesForCreate : null,  // General backup activities
         sort_order: payload.metadata.segment_number,
       };
 
@@ -404,6 +418,70 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
       : (payload.days as any)?.days || [];
 
     if (opts.create_days && importDays.length > 0) {
+      // First, delete existing days for this segment to avoid duplicates
+      // Also clean up orphaned days (null segment_id) for the same dates
+      const datesToCleanup = importDays.map((d: any) => d.date).filter(Boolean);
+
+      if (segmentId) {
+        // Get existing days for this segment
+        const { data: existingDays } = await supabase
+          .from('trip_days')
+          .select('id')
+          .eq('segment_id', segmentId);
+
+        if (existingDays && existingDays.length > 0) {
+          const existingDayIds = existingDays.map((d: { id: string }) => d.id);
+
+          // Delete activities for these days first
+          const { error: deleteActivitiesError } = await supabase
+            .from('trip_activities')
+            .delete()
+            .in('day_id', existingDayIds);
+
+          if (deleteActivitiesError) {
+            console.warn('Failed to delete existing activities:', deleteActivitiesError.message);
+          }
+
+          // Delete existing days
+          const { error: deleteDaysError } = await supabase
+            .from('trip_days')
+            .delete()
+            .eq('segment_id', segmentId);
+
+          if (deleteDaysError) {
+            console.warn('Failed to delete existing days:', deleteDaysError.message);
+          }
+        }
+      }
+
+      // Also clean up orphaned days (null segment_id) for the same dates in this trip
+      if (datesToCleanup.length > 0) {
+        const { data: orphanedDays } = await supabase
+          .from('trip_days')
+          .select('id')
+          .eq('trip_id', tripId)
+          .is('segment_id', null)
+          .in('date', datesToCleanup);
+
+        if (orphanedDays && orphanedDays.length > 0) {
+          const orphanedDayIds = orphanedDays.map((d: { id: string }) => d.id);
+
+          // Delete activities for orphaned days
+          await supabase
+            .from('trip_activities')
+            .delete()
+            .in('day_id', orphanedDayIds);
+
+          // Delete orphaned days
+          await supabase
+            .from('trip_days')
+            .delete()
+            .eq('trip_id', tripId)
+            .is('segment_id', null)
+            .in('date', datesToCleanup);
+        }
+      }
+
       const daysData = importDays.map((day: any) => ({
         trip_id: tripId,
         segment_id: segmentId || null,
@@ -434,6 +512,354 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         errors.push(`Failed to create some days: ${daysError.message}`);
       } else if (days) {
         created.days = days.length;
+
+        // ========================================
+        // 3b. Create Activities from Schedule Items
+        // ========================================
+        // Convert V3 schedule items to activities
+        for (const day of days) {
+          const originalDay = importDays.find((d: any) => d.day_number === day.day_number);
+          const scheduleItems = originalDay?.schedule;
+
+          if (scheduleItems && Array.isArray(scheduleItems) && scheduleItems.length > 0) {
+            // Get research_items to match against schedule items
+            const researchItems = payload.research_items || [];
+
+            const activitiesData = scheduleItems.map((item: any, idx: number) => {
+              // Parse time like "9:20am" or "10:15am" to 24h format
+              let startTime: string | null = null;
+              const timeMatch = item.time?.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
+              if (timeMatch) {
+                let hours = parseInt(timeMatch[1], 10);
+                const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+                const period = timeMatch[3]?.toLowerCase();
+                if (period === 'pm' && hours !== 12) hours += 12;
+                if (period === 'am' && hours === 12) hours = 0;
+                startTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+              }
+
+              // Map activity_type to our types
+              const activityTypeMap: Record<string, string> = {
+                'main_activity': 'activity',
+                'meal': 'restaurant',
+                'rest': 'rest',
+                'transport': 'transport',
+                'free_time': 'activity',
+                'activity': 'activity',
+                'attraction': 'activity',
+                'restaurant': 'restaurant',
+              };
+
+              // Infer activity type from activity name if not provided
+              const inferActivityType = (name: string): string => {
+                const nameLower = name.toLowerCase();
+                // Restaurant/meals
+                if (nameLower.includes('lunch') || nameLower.includes('dinner') ||
+                    nameLower.includes('breakfast') || nameLower.includes('meal') ||
+                    nameLower.includes('snack') || nameLower.includes('eat') ||
+                    nameLower.includes('restaurant') || nameLower.includes('café') ||
+                    nameLower.includes('cafe') || nameLower.includes('gelato') ||
+                    nameLower.includes('pastéis') || nameLower.includes('pasteis')) {
+                  return 'restaurant';
+                }
+                // Transport
+                if (nameLower.includes('drive') || nameLower.includes('depart') ||
+                    nameLower.includes('arrive') || nameLower.includes('return to') ||
+                    nameLower.includes('check out') || nameLower.includes('check in') ||
+                    nameLower.includes('flight') || nameLower.includes('taxi') ||
+                    nameLower.includes('uber') || nameLower.includes('transfer')) {
+                  return 'transport';
+                }
+                // Rest
+                if (nameLower.includes('rest') || nameLower.includes('nap') ||
+                    nameLower.includes('pool time') || nameLower.includes('sleep') ||
+                    nameLower.includes('relax') || nameLower.includes('downtime')) {
+                  return 'rest';
+                }
+                // Beach
+                if (nameLower.includes('beach') || nameLower.includes('praia') ||
+                    nameLower.includes('swimming') || nameLower.includes('swim')) {
+                  return 'beach';
+                }
+                // Hike
+                if (nameLower.includes('hike') || nameLower.includes('walk') ||
+                    nameLower.includes('trail') || nameLower.includes('cliff walk')) {
+                  return 'hike';
+                }
+                // Viewpoint
+                if (nameLower.includes('sunset') || nameLower.includes('viewpoint') ||
+                    nameLower.includes('photo') || nameLower.includes('vista')) {
+                  return 'viewpoint';
+                }
+                // Tour/Activity
+                if (nameLower.includes('tour') || nameLower.includes('boat') ||
+                    nameLower.includes('kayak') || nameLower.includes('museum') ||
+                    nameLower.includes('fortress') || nameLower.includes('castle')) {
+                  return 'activity';
+                }
+                return 'activity';
+              };
+
+              // Try to find matching research_item for rich content
+              // Match by activity_name or location - use case-insensitive partial match
+              const activityNameLower = (item.activity_name || '').toLowerCase();
+              const locationLower = (item.location || '').toLowerCase();
+              const matchedResearch = researchItems.find((r: any) => {
+                const researchNameLower = (r.name || '').toLowerCase();
+                // Match if activity_name or location contains research_item name
+                return activityNameLower.includes(researchNameLower) ||
+                       locationLower.includes(researchNameLower) ||
+                       researchNameLower.includes(activityNameLower) ||
+                       (locationLower && researchNameLower.includes(locationLower));
+              });
+
+              // Determine activity type - use explicit type, then infer from name
+              const activityType = item.activity_type
+                ? (activityTypeMap[item.activity_type] || 'activity')
+                : inferActivityType(item.activity_name || '');
+
+              // Build activity data with rich content if available
+              const activityData: any = {
+                trip_id: tripId,
+                segment_id: segmentId || null,
+                day_id: day.id,
+                name: item.activity_name,
+                activity_type: activityType,
+                location_name: item.location,
+                start_time: startTime,
+                description: item.notes,
+                sort_order: idx,
+              };
+
+              // Add rich content from matched research_item
+              if (matchedResearch) {
+                if (matchedResearch.deep_dive) {
+                  activityData.deep_dive = matchedResearch.deep_dive;
+                }
+                if (matchedResearch.kid_engagement) {
+                  activityData.kid_engagement = matchedResearch.kid_engagement;
+                }
+                if (matchedResearch.source_url) {
+                  activityData.booking_url = matchedResearch.source_url;
+                }
+                // Store why_relevant in why_its_great column
+                if (matchedResearch.why_relevant) {
+                  const whyRelevant = matchedResearch.why_relevant as any;
+                  activityData.why_its_great = typeof whyRelevant === 'string'
+                    ? whyRelevant
+                    : (whyRelevant.for_family || whyRelevant.unique_value || JSON.stringify(whyRelevant));
+                }
+                if (matchedResearch.location) {
+                  activityData.latitude = matchedResearch.location.latitude;
+                  activityData.longitude = matchedResearch.location.longitude;
+                  activityData.address = matchedResearch.location.address;
+                  activityData.google_maps_url = matchedResearch.location.google_maps_url;
+                }
+              }
+
+              return activityData;
+            });
+
+            const { data: activities, error: activitiesError } = await supabase
+              .from('trip_activities')
+              .insert(activitiesData)
+              .select();
+
+            if (activitiesError) {
+              errors.push(`Failed to create activities for day ${day.day_number}: ${activitiesError.message}`);
+            } else if (activities) {
+              created.activities += activities.length;
+            }
+          }
+        }
+      }
+    }
+
+    // ========================================
+    // 3b. Create Alternative Activities (linked to main activities)
+    // ========================================
+
+    // Process alternatives that have a 'replaces' field linking them to specific activities
+    // Alternatives are at root level of payload
+    const linkedAlternatives = payload.alternatives?.filter(
+      (alt: any) => alt.replaces && (alt.replaces.scheduled_activity_id || alt.replaces.scheduled_activity_name)
+    ) || [];
+
+    if (linkedAlternatives.length > 0 && tripId) {
+      // Get all activities for this segment to match alternatives by name
+      const { data: segmentActivities } = await supabase
+        .from('trip_activities')
+        .select('id, name')
+        .eq('trip_id', tripId);
+
+      const activityNameToId = new Map(
+        segmentActivities?.map((a: { id: string; name: string }) => [a.name.toLowerCase(), a.id]) || []
+      );
+
+      // Helper to check if a string is a valid UUID
+      const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+      for (const alt of linkedAlternatives) {
+        // Check if this alternative already exists
+        const { data: existingLinkedAlt } = await supabase
+          .from('trip_activities')
+          .select('id')
+          .eq('trip_id', tripId)
+          .eq('name', alt.name)
+          .eq('is_backup', true)
+          .maybeSingle();
+
+        if (existingLinkedAlt) {
+          continue; // Skip if already exists
+        }
+
+        // Find the activity this alternative replaces
+        let alternateToId: string | null = null;
+        if (alt.replaces?.scheduled_activity_id && isUuid(alt.replaces.scheduled_activity_id)) {
+          // Valid UUID - use it directly
+          alternateToId = alt.replaces.scheduled_activity_id;
+        } else if (alt.replaces?.scheduled_activity_name) {
+          // Look up by name
+          alternateToId = activityNameToId.get(alt.replaces.scheduled_activity_name.toLowerCase()) || null;
+        } else if (alt.replaces?.scheduled_activity_id) {
+          // Non-UUID ID (like "sagres-boat-tour-grotto") - try to match to research item and find activity
+          // Look for an activity with similar name pattern
+          const idToMatch = alt.replaces.scheduled_activity_id.toLowerCase();
+          for (const [name, id] of activityNameToId.entries()) {
+            // Check if the name contains significant parts of the ID (ignore prefixes like "sagres-")
+            const idParts = idToMatch.split('-').filter(p => p.length > 3);
+            if (idParts.some(part => name.includes(part))) {
+              alternateToId = id;
+              break;
+            }
+          }
+        }
+
+        // Create the alternative activity
+        // Map priority to valid values (must_do, should_do, could_do) or null
+        const validPriorities = ['must_do', 'should_do', 'could_do'];
+        const mappedPriority = alt.priority && validPriorities.includes(alt.priority) ? alt.priority : null;
+
+        const alternativeActivityData: any = {
+          trip_id: tripId,
+          segment_id: segmentId || null,
+          name: alt.name,
+          activity_type: alt.item_type || 'activity',
+          is_backup: true,
+          alternate_to_activity_id: alternateToId,
+          alternative_type: 'direct_replacement',
+          alternative_trigger: alt.trigger,
+          why_not_scheduled: alt.why_not_scheduled,
+          priority: mappedPriority,
+          sort_order: 999,  // Sort alternatives at end
+        };
+
+        // Add location if provided
+        if (alt.location) {
+          alternativeActivityData.location_name = alt.location.area;
+          alternativeActivityData.address = alt.location.address;
+          alternativeActivityData.latitude = alt.location.latitude;
+          alternativeActivityData.longitude = alt.location.longitude;
+          alternativeActivityData.google_maps_url = alt.location.google_maps_url;
+        }
+
+        // Add rich content if provided
+        if (alt.deep_dive) {
+          alternativeActivityData.deep_dive = alt.deep_dive;
+        }
+        if (alt.kid_engagement) {
+          alternativeActivityData.kid_engagement = alt.kid_engagement;
+        }
+        if (alt.practical) {
+          alternativeActivityData.practical_details = {
+            hours: alt.practical.hours,
+            time_needed: alt.practical.time_needed,
+          };
+        }
+
+        const { error: altError } = await supabase
+          .from('trip_activities')
+          .insert(alternativeActivityData);
+
+        if (altError) {
+          errors.push(`Failed to create alternative activity "${alt.name}": ${altError.message}`);
+        } else {
+          created.activities++;
+        }
+      }
+    }
+
+    // ========================================
+    // 3c. Create General Alternative Activities (not linked to specific activities)
+    // ========================================
+    const generalAlternatives = payload.alternatives?.filter(
+      (alt: any) => !alt.replaces || (!alt.replaces.scheduled_activity_id && !alt.replaces.scheduled_activity_name)
+    ) || [];
+
+    if (generalAlternatives.length > 0 && tripId) {
+      for (const alt of generalAlternatives) {
+        // Check if this alternative already exists as an activity
+        const { data: existingAlt } = await supabase
+          .from('trip_activities')
+          .select('id')
+          .eq('trip_id', tripId)
+          .eq('name', alt.name)
+          .eq('is_backup', true)
+          .maybeSingle();
+
+        if (existingAlt) {
+          continue; // Skip if already exists
+        }
+
+        const validPriorities = ['must_do', 'should_do', 'could_do'];
+        const mappedPriority = alt.priority && validPriorities.includes(alt.priority) ? alt.priority : null;
+
+        const generalAltData: any = {
+          trip_id: tripId,
+          segment_id: segmentId || null,
+          name: alt.name,
+          activity_type: alt.item_type || 'activity',
+          is_backup: true,
+          alternate_to_activity_id: null, // General alternative, not linked to specific activity
+          alternative_type: 'general_option',
+          alternative_trigger: alt.trigger,
+          why_not_scheduled: alt.why_not_scheduled,
+          priority: mappedPriority,
+          sort_order: 999,
+        };
+
+        // Add location if provided
+        if (alt.location) {
+          generalAltData.location_name = alt.location.area;
+          generalAltData.address = alt.location.address;
+          generalAltData.latitude = alt.location.latitude;
+          generalAltData.longitude = alt.location.longitude;
+          generalAltData.google_maps_url = alt.location.google_maps_url;
+        }
+
+        // Add rich content if provided
+        if (alt.deep_dive) {
+          generalAltData.deep_dive = alt.deep_dive;
+        }
+        if (alt.kid_engagement) {
+          generalAltData.kid_engagement = alt.kid_engagement;
+        }
+        if (alt.practical) {
+          generalAltData.practical_details = {
+            hours: alt.practical.hours,
+            time_needed: alt.practical.time_needed,
+          };
+        }
+
+        const { error: genAltError } = await supabase
+          .from('trip_activities')
+          .insert(generalAltData);
+
+        if (genAltError) {
+          errors.push(`Failed to create general alternative "${alt.name}": ${genAltError.message}`);
+        } else {
+          created.activities++;
+        }
       }
     }
 
@@ -645,8 +1071,9 @@ router.post('/import/validate', async (req: Request, res: Response): Promise<any
       if (!payload.segment.name) issues.push('Missing segment.name');
     }
 
-    // Detect v3 format (has _template_version or nested days structure)
+    // Detect v3 format (has _template_version, metadata.version starts with "3", or nested days structure)
     const isV3 = (payload as any)._template_version === '3.0' ||
+                 (payload.metadata as any)?.version?.startsWith('3') ||
                  (payload.days && !Array.isArray(payload.days) && Array.isArray((payload.days as any).days));
 
     // Check research items

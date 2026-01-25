@@ -5,13 +5,17 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import {
   useTripFull,
   formatTripDate,
+  parseLocalDate,
   getActivityTypeIcon,
   getTimeBlockLabel,
 } from "@/lib/api";
 import { ActivityDetailContent } from "@/components/travel/ActivityDetailContent";
 import { SegmentDetailContent } from "@/components/travel/SegmentDetailContent";
+import type { TripActivity } from "@singularity/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   MapPin,
   Calendar,
@@ -23,6 +27,10 @@ import {
   Sunset,
   Moon,
   Image as ImageIcon,
+  ArrowLeftRight,
+  Car,
+  GitBranch,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -157,6 +165,19 @@ export default function TripDetailsPage() {
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [expandedSegments, setExpandedSegments] = useState<Set<string>>(new Set());
   const [urlProcessed, setUrlProcessed] = useState(false);
+  const [hideLogistics, setHideLogistics] = useState(false);
+
+  // Activity types to hide when "Activities Only" is toggled on
+  const logisticsTypes = new Set(["transport", "other", undefined, ""]);
+  const isLogisticsActivity = (activity: TripActivity) => {
+    const type = activity.activity_type?.toLowerCase() || "";
+    // Hide transport and generic "other" activities
+    if (type === "transport") return true;
+    // Also hide activities with logistics-related names
+    const name = activity.name.toLowerCase();
+    const logisticsKeywords = ["wake up", "kids to bed", "check-in", "check in", "check out", "check-out", "pack", "load car", "depart for", "arrive at", "drive to", "pick up rental", "return rental"];
+    return logisticsKeywords.some(keyword => name.includes(keyword));
+  };
 
   // Find selected items from data
   const selectedActivity = selectedActivityId
@@ -186,7 +207,7 @@ export default function TripDetailsPage() {
       grouped[segmentId].push(day);
     }
     for (const segmentId of Object.keys(grouped)) {
-      grouped[segmentId].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      grouped[segmentId].sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
     }
     return grouped;
   }, [trip?.days]);
@@ -219,6 +240,54 @@ export default function TripDetailsPage() {
     return grouped;
   }, [trip?.media]);
 
+  // Map activities that have alternatives pointing to them
+  const activitiesWithAlternatives = useMemo(() => {
+    if (!trip?.activities) return new Set<string>();
+    const mainActivityIds = new Set<string>();
+    for (const activity of trip.activities) {
+      if (activity.alternate_to_activity_id) {
+        mainActivityIds.add(activity.alternate_to_activity_id);
+      }
+    }
+    return mainActivityIds;
+  }, [trip?.activities]);
+
+  // Get alternatives for a specific activity
+  const getAlternativesForActivity = (activityId: string) => {
+    if (!trip?.activities) return [];
+    return trip.activities.filter((a) => a.alternate_to_activity_id === activityId);
+  };
+
+  // Get all alternative activities for a segment (both linked and general)
+  const getSegmentAlternatives = (segmentId: string) => {
+    if (!trip?.activities) return { linked: {} as Record<string, TripActivity[]>, general: [] as TripActivity[] };
+
+    const segmentDays = daysBySegment[segmentId] || [];
+    const segmentDayIds = new Set(segmentDays.map((d) => d.id));
+
+    // Get all backup activities for this segment
+    const backupActivities = trip.activities.filter(
+      (a) => a.is_backup && (a.segment_id === segmentId || (a.day_id && segmentDayIds.has(a.day_id)))
+    );
+
+    // Group by what they replace
+    const linked: Record<string, typeof trip.activities> = {};
+    const general: typeof trip.activities = [];
+
+    for (const backup of backupActivities) {
+      if (backup.alternate_to_activity_id) {
+        const mainActivity = trip.activities.find((a) => a.id === backup.alternate_to_activity_id);
+        const key = mainActivity?.name || backup.alternate_to_activity_id;
+        if (!linked[key]) linked[key] = [];
+        linked[key].push(backup);
+      } else {
+        general.push(backup);
+      }
+    }
+
+    return { linked, general };
+  };
+
   // Global sorted days list for day1, day2, etc. URLs
   const allDaysSorted = useMemo(() => {
     if (!trip?.days) return [];
@@ -229,7 +298,7 @@ export default function TripDetailsPage() {
       }
     }
     return Array.from(uniqueDays.values()).sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
     );
   }, [trip?.days]);
 
@@ -327,12 +396,24 @@ export default function TripDetailsPage() {
     return activities;
   };
 
-  // Auto-expand first segment on load
+  // Auto-expand segments that have activities
   useMemo(() => {
     if (trip?.segments && trip.segments.length > 0 && expandedSegments.size === 0) {
-      setExpandedSegments(new Set([trip.segments[0].id]));
+      const segmentsWithActivities = trip.segments.filter(segment => {
+        const segmentDays = daysBySegment[segment.id] || [];
+        return segmentDays.some(day => {
+          const dayActs = activitiesByDay[day.id] || [];
+          return dayActs.length > 0;
+        });
+      });
+      if (segmentsWithActivities.length > 0) {
+        setExpandedSegments(new Set(segmentsWithActivities.map(s => s.id)));
+      } else {
+        // Fallback to first segment if none have activities
+        setExpandedSegments(new Set([trip.segments[0].id]));
+      }
     }
-  }, [trip?.segments]);
+  }, [trip?.segments, daysBySegment, activitiesByDay]);
 
   if (!trip) return null;
 
@@ -341,6 +422,20 @@ export default function TripDetailsPage() {
       {/* Left Panel - Itinerary List */}
       <div className="w-fit min-w-[280px] max-w-[400px] shrink-0 border-r bg-muted/20">
         <ScrollArea className="h-full">
+          {/* Activities Only Toggle */}
+          <div className="px-2 py-2 border-b bg-muted/30 sticky top-0 z-10">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="hide-logistics"
+                checked={hideLogistics}
+                onCheckedChange={setHideLogistics}
+                className="scale-75"
+              />
+              <Label htmlFor="hide-logistics" className="text-xs cursor-pointer">
+                Activities Only
+              </Label>
+            </div>
+          </div>
           <div className="px-0 py-1 space-y-1">
             {trip.segments && trip.segments.length > 0 ? (
               trip.segments.map((segment, index) => {
@@ -401,7 +496,7 @@ export default function TripDetailsPage() {
                             )}
                             <span className="flex items-center gap-0.5">
                               <Calendar className="h-3 w-3" />
-                              {new Date(segment.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} - {new Date(segment.end_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                              {parseLocalDate(segment.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} - {parseLocalDate(segment.end_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                             </span>
                             <button
                               onClick={(e) => {
@@ -430,12 +525,17 @@ export default function TripDetailsPage() {
                       </div>
                     </div>
 
-                    {/* Expanded Days/Activities */}
-                    {isExpanded && segmentDays.length > 0 && (
+                    {/* Expanded Content */}
+                    {isExpanded && (
                       <div className="ml-2">
+                        {/* Days/Activities */}
                         {segmentDays.map((day, dayIndex) => {
-                          const dayActivities = activitiesByDay[day.id] || [];
-                          const dayOfWeek = new Date(day.date).getDay();
+                          const allDayActivities = activitiesByDay[day.id] || [];
+                          const dayActivities = hideLogistics
+                            ? allDayActivities.filter(a => !isLogisticsActivity(a))
+                            : allDayActivities;
+                          const localDate = parseLocalDate(day.date);
+                          const dayOfWeek = localDate.getDay();
                           const weekdayColors: Record<number, string> = {
                             0: "bg-rose-600",    // Sun
                             1: "bg-blue-600",    // Mon
@@ -445,7 +545,7 @@ export default function TripDetailsPage() {
                             5: "bg-cyan-600",    // Fri
                             6: "bg-orange-600",  // Sat
                           };
-                          const weekdayShort = new Date(day.date).toLocaleDateString("en-US", { weekday: "short" });
+                          const weekdayShort = localDate.toLocaleDateString("en-US", { weekday: "short" });
                           return (
                             <div key={day.id}>
                               {/* Day Header */}
@@ -457,7 +557,7 @@ export default function TripDetailsPage() {
                                   {day.title || `Day ${day.day_number || dayIndex + 1}`}
                                 </span>
                                 <span className="text-muted-foreground text-xs">
-                                  {new Date(day.date).toLocaleDateString("en-US", {
+                                  {localDate.toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
                                   })}
@@ -474,45 +574,262 @@ export default function TripDetailsPage() {
                                     const activityMedia = mediaByParent[`activity-${activity.id}`] || [];
                                     const hasPhotos = activityMedia.length > 0;
 
+                                    const hasAlternatives = activitiesWithAlternatives.has(activity.id);
+
+                                    // Check if this is a transport activity that should show route stops
+                                    const isTransportActivity = activity.activity_type === 'transport';
+                                    const activityNameLower = activity.name.toLowerCase();
+
+                                    // Match route stops to this activity based on destination
+                                    let routeStopsForActivity: typeof segment.route_stops = [];
+                                    if (isTransportActivity && segment.route_stops) {
+                                      // Known route hierarchy: Lagos → Sagres → Cabo de São Vicente
+                                      // Drives to Cabo should also show Sagres-area stops
+                                      const isDriveOrDepart = activityNameLower.includes('drive') ||
+                                                              activityNameLower.includes('depart') ||
+                                                              activityNameLower.includes('head to');
+
+                                      if (isDriveOrDepart) {
+                                        routeStopsForActivity = segment.route_stops.filter(stop => {
+                                          const stopTo = stop.between?.to?.toLowerCase() || '';
+
+                                          // "Drive to Cabo" → show Lagos→Sagres AND Sagres→Cabo stops (full route)
+                                          if (activityNameLower.includes('cabo')) {
+                                            return stopTo.includes('sagres') || stopTo.includes('cabo');
+                                          }
+
+                                          // "Drive to Sagres" → show Lagos→Sagres stops
+                                          if (activityNameLower.includes('sagres')) {
+                                            return stopTo.includes('sagres');
+                                          }
+
+                                          // "Depart for Douro" - only show Douro stops if activity mentions Douro
+                                          if (activityNameLower.includes('douro') && stopTo.includes('douro')) {
+                                            return true;
+                                          }
+
+                                          return false;
+                                        });
+                                      }
+                                    }
+
                                     return (
-                                      <div
-                                        key={activity.id}
-                                        onClick={() => handleActivityClick(activity.id)}
-                                        className={cn(
-                                          "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors",
-                                          selectedActivityId === activity.id
-                                            ? "bg-primary/10 border border-primary/30"
-                                            : "hover:bg-muted/50"
-                                        )}
-                                      >
-                                        <span className="w-4 text-center shrink-0">
-                                          {getActivityTypeIcon(activity.activity_type || "activity")}
-                                        </span>
-                                        <span className="flex-1 truncate">{activity.name}</span>
-                                        {hasPhotos && (
-                                          <span className="shrink-0 text-muted-foreground flex items-center gap-0.5">
-                                            <ImageIcon className="h-3 w-3" />
-                                            {activityMedia.length}
+                                      <div key={activity.id}>
+                                        <div
+                                          onClick={() => handleActivityClick(activity.id)}
+                                          className={cn(
+                                            "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors",
+                                            selectedActivityId === activity.id
+                                              ? "bg-primary/10 border border-primary/30"
+                                              : "hover:bg-muted/50"
+                                          )}
+                                        >
+                                          <span className="w-4 text-center shrink-0">
+                                            {getActivityTypeIcon(activity.activity_type || "activity")}
                                           </span>
+                                          <span className="truncate max-w-[240px]">{activity.name}</span>
+                                          {/* Status icons - right after name */}
+                                          {hasAlternatives && (
+                                            <span className="shrink-0 text-blue-500" title="Has alternatives">
+                                              <ArrowLeftRight className="h-3 w-3" />
+                                            </span>
+                                          )}
+                                          {activity.address && (
+                                            <span className="shrink-0 text-green-500" title={activity.address}>
+                                              <MapPin className="h-3 w-3" />
+                                            </span>
+                                          )}
+                                          {activity.google_rating && (
+                                            <span className="shrink-0 text-yellow-500 flex items-center gap-0.5" title={`${activity.google_rating} rating`}>
+                                              <Star className="h-3 w-3 fill-yellow-500" />
+                                              <span className="text-[10px]">{activity.google_rating}</span>
+                                            </span>
+                                          )}
+                                          {hasPhotos && (
+                                            <span className="shrink-0 text-purple-500 flex items-center gap-0.5">
+                                              <ImageIcon className="h-3 w-3" />
+                                              {activityMedia.length}
+                                            </span>
+                                          )}
+                                          {/* Spacer to push time to the right */}
+                                          <span className="flex-1" />
+                                          {activity.start_time && timeInfo && (
+                                            <span className={cn("shrink-0 flex items-center gap-0.5", timeInfo.colorClass)}>
+                                              {timeInfo.icon}
+                                              {formatTimeAmPm(activity.start_time)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {/* Route stops nested under transport activity */}
+                                        {routeStopsForActivity.length > 0 && (
+                                          <div className="ml-5 border-l-2 border-blue-500/30 pl-2 my-0.5">
+                                            {routeStopsForActivity.map((stop) => (
+                                              <div
+                                                key={stop.id}
+                                                className="flex items-center gap-1 text-xs py-px px-1 rounded hover:bg-muted/50 cursor-pointer text-muted-foreground"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedSegmentId(segment.id);
+                                                  setSelectedActivityId(null);
+                                                }}
+                                              >
+                                                <GitBranch className="h-3 w-3 text-blue-500 shrink-0" />
+                                                <span className="truncate">{stop.name}</span>
+                                                {stop.detour_time && (
+                                                  <span className="text-muted-foreground/70 shrink-0 text-[10px]">
+                                                    +{stop.detour_time}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
                                         )}
-                                        {activity.start_time && timeInfo && (
-                                          <span className={cn("shrink-0 flex items-center gap-0.5", timeInfo.colorClass)}>
-                                            {timeInfo.icon}
-                                            {formatTimeAmPm(activity.start_time)}
-                                          </span>
-                                        )}
+                                        {/* Alternatives nested under the activity they replace */}
+                                        {hasAlternatives && (() => {
+                                          const { linked } = getSegmentAlternatives(segment.id);
+                                          const activityAlternatives = linked[activity.name] || [];
+                                          if (activityAlternatives.length === 0) return null;
+                                          return (
+                                            <div className="ml-5 border-l-2 border-orange-500/30 pl-2 my-0.5">
+                                              {activityAlternatives.map((alt) => (
+                                                <div
+                                                  key={alt.id}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleActivityClick(alt.id);
+                                                  }}
+                                                  className={cn(
+                                                    "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors",
+                                                    selectedActivityId === alt.id
+                                                      ? "bg-primary/10 border border-primary/30"
+                                                      : "hover:bg-muted/50 text-muted-foreground"
+                                                  )}
+                                                >
+                                                  <ArrowLeftRight className="h-3 w-3 text-orange-500 shrink-0" />
+                                                  <span className="truncate">{alt.name}</span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     );
                                   })}
                                 </div>
                               ) : (
-                                <p className="text-xs text-muted-foreground italic ml-5 py-px">
-                                  No activities planned
-                                </p>
+                                <div className="ml-5">
+                                  <p className="text-xs text-muted-foreground italic py-px">
+                                    No activities planned
+                                  </p>
+                                  {/* Show route stops for departure days based on day title */}
+                                  {(() => {
+                                    const dayTitleLower = (day.title || '').toLowerCase();
+                                    if (segment.route_stops && dayTitleLower.includes('douro')) {
+                                      const douroStops = segment.route_stops.filter(stop =>
+                                        stop.between?.to?.toLowerCase().includes('douro')
+                                      );
+                                      if (douroStops.length > 0) {
+                                        return (
+                                          <div className="border-l-2 border-blue-500/30 pl-2 my-0.5">
+                                            {douroStops.map((stop) => (
+                                              <div
+                                                key={stop.id}
+                                                className="flex items-center gap-1 text-xs py-px px-1 rounded hover:bg-muted/50 cursor-pointer text-muted-foreground"
+                                                onClick={() => {
+                                                  setSelectedSegmentId(segment.id);
+                                                  setSelectedActivityId(null);
+                                                }}
+                                              >
+                                                <GitBranch className="h-3 w-3 text-blue-500 shrink-0" />
+                                                <span className="truncate">{stop.name}</span>
+                                                {stop.detour_time && (
+                                                  <span className="text-muted-foreground/70 shrink-0 text-[10px]">
+                                                    +{stop.detour_time}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      }
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
                               )}
                             </div>
                           );
                         })}
+
+                        {/* General Backup Options Section (not linked to specific activities) */}
+                        {(() => {
+                          const { general } = getSegmentAlternatives(segment.id);
+                          const segmentAlts = segment.segment_alternatives || [];
+                          const hasGeneral = general.length > 0 || segmentAlts.length > 0;
+
+                          if (!hasGeneral) return null;
+
+                          const totalGeneralAlternatives = general.length + segmentAlts.length;
+
+                          return (
+                            <div className="mt-2">
+                              {/* Day-like header for General Backup Options */}
+                              <div className="flex items-center gap-1 py-px">
+                                <div className="px-1 py-px rounded text-[10px] font-medium text-white bg-orange-500">
+                                  ALT
+                                </div>
+                                <span className="font-medium text-xs">
+                                  Other Backup Options
+                                </span>
+                                <Badge variant="secondary" className="text-[10px] h-4">
+                                  {totalGeneralAlternatives}
+                                </Badge>
+                              </div>
+
+                              {/* General backup options - same indentation as activities */}
+                              <div className="ml-5">
+                                {(general.length > 0 || segmentAlts.length > 0) && (
+                                  <>
+                                    {general.map((alt) => (
+                                      <div
+                                        key={alt.id}
+                                        onClick={() => handleActivityClick(alt.id)}
+                                        className={cn(
+                                          "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors",
+                                          selectedActivityId === alt.id
+                                            ? "bg-primary/10 border border-primary/30"
+                                            : "hover:bg-muted/50"
+                                        )}
+                                      >
+                                        <span className="w-4 text-center shrink-0">
+                                          <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
+                                        </span>
+                                        <span className="truncate max-w-[240px]">{alt.name}</span>
+                                      </div>
+                                    ))}
+                                    {segmentAlts.map((alt) => (
+                                      <div
+                                        key={alt.id}
+                                        className={cn(
+                                          "flex items-center gap-1 text-xs py-px px-1 rounded cursor-pointer transition-colors hover:bg-muted/50"
+                                        )}
+                                        onClick={() => {
+                                          setSelectedSegmentId(segment.id);
+                                          setSelectedActivityId(null);
+                                        }}
+                                      >
+                                        <span className="w-4 text-center shrink-0">
+                                          <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
+                                        </span>
+                                        <span className="truncate max-w-[240px]">{alt.name}</span>
+                                      </div>
+                                    ))}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

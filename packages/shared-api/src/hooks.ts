@@ -93,6 +93,11 @@ import type {
   UpdateUserDietRequest,
   RoutineVersion,
   RoutineSnapshot,
+  // Schedule Validation types
+  AssembleScheduleResponse,
+  ValidationResult,
+  ValidationIssue,
+  ScheduleItemValidationStatus,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1660,6 +1665,36 @@ export function useUpdateTripStatus() {
   });
 }
 
+export function useUpdateTripPlanningProgress() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      step,
+      auto_suggested,
+      completed,
+    }: {
+      id: string;
+      step: 'basics' | 'accommodations' | 'segments' | 'days_activities';
+      auto_suggested?: boolean;
+      completed?: boolean;
+    }) => {
+      const response = await travelApi.trips.updatePlanningProgress(id, {
+        step,
+        auto_suggested,
+        completed,
+      });
+      return response.data.data as Trip;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id, "full"] });
+    },
+  });
+}
+
 // Flight Hooks
 export function useTripFlights(tripId: string) {
   return useQuery({
@@ -1717,6 +1752,44 @@ export function useDeleteTripFlight() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export interface ExtractedFlightData {
+  tripInfo: {
+    travelers?: number;
+    origin?: string;
+    destination?: string;
+    startDate?: string;
+    endDate?: string;
+  };
+  flights: Array<{
+    direction: "outbound" | "return";
+    airline: string;
+    flightNumbers: string[];
+    departureAirport: string;
+    arrivalAirport: string;
+    departureDatetime: string;
+    arrivalDatetime: string;
+    layovers?: Array<{ airport: string; duration: string }> | null;
+    bookingReference?: string | null;
+    totalPrice?: number | null;
+    notes?: string;
+  }>;
+}
+
+export function useExtractFlightFromImage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, image, mediaType }: { tripId: string; image: string; mediaType: string }) => {
+      const response = await travelApi.flights.extractFromImage(tripId, { image, mediaType });
+      return response.data.data as ExtractedFlightData;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "full"] });
     },
   });
 }
@@ -1852,6 +1925,27 @@ export function useReorderTripSegments() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useSyncSegmentDays() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, segmentId }: { tripId: string; segmentId: string }) => {
+      const response = await travelApi.segments.syncDays(segmentId);
+      return response.data.data as {
+        segment_id: string;
+        segment_dates: { start: string; end: string };
+        days_updated: number;
+        days_created: number;
+      };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "days"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "full"] });
     },
   });
 }
@@ -2164,7 +2258,9 @@ export function useFetchGooglePlacesForActivity() {
       return response.data.data as FetchGooglePlacesResponse;
     },
     onSuccess: (_, variables) => {
+      // Invalidate all trip-related queries including the "full" query used by useTripFull
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "full"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "activities"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
     },
@@ -2186,7 +2282,9 @@ export function useFetchGooglePlacesForSegment() {
       return response.data.data as FetchGooglePlacesResponse;
     },
     onSuccess: (_, variables) => {
+      // Invalidate all trip-related queries including the "full" query used by useTripFull
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "full"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "segments"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
     },
@@ -2651,8 +2749,20 @@ export function getTimeBlockLabel(block: string): string {
   }
 }
 
+/**
+ * Parse a date string (YYYY-MM-DD) as local time, not UTC.
+ * This prevents the common bug where "2026-06-15" gets interpreted as UTC midnight,
+ * which shows as June 14 in Pacific time.
+ */
+function parseLocalDate(dateString: string): Date {
+  // Handle both "2026-06-15" and "2026-06-15T00:00:00" formats
+  const datePart = dateString.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function formatTripDate(dateString: string): string {
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   return date.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
@@ -2662,8 +2772,8 @@ export function formatTripDate(dateString: string): string {
 }
 
 export function formatTripDateRange(startDate: string, endDate: string): string {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
   const sameYear = start.getFullYear() === end.getFullYear();
   const sameMonth = sameYear && start.getMonth() === end.getMonth();
 
@@ -2677,12 +2787,15 @@ export function formatTripDateRange(startDate: string, endDate: string): string 
 }
 
 export function calculateTripDuration(startDate: string, endDate: string): number {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
   const diffTime = Math.abs(end.getTime() - start.getTime());
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   return diffDays + 1; // Include both start and end days
 }
+
+// Export parseLocalDate for use in other components
+export { parseLocalDate };
 
 // ============================================
 // Travel Settings & Import Hooks
@@ -3140,16 +3253,24 @@ export function useTripSchedule(tripId: string) {
 /**
  * Assemble daily schedule using AI
  * This replaces any existing schedule with newly generated 15-minute precision items
+ *
+ * Options:
+ * - validateOnly: Dry run, just validate existing schedule without regenerating
+ * - skipEnrichment: Skip pre-flight Google data fetch for activities
  */
 export function useAssembleTripSchedule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (tripId: string) => {
-      const response = await travelApi.schedule.assemble(tripId);
-      return response.data;
+    mutationFn: async ({ tripId, validateOnly, skipEnrichment }: {
+      tripId: string;
+      validateOnly?: boolean;
+      skipEnrichment?: boolean;
+    }) => {
+      const response = await travelApi.schedule.assemble(tripId, { validateOnly, skipEnrichment });
+      return response.data as AssembleScheduleResponse;
     },
-    onSuccess: (_, tripId) => {
+    onSuccess: (_, { tripId }) => {
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "schedule"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
     },
@@ -3186,6 +3307,9 @@ export interface DailyScheduleItem {
   booking_required?: boolean;
   booking_url?: string;
   calendar_sync_status?: string;
+  // Validation fields
+  validation_status?: ScheduleItemValidationStatus;
+  validation_issues?: ValidationIssue[];
   sort_order: number;
   created_at?: string;
   updated_at?: string;

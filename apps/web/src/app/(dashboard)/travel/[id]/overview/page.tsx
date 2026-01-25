@@ -8,6 +8,7 @@ import {
   useCreateTripMedia,
   useDeleteTripMedia,
   formatTripDate,
+  parseLocalDate,
   getActivityTypeIcon,
   getTimeBlockLabel,
 } from "@/lib/api";
@@ -450,7 +451,7 @@ export default function TripOverviewPage() {
     }
     // Sort days within each segment by date
     for (const segmentId of Object.keys(grouped)) {
-      grouped[segmentId].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      grouped[segmentId].sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
     }
     return grouped;
   }, [trip?.days]);
@@ -730,6 +731,17 @@ export default function TripOverviewPage() {
                         <div className="space-y-2">
                           {segmentDays.map((day, dayIndex) => {
                             const dayActivities = activitiesByDay[day.id] || [];
+                            const daySchedule = (day as any).schedule as Array<{
+                              time: string;
+                              activity_name: string;
+                              activity_type?: string;
+                              location?: string;
+                              notes?: string;
+                              is_deep_dive?: boolean;
+                            }> | undefined;
+                            const hasSchedule = daySchedule && daySchedule.length > 0;
+                            const itemCount = dayActivities.length || (hasSchedule ? daySchedule.length : 0);
+
                             return (
                               <div key={day.id} className="flex items-start gap-2">
                                 {/* Day number */}
@@ -743,18 +755,25 @@ export default function TripOverviewPage() {
                                       {day.title || `Day ${day.day_number || dayIndex + 1}`}
                                     </span>
                                     <span className="text-muted-foreground text-xs">
-                                      {new Date(day.date).toLocaleDateString("en-US", {
+                                      {parseLocalDate(day.date).toLocaleDateString("en-US", {
                                         weekday: "short",
                                         month: "short",
                                         day: "numeric",
                                       })}
                                     </span>
-                                    {!isExpanded && dayActivities.length > 0 && (
+                                    {!isExpanded && itemCount > 0 && (
                                       <span className="text-muted-foreground text-xs">
-                                        ({dayActivities.length} {dayActivities.length === 1 ? "activity" : "activities"})
+                                        ({itemCount} {itemCount === 1 ? "item" : "items"})
                                       </span>
                                     )}
                                   </div>
+
+                                  {/* Show day theme if available */}
+                                  {isExpanded && (day as any).theme && (
+                                    <p className="text-xs text-muted-foreground italic mt-0.5">
+                                      {(day as any).theme}
+                                    </p>
+                                  )}
 
                                   {/* Activities - only show when expanded */}
                                   {isExpanded && dayActivities.length > 0 && (
@@ -776,6 +795,43 @@ export default function TripOverviewPage() {
                                               <span className={cn("shrink-0 flex items-center gap-1", timeInfo.colorClass)}>
                                                 {timeInfo.icon}
                                                 {formatTimeAmPm(activity.start_time)}
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* Schedule items (V3 format) - show when expanded and no activities */}
+                                  {isExpanded && dayActivities.length === 0 && hasSchedule && (
+                                    <div className="mt-1 space-y-0.5">
+                                      {daySchedule.map((item, idx) => {
+                                        // Parse time for display
+                                        const timeMatch = item.time.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
+                                        const timeStr = timeMatch ? item.time : null;
+                                        const hours = timeMatch ? parseInt(timeMatch[1], 10) + (timeMatch[3]?.toLowerCase() === 'pm' && parseInt(timeMatch[1], 10) !== 12 ? 12 : 0) : 12;
+                                        const timeInfo = timeStr ? getTimeOfDayInfo(`${hours.toString().padStart(2, '0')}:00`) : null;
+
+                                        return (
+                                          <div
+                                            key={idx}
+                                            className={cn(
+                                              "flex items-center gap-2 text-xs py-0.5",
+                                              item.is_deep_dive ? "text-foreground" : "text-muted-foreground"
+                                            )}
+                                          >
+                                            <span className="w-4 text-center">
+                                              {getActivityTypeIcon(item.activity_type || "activity")}
+                                            </span>
+                                            <span className={cn("flex-1 truncate", item.is_deep_dive && "font-medium")}>
+                                              {item.activity_name}
+                                              {item.is_deep_dive && <span className="ml-1 text-purple-500">★</span>}
+                                            </span>
+                                            {timeStr && timeInfo && (
+                                              <span className={cn("shrink-0 flex items-center gap-1", timeInfo.colorClass)}>
+                                                {timeInfo.icon}
+                                                {item.time}
                                               </span>
                                             )}
                                           </div>

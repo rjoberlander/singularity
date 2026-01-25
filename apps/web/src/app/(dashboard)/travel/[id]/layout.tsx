@@ -60,6 +60,8 @@ import {
   Upload,
   Wand2,
   Loader2,
+  ClipboardCheck,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -67,8 +69,11 @@ import { TripSettingsSheet } from "@/components/travel/TripSettingsSheet";
 
 const TABS = [
   { value: "details", label: "Details", icon: FileText, href: "/details" },
+  { value: "plan", label: "Plan", icon: ClipboardCheck, href: "/plan" },
   { value: "overview", label: "Overview", icon: Layers, href: "/overview" },
   { value: "itinerary", label: "Itinerary", icon: CalendarDays, href: "/itinerary" },
+  { value: "validation", label: "Validation", icon: ShieldCheck, href: "/validation" },
+  { value: "flights", label: "Flights", icon: Plane, href: "/flights" },
   { value: "lodging", label: "Lodging", icon: Hotel, href: "/lodging" },
   { value: "packing", label: "Packing", icon: ListTodo, href: "/packing" },
   { value: "media", label: "Media", icon: Images, href: "/media" },

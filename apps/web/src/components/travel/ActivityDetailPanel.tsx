@@ -205,6 +205,71 @@ export function ActivityDetailPanel({
               )}
             </div>
 
+            {/* Data Status Badges */}
+            <div className="flex flex-wrap gap-1.5 mb-4 p-2 bg-muted/50 rounded-lg">
+              {/* Debug - always show */}
+              <span className="text-xs text-muted-foreground">Status:</span>
+
+              {/* Google Data Badge */}
+              {activity.google_place_id ? (
+                <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Google
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-gray-500/10 text-gray-500 border-gray-500/30">
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  No Google Data
+                </Badge>
+              )}
+
+              {/* Photos Badge */}
+              {userPhotos.length > 0 && (
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">
+                  <Eye className="h-3 w-3 mr-1" />
+                  {userPhotos.length} Photos
+                </Badge>
+              )}
+
+              {/* Google Maps Link */}
+              {activity.google_maps_url && (
+                <a href={activity.google_maps_url} target="_blank" rel="noopener noreferrer">
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 cursor-pointer hover:bg-blue-500/20">
+                    <MapPin className="h-3 w-3 mr-1" />
+                    Maps
+                    <ExternalLink className="h-2.5 w-2.5 ml-1" />
+                  </Badge>
+                </a>
+              )}
+
+              {/* Ticket Required Badge */}
+              {activity.reservation_required && (
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                  <Ticket className="h-3 w-3 mr-1" />
+                  Tickets Required
+                </Badge>
+              )}
+
+              {/* Urgent Ticket Badge - if reservation required and not confirmed */}
+              {activity.reservation_required && activity.confirmation_status !== "confirmed" && (
+                <Badge variant="destructive" className="animate-pulse">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Book Now!
+                </Badge>
+              )}
+
+              {/* Rating Badge */}
+              {activity.google_rating && (
+                <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                  <Star className="h-3 w-3 mr-1 fill-yellow-500" />
+                  {activity.google_rating}
+                  {activity.google_review_count && (
+                    <span className="text-xs ml-1 opacity-70">({activity.google_review_count.toLocaleString()})</span>
+                  )}
+                </Badge>
+              )}
+            </div>
+
             {/* Google Data Button */}
             <Button
               variant="outline"
@@ -460,8 +525,74 @@ export function ActivityDetailPanel({
               </div>
             )}
 
-            {/* Deep Dive Content */}
-            {activity.deep_dive_content && (
+            {/* Deep Dive Content - V3 JSONB format */}
+            {activity.deep_dive && typeof activity.deep_dive === 'object' && (
+              <div className="mb-4 space-y-4">
+                {(activity.deep_dive as any).what_it_is && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-1 flex items-center gap-2">
+                      <BookOpen className="h-4 w-4" />
+                      What It Is
+                    </h4>
+                    <p className="text-sm text-muted-foreground">{(activity.deep_dive as any).what_it_is}</p>
+                  </div>
+                )}
+                {(activity.deep_dive as any).why_it_matters && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-1 flex items-center gap-2">
+                      <Lightbulb className="h-4 w-4 text-yellow-500" />
+                      Why It Matters
+                    </h4>
+                    <p className="text-sm text-muted-foreground">{(activity.deep_dive as any).why_it_matters}</p>
+                  </div>
+                )}
+                {(activity.deep_dive as any).the_story && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-1 flex items-center gap-2">
+                      <History className="h-4 w-4" />
+                      The Story
+                    </h4>
+                    <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                      {(activity.deep_dive as any).the_story}
+                    </div>
+                  </div>
+                )}
+                {(activity.deep_dive as any).what_youll_see && (activity.deep_dive as any).what_youll_see.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                      <Eye className="h-4 w-4" />
+                      What You'll See
+                    </h4>
+                    <div className="space-y-2">
+                      {(activity.deep_dive as any).what_youll_see.map((item: any, i: number) => (
+                        <div key={i} className="p-2 bg-muted rounded-lg">
+                          <p className="font-medium text-sm">{item.name || item}</p>
+                          {item.description && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                          )}
+                          {item.look_for && (
+                            <p className="text-xs text-primary mt-0.5">👀 {item.look_for}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(activity.deep_dive as any).interesting_facts && (activity.deep_dive as any).interesting_facts.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Interesting Facts</h4>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+                      {(activity.deep_dive as any).interesting_facts.map((fact: string, i: number) => (
+                        <li key={i}>{fact}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Deep Dive Content - Legacy TEXT format */}
+            {activity.deep_dive_content && !activity.deep_dive && (
               <div className="mb-4">
                 <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                   <BookOpen className="h-4 w-4" />
@@ -518,7 +649,7 @@ export function ActivityDetailPanel({
               </div>
             )}
 
-            {/* Kid Engagement by Age */}
+            {/* Kid Engagement - V3 format with named children */}
             {activity.kid_engagement && (
               <div className="mb-4">
                 <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
@@ -526,6 +657,46 @@ export function ActivityDetailPanel({
                   Kid Engagement Tips
                 </h4>
                 <div className="space-y-3">
+                  {/* V3 format: named children (parker, charlotte, xander) */}
+                  {(activity.kid_engagement as any).parker && (
+                    <div>
+                      <Badge variant="secondary" className="mb-1">Parker (8)</Badge>
+                      <p className="text-sm text-muted-foreground italic">"{(activity.kid_engagement as any).parker}"</p>
+                    </div>
+                  )}
+                  {(activity.kid_engagement as any).charlotte && (
+                    <div>
+                      <Badge variant="secondary" className="mb-1">Charlotte (5)</Badge>
+                      <p className="text-sm text-muted-foreground italic">"{(activity.kid_engagement as any).charlotte}"</p>
+                    </div>
+                  )}
+                  {(activity.kid_engagement as any).xander && (
+                    <div>
+                      <Badge variant="secondary" className="mb-1">Xander (3)</Badge>
+                      <p className="text-sm text-muted-foreground italic">"{(activity.kid_engagement as any).xander}"</p>
+                    </div>
+                  )}
+                  {(activity.kid_engagement as any).conversation_starters && (activity.kid_engagement as any).conversation_starters.length > 0 && (
+                    <div>
+                      <Badge variant="outline" className="mb-1">Conversation Starters</Badge>
+                      <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
+                        {(activity.kid_engagement as any).conversation_starters.map((tip: string, i: number) => (
+                          <li key={i}>{tip}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(activity.kid_engagement as any).games && (activity.kid_engagement as any).games.length > 0 && (
+                    <div>
+                      <Badge variant="outline" className="mb-1">Games & Activities</Badge>
+                      <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
+                        {(activity.kid_engagement as any).games.map((game: string, i: number) => (
+                          <li key={i}>{game}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* Legacy format: age_7, age_5, age_3 */}
                   {activity.kid_engagement.age_7 && activity.kid_engagement.age_7.length > 0 && (
                     <div>
                       <Badge variant="secondary" className="mb-1">Age 7+</Badge>

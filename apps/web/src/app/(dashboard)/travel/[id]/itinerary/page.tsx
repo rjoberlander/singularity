@@ -8,6 +8,7 @@ import {
   useAssembleTripSchedule,
   useGenerateTripDays,
   formatTripDate,
+  parseLocalDate,
   getActivityTypeIcon,
   getTimeBlockLabel,
   DailyScheduleItem,
@@ -116,7 +117,7 @@ export default function TripItineraryPage() {
   const handleAssembleSchedule = async () => {
     setIsAssembling(true);
     try {
-      await assembleSchedule.mutateAsync(tripId);
+      await assembleSchedule.mutateAsync({ tripId });
       await refetchSchedule();
       toast.success("Schedule assembled! Your activities now have specific times.");
     } catch (error: any) {
@@ -175,7 +176,7 @@ export default function TripItineraryPage() {
         seenDates.add(day.date);
         return true;
       })
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
 
     // Create segment map
     const segmentMap = new Map(trip.segments?.map((s) => [s.id, s]) || []);
@@ -183,10 +184,10 @@ export default function TripItineraryPage() {
     // Find accommodation for each day (day >= check_in AND day < check_out)
     const getAccommodationForDay = (dayDate: string) => {
       if (!trip.accommodations) return null;
-      const dayTime = new Date(dayDate).getTime();
+      const dayTime = parseLocalDate(dayDate).getTime();
       return trip.accommodations.find((acc) => {
-        const checkIn = new Date(acc.check_in_date).getTime();
-        const checkOut = new Date(acc.check_out_date).getTime();
+        const checkIn = parseLocalDate(acc.check_in_date).getTime();
+        const checkOut = parseLocalDate(acc.check_out_date).getTime();
         return dayTime >= checkIn && dayTime < checkOut;
       });
     };
@@ -491,12 +492,12 @@ export default function TripItineraryPage() {
                       <TableCell>
                         <div className="text-sm">
                           <div className="font-medium">
-                            {new Date(row.day.date).toLocaleDateString("en-US", {
+                            {parseLocalDate(row.day.date).toLocaleDateString("en-US", {
                               weekday: "short",
                             })}
                           </div>
                           <div className="text-muted-foreground">
-                            {new Date(row.day.date).toLocaleDateString("en-US", {
+                            {parseLocalDate(row.day.date).toLocaleDateString("en-US", {
                               month: "short",
                               day: "numeric",
                             })}
