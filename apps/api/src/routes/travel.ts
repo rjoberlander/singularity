@@ -95,6 +95,30 @@ interface GooglePlaceResult {
   allowsDogs?: boolean;
 }
 
+/**
+ * Add days to a YYYY-MM-DD date string without timezone conversion issues.
+ * Works by parsing and manipulating the date components directly in UTC.
+ */
+function addDaysToDateString(dateStr: string, daysToAdd: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  // Create date at noon UTC to avoid any DST issues
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  date.setUTCDate(date.getUTCDate() + daysToAdd);
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Calculate the number of days between two YYYY-MM-DD date strings.
+ * Returns a positive number if end > start, negative if start > end.
+ */
+function daysBetweenDateStrings(startStr: string, endStr: string): number {
+  const [startYear, startMonth, startDay] = startStr.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endStr.split('-').map(Number);
+  const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay, 12, 0, 0));
+  const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay, 12, 0, 0));
+  return Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 const router = Router();
 
 // Mount travel import & settings routes (settings, import, research items)
@@ -1815,14 +1839,15 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
     const photos = place.photos?.slice(0, 20) || [];
 
     // Get existing photo references AND content hashes to avoid duplicates
+    // Check at TRIP level, not just segment level, to prevent same photo appearing for different segments
     const { data: existingPhotos } = await supabase
       .from('trip_media')
-      .select('google_photo_reference, content_hash')
-      .eq('parent_type', 'segment')
-      .eq('parent_id', segmentId);
+      .select('google_photo_reference, content_hash, file_url')
+      .eq('trip_id', tripId);
 
     const existingRefs = new Set(existingPhotos?.map(p => p.google_photo_reference).filter(Boolean) || []);
     const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
+    const existingUrls = new Set(existingPhotos?.map(p => p.file_url).filter(Boolean) || []);
 
     for (const photo of photos) {
       try {
@@ -1871,12 +1896,20 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
           .from('singularity-uploads')
           .getPublicUrl(storagePath);
 
+        // Skip if this exact URL already exists in the trip
+        if (existingUrls.has(urlData.publicUrl)) {
+          photosSkipped++;
+          continue;
+        }
+
         // Create TripMedia record with google_photo_reference and content_hash for dedup
         // Auto-approve Google photos so they display immediately
+        // Store segment name in caption for display
+        // Use upsert with onConflict to handle race conditions gracefully
         const attribution = photo.authorAttributions?.[0];
-        await supabase
+        const { error: insertError } = await supabase
           .from('trip_media')
-          .insert({
+          .upsert({
             trip_id: tripId,
             user_id: userId,
             parent_type: 'segment',
@@ -1885,17 +1918,32 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
             media_type: 'image',
             width: photo.widthPx,
             height: photo.heightPx,
+            caption: segment.name, // Store segment name for display
             is_google_sourced: true,
             approved: true,  // Auto-approve Google photos
             google_attribution_name: attribution?.displayName,
             google_attribution_uri: attribution?.uri,
             google_photo_reference: photo.name,
             content_hash: contentHash
+          }, {
+            onConflict: 'trip_id,content_hash',
+            ignoreDuplicates: true
           });
+
+        if (insertError) {
+          // Duplicate constraint violation is expected, just skip
+          if (insertError.code === '23505') {
+            photosSkipped++;
+            continue;
+          }
+          console.error('Photo insert error:', insertError);
+          continue;
+        }
 
         // Add to existing sets to prevent duplicates within same batch
         existingRefs.add(photo.name);
         existingHashes.add(contentHash);
+        existingUrls.add(urlData.publicUrl);
         photosAdded++;
 
         // Small delay to avoid rate limiting
@@ -2638,28 +2686,25 @@ router.post('/segments/:segmentId/sync-days', authenticateUser, async (req: Requ
       });
     }
 
-    // Parse segment dates (as local dates)
-    const segmentStart = new Date(segment.start_date + 'T00:00:00');
-    const segmentEnd = new Date(segment.end_date + 'T00:00:00');
+    // Use safer date arithmetic that doesn't rely on JavaScript Date timezone handling
+    const segmentStartDate = segment.start_date; // Already in YYYY-MM-DD format
+    const segmentEndDate = segment.end_date;
 
-    // Calculate number of days in segment
-    const segmentDayCount = Math.ceil((segmentEnd.getTime() - segmentStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    // Calculate number of days in segment using safe date arithmetic
+    const segmentDayCount = daysBetweenDateStrings(segmentStartDate, segmentEndDate) + 1;
 
     let updatedCount = 0;
     let createdCount = 0;
 
     if (existingDays && existingDays.length > 0) {
       // Calculate the date offset (how many days we need to shift)
-      const firstDayDate = new Date(existingDays[0].date + 'T00:00:00');
-      const offsetMs = segmentStart.getTime() - firstDayDate.getTime();
-      const offsetDays = Math.round(offsetMs / (1000 * 60 * 60 * 24));
+      const firstDayDateStr = existingDays[0].date;
+      const offsetDays = daysBetweenDateStrings(firstDayDateStr, segmentStartDate);
 
       if (offsetDays !== 0) {
         // Update each day with the new date
         for (const day of existingDays) {
-          const oldDate = new Date(day.date + 'T00:00:00');
-          const newDate = new Date(oldDate.getTime() + offsetMs);
-          const newDateStr = newDate.toISOString().split('T')[0];
+          const newDateStr = addDaysToDateString(day.date, offsetDays);
 
           const { error: updateError } = await supabase
             .from('trip_days')
@@ -2681,13 +2726,9 @@ router.post('/segments/:segmentId/sync-days', authenticateUser, async (req: Requ
       // If segment has more days than existing days, create additional days
       if (segmentDayCount > existingDays.length) {
         const lastExistingDayNumber = existingDays[existingDays.length - 1].day_number || existingDays.length;
-        const lastExistingDate = new Date(segment.start_date + 'T00:00:00');
-        lastExistingDate.setDate(lastExistingDate.getDate() + existingDays.length - 1);
 
         for (let i = existingDays.length; i < segmentDayCount; i++) {
-          const newDate = new Date(segmentStart);
-          newDate.setDate(newDate.getDate() + i);
-          const dateStr = newDate.toISOString().split('T')[0];
+          const dateStr = addDaysToDateString(segmentStartDate, i);
 
           const { error: createError } = await supabase
             .from('trip_days')
@@ -2710,9 +2751,7 @@ router.post('/segments/:segmentId/sync-days', authenticateUser, async (req: Requ
     } else {
       // No existing days - create them from scratch
       for (let i = 0; i < segmentDayCount; i++) {
-        const newDate = new Date(segmentStart);
-        newDate.setDate(newDate.getDate() + i);
-        const dateStr = newDate.toISOString().split('T')[0];
+        const dateStr = addDaysToDateString(segmentStartDate, i);
 
         const { error: createError } = await supabase
           .from('trip_days')
@@ -3452,15 +3491,42 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
     const photos = place.photos?.slice(0, 20) || [];
     console.log(`[Google Photos] Activity: Place has ${place.photos?.length || 0} photos available, processing ${photos.length}`);
 
+    // Get day info for caption
+    let dayCaption = '';
+    if (activity.day_id) {
+      // Get the day and all trip days to calculate day number
+      const { data: tripDays } = await supabase
+        .from('trip_days')
+        .select('id, date')
+        .eq('trip_id', tripId)
+        .order('date', { ascending: true });
+
+      if (tripDays && tripDays.length > 0) {
+        // Get unique dates and calculate day number
+        const uniqueDates = [...new Set(tripDays.map(d => d.date))].sort();
+        const activityDay = tripDays.find(d => d.id === activity.day_id);
+        if (activityDay) {
+          const dayIndex = uniqueDates.indexOf(activityDay.date);
+          if (dayIndex !== -1) {
+            const dayNumber = dayIndex + 1;
+            const date = new Date(activityDay.date);
+            const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            dayCaption = `Day ${dayNumber} · ${dateStr} | `;
+          }
+        }
+      }
+    }
+
     // Get existing photo references AND content hashes to avoid duplicates
+    // Check at TRIP level, not just activity level, to prevent same photo appearing for different activities
     const { data: existingPhotos } = await supabase
       .from('trip_media')
-      .select('google_photo_reference, content_hash')
-      .eq('parent_type', 'activity')
-      .eq('parent_id', activityId);
+      .select('google_photo_reference, content_hash, file_url')
+      .eq('trip_id', tripId);
 
     const existingRefs = new Set(existingPhotos?.map(p => p.google_photo_reference).filter(Boolean) || []);
     const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
+    const existingUrls = new Set(existingPhotos?.map(p => p.file_url).filter(Boolean) || []);
 
     for (const photo of photos) {
       try {
@@ -3509,12 +3575,20 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
           .from('singularity-uploads')
           .getPublicUrl(storagePath);
 
+        // Skip if this exact URL already exists in the trip
+        if (existingUrls.has(urlData.publicUrl)) {
+          photosSkipped++;
+          continue;
+        }
+
         // Create TripMedia record with google_photo_reference and content_hash for dedup
         // Auto-approve Google photos so they display immediately
+        // Store activity name in caption for display purposes
+        // Use upsert with onConflict to handle race conditions gracefully
         const attribution = photo.authorAttributions?.[0];
-        await supabase
+        const { error: insertError } = await supabase
           .from('trip_media')
-          .insert({
+          .upsert({
             trip_id: tripId,
             user_id: userId,
             parent_type: 'activity',
@@ -3523,17 +3597,32 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
             media_type: 'image',
             width: photo.widthPx,
             height: photo.heightPx,
+            caption: `${dayCaption}${activity.name}`, // Store day info + activity name for display
             is_google_sourced: true,
             approved: true,  // Auto-approve Google photos
             google_attribution_name: attribution?.displayName,
             google_attribution_uri: attribution?.uri,
             google_photo_reference: photo.name,
             content_hash: contentHash
+          }, {
+            onConflict: 'trip_id,content_hash',
+            ignoreDuplicates: true
           });
+
+        if (insertError) {
+          // Duplicate constraint violation is expected, just skip
+          if (insertError.code === '23505') {
+            photosSkipped++;
+            continue;
+          }
+          console.error('Photo insert error:', insertError);
+          continue;
+        }
 
         // Add to existing sets to prevent duplicates within same batch
         existingRefs.add(photo.name);
         existingHashes.add(contentHash);
+        existingUrls.add(urlData.publicUrl);
         photosAdded++;
 
         // Small delay to avoid rate limiting
@@ -5098,6 +5187,16 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
         cost_estimate: r.cost_estimate,
         google_maps_url: r.google_maps_url,
         tips: r.tips
+      })),
+      flights: (flights || []).map((f: any) => ({
+        id: f.id,
+        direction: f.direction,
+        airline: f.airline,
+        flight_number: f.flight_number,
+        departure_airport: f.departure_airport,
+        arrival_airport: f.arrival_airport,
+        departure_datetime: f.departure_datetime,
+        arrival_datetime: f.arrival_datetime
       }))
     };
 
@@ -5115,7 +5214,7 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
 
     const anthropicApiKey = keyData.api_key;
 
-    const systemPrompt = `You are a travel itinerary assembly assistant. Your task is to take trip data (days, activities, accommodations) and create a detailed 15-minute precision daily schedule.
+    const systemPrompt = `You are a travel itinerary assembly assistant. Your task is to take trip data (days, activities, accommodations, flights) and create a detailed 15-minute precision daily schedule.
 
 RULES:
 1. All times must be in 24-hour HH:MM format (e.g., "09:00", "14:30")
@@ -5126,6 +5225,17 @@ RULES:
 6. Consider meal times (breakfast 7-9 AM, lunch 12-2 PM, dinner 6-8 PM)
 7. Add hotel check-in and check-out logistics events on appropriate days
 8. Keep activities within reasonable hours (8 AM - 10 PM unless specified)
+
+FLIGHT TIME RULES (CRITICAL):
+9. If there is an OUTBOUND flight, the first day schedule MUST start AFTER the arrival time + 60 minutes buffer.
+   - Example: If outbound flight arrives at 11:00, the EARLIEST any activity can start is 12:00 (after clearing customs/baggage/etc)
+   - Add an "Arrive at airport" logistics event at the flight arrival time
+   - Add a "Pick up rental car" or "Transfer to hotel" event after arrival if applicable
+10. If there is a RETURN flight, the last day schedule MUST end 2.5 hours BEFORE the departure time.
+   - Example: If return flight departs at 18:00, the LAST activity must end by 15:30 at latest
+   - Add a "Depart for airport" transit event before the departure buffer
+11. Parse flight times from the ISO 8601 datetime strings (e.g., "2026-06-15T11:00:00+00:00" means arrival at 11:00)
+   - The LOCAL time is embedded in the datetime (the timezone offset converts it to UTC, but the local time is what matters for scheduling)
 
 OUTPUT FORMAT: Return a JSON array of day schedules with this exact structure:
 [
@@ -5160,6 +5270,7 @@ Generate a schedule that:
 3. Includes hotel check-in on arrival days and check-out on departure days
 4. Adds meal breaks if not already included in activities
 5. Includes reasonable buffer time between packed activities
+6. CRITICAL: If flights are provided, ensure the first day starts AFTER the outbound flight arrival time + 60 min buffer, and the last day ends BEFORE the return flight departure - 2.5 hours
 
 Return the complete schedule as a JSON array.`;
 

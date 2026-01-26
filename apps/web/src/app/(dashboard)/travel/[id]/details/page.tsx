@@ -109,13 +109,26 @@ function ActivityPhotoGrid({
   mediaByParent: Record<string, Array<{ id: string; file_url: string; caption?: string | null }>>;
   onPhotoClick: (activityId: string) => void;
 }) {
-  // Collect photos from activities with their activity reference
+  // Collect photos from activities, deduplicated by place name (max 1 per place for grid)
   const photosWithActivity = useMemo(() => {
-    const result: Array<{ photo: { id: string; file_url: string; caption?: string | null }; activityId: string; activityName: string }> = [];
+    // First collect all photos
+    const allPhotos: Array<{ photo: { id: string; file_url: string; caption?: string | null }; activityId: string; activityName: string }> = [];
     for (const activity of activities) {
       const activityMedia = mediaByParent[`activity-${activity.id}`] || [];
       for (const photo of activityMedia) {
-        result.push({ photo, activityId: activity.id, activityName: activity.name });
+        allPhotos.push({ photo, activityId: activity.id, activityName: activity.name });
+      }
+    }
+
+    // Deduplicate by place name (from caption) - show only 1 photo per unique place
+    const seenPlaces = new Set<string>();
+    const result: typeof allPhotos = [];
+    for (const item of allPhotos) {
+      const { placeName } = parseCaption(item.photo.caption);
+      const key = (placeName || item.photo.caption || item.activityName).toLowerCase();
+      if (!seenPlaces.has(key)) {
+        seenPlaces.add(key);
+        result.push(item);
       }
     }
     return result;
@@ -148,6 +161,261 @@ function ActivityPhotoGrid({
           )}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Trip-level photo gallery with overlays
+interface TripPhotoInfo {
+  photo: { id: string; file_url: string; caption?: string | null; parent_id: string };
+  activityId: string | null;
+  activityName: string;
+  segmentName: string;
+  dayNumber: number | null;
+  dayDate: string;
+  isAlternative: boolean;
+  captionDayInfo?: string | null; // Pre-formatted day info from caption
+}
+
+// Extract google_place_id from media file_url (format: .../google_places_PLACE_ID_photos...)
+function extractGooglePlaceId(fileUrl: string): string | null {
+  const match = fileUrl.match(/google_places_(.+?)_photos_/);
+  return match ? match[1] : null;
+}
+
+// Parse caption format: "Day X · Date | Place Name" or just "Place Name"
+function parseCaption(caption: string | null | undefined): { dayInfo: string | null; placeName: string | null } {
+  if (!caption) return { dayInfo: null, placeName: null };
+
+  // Check for "Day X · Date | Place Name" format
+  const match = caption.match(/^(Day \d+ · .+?) \| (.+)$/);
+  if (match) {
+    return { dayInfo: match[1], placeName: match[2] };
+  }
+
+  // No day info, just place name
+  return { dayInfo: null, placeName: caption };
+}
+
+function TripPhotoGallery({
+  trip,
+  onPhotoClick,
+}: {
+  trip: {
+    name: string;
+    segments?: Array<{ id: string; name: string; start_date: string }>;
+    days?: Array<{ id: string; date: string; segment_id?: string | null }>;
+    activities?: TripActivity[];
+    media?: Array<{ id: string; file_url: string; caption?: string | null; parent_type: string; parent_id: string }>;
+  };
+  onPhotoClick: (activityId: string) => void;
+}) {
+  // Build lookup maps and collect photos
+  const photosWithInfo = useMemo(() => {
+    // Build activity lookup by ID
+    const activityMap = new Map(
+      (trip.activities || []).map(a => [a.id, a])
+    );
+
+    // Build activity lookup by google_place_id (for matching orphaned media)
+    const activityByPlaceId = new Map<string, TripActivity>();
+    for (const activity of trip.activities || []) {
+      if (activity.google_place_id) {
+        activityByPlaceId.set(activity.google_place_id, activity);
+      }
+    }
+
+    // Build activity lookup by name (for matching by caption/place name)
+    const activityByName = new Map<string, TripActivity>();
+    for (const activity of trip.activities || []) {
+      // Use lowercase for case-insensitive matching
+      const name = activity.name.toLowerCase();
+      if (!activityByName.has(name)) {
+        activityByName.set(name, activity);
+      }
+    }
+
+    // Build segment lookup
+    const segmentMap = new Map(
+      (trip.segments || []).map(s => [s.id, { name: s.name, start_date: s.start_date }])
+    );
+
+    // Build day lookup
+    const dayMap = new Map(
+      (trip.days || []).map(d => [d.id, { date: d.date, segment_id: d.segment_id }])
+    );
+
+    // Calculate global day numbers
+    type DayInfo = { id: string; date: string; segment_id?: string | null };
+    const uniqueDays = new Map<string, DayInfo>();
+    for (const day of trip.days || []) {
+      if (!uniqueDays.has(day.date)) {
+        uniqueDays.set(day.date, day);
+      }
+    }
+    const sortedDays = Array.from(uniqueDays.values()).sort(
+      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
+    );
+    const dayToGlobalNumber: Record<string, number> = {};
+    sortedDays.forEach((day, index) => {
+      dayToGlobalNumber[day.id] = index + 1;
+    });
+
+    // Get all activity media - group by place name (from caption) to avoid duplicates
+    const activityMedia = (trip.media || []).filter(m => m.parent_type === 'activity');
+
+    // First, dedupe by file_url to ensure same image never appears twice
+    const seenUrls = new Set<string>();
+    const uniqueMedia = activityMedia.filter(m => {
+      if (seenUrls.has(m.file_url)) return false;
+      seenUrls.add(m.file_url);
+      return true;
+    });
+
+    // Group by parsed place name (or caption, or parent_id as fallback)
+    const mediaByPlace: Record<string, typeof uniqueMedia> = {};
+    for (const media of uniqueMedia) {
+      const { placeName } = parseCaption(media.caption);
+      // Use place name as key (normalized), fallback to caption, then parent_id
+      const groupKey = (placeName || media.caption || media.parent_id).toLowerCase();
+      if (!mediaByPlace[groupKey]) mediaByPlace[groupKey] = [];
+      mediaByPlace[groupKey].push(media);
+    }
+
+    // Collect photos - 2 per unique place, max 60 total
+    const PHOTOS_PER_PLACE = 2;
+    const MAX_PHOTOS = 60;
+    const result: TripPhotoInfo[] = [];
+
+    for (const [placeKey, photos] of Object.entries(mediaByPlace)) {
+      const photosToTake = photos.slice(0, PHOTOS_PER_PLACE);
+      const firstPhoto = photos[0];
+
+      // Try to find activity by parent_id first, then by google_place_id, then by name/caption
+      let activity = activityMap.get(firstPhoto.parent_id);
+      if (!activity && firstPhoto?.file_url) {
+        const placeId = extractGooglePlaceId(firstPhoto.file_url);
+        if (placeId) {
+          activity = activityByPlaceId.get(placeId);
+        }
+      }
+      // Try to match by caption (place name) to activity name
+      if (!activity && firstPhoto?.caption) {
+        const { placeName } = parseCaption(firstPhoto.caption);
+        if (placeName) {
+          activity = activityByName.get(placeName.toLowerCase());
+        }
+      }
+
+      for (const photo of photosToTake) {
+        if (result.length >= MAX_PHOTOS) break;
+
+        // Parse caption for day info and place name
+        const { dayInfo, placeName } = parseCaption(photo.caption);
+
+        // Use parsed place name, fallback to activity name
+        let activityName = placeName || activity?.name || 'Unknown Location';
+        let segmentName = trip.name;
+        let dayNumber: number | null = null;
+        let dayDate = '';
+        let isAlternative = false;
+        let captionDayInfo = dayInfo; // Day info from caption takes priority
+
+        if (activity) {
+          isAlternative = activity.is_backup || false;
+          const day = activity.day_id ? dayMap.get(activity.day_id) : null;
+          const segmentId = day?.segment_id || activity.segment_id;
+          const segment = segmentId ? segmentMap.get(segmentId) : null;
+
+          segmentName = segment?.name || trip.name;
+          // Only use activity day info if no caption day info
+          if (!captionDayInfo) {
+            dayNumber = activity.day_id ? (dayToGlobalNumber[activity.day_id] || null) : null;
+            dayDate = day?.date || segment?.start_date || '';
+          }
+        }
+
+        result.push({
+          photo: { ...photo, parent_id: photo.parent_id },
+          activityId: activity?.id || null,
+          activityName,
+          segmentName,
+          dayNumber,
+          dayDate,
+          isAlternative,
+          captionDayInfo, // Include parsed day info from caption
+        });
+      }
+      if (result.length >= MAX_PHOTOS) break;
+    }
+
+    return result;
+  }, [trip]);
+
+  if (photosWithInfo.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <div className="text-center p-8">
+          <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-30" />
+          <p className="text-sm">No activity photos yet</p>
+          <p className="text-xs mt-1">Select a segment or activity to view details</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <h2 className="text-xl font-semibold mb-2">{trip.name}</h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        {photosWithInfo.length} photos from activities
+      </p>
+      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+        {photosWithInfo.map((photoInfo) => {
+          const localDate = photoInfo.dayDate ? parseLocalDate(photoInfo.dayDate) : null;
+          const dateStr = localDate
+            ? localDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+            : '';
+
+          return (
+            <button
+              key={photoInfo.photo.id}
+              onClick={() => photoInfo.activityId && onPhotoClick(photoInfo.activityId)}
+              className="relative aspect-square rounded-lg overflow-hidden group"
+            >
+              <img
+                src={photoInfo.photo.file_url}
+                alt={photoInfo.photo.caption || photoInfo.activityName}
+                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                loading="lazy"
+              />
+              {/* Only show overlay if we have a real activity/place name */}
+              {photoInfo.activityName !== 'Unknown Location' && (
+                <>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute bottom-0 right-0 left-0 p-1.5 text-white text-right">
+                    {/* Day info above location - prefer caption day info, fallback to computed */}
+                    {photoInfo.captionDayInfo ? (
+                      <p className="text-[9px] text-white/80 truncate">{photoInfo.captionDayInfo}</p>
+                    ) : photoInfo.dayNumber && photoInfo.dayDate ? (
+                      <p className="text-[9px] text-white/80 truncate">
+                        Day {photoInfo.dayNumber} · {parseLocalDate(photoInfo.dayDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      </p>
+                    ) : null}
+                    {/* Location name */}
+                    <p className="text-[10px] font-medium truncate">{photoInfo.activityName}</p>
+                    {photoInfo.isAlternative && (
+                      <span className="inline-block mt-0.5 px-1 py-0.5 bg-orange-500/80 text-[8px] font-medium rounded">
+                        ALT
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -580,34 +848,41 @@ export default function TripDetailsPage() {
                                     const isTransportActivity = activity.activity_type === 'transport';
                                     const activityNameLower = activity.name.toLowerCase();
 
-                                    // Match route stops to this activity based on destination
+                                    // Match route stops to this activity
+                                    // V3.2 format: for_travel_segment.scheduled_activity_name
+                                    // V3.0 format: between.to (fallback)
                                     let routeStopsForActivity: typeof segment.route_stops = [];
-                                    if (isTransportActivity && segment.route_stops) {
-                                      // Known route hierarchy: Lagos → Sagres → Cabo de São Vicente
-                                      // Drives to Cabo should also show Sagres-area stops
+                                    if (segment.route_stops) {
                                       const isDriveOrDepart = activityNameLower.includes('drive') ||
                                                               activityNameLower.includes('depart') ||
-                                                              activityNameLower.includes('head to');
+                                                              activityNameLower.includes('head to') ||
+                                                              isTransportActivity;
 
                                       if (isDriveOrDepart) {
                                         routeStopsForActivity = segment.route_stops.filter(stop => {
-                                          const stopTo = stop.between?.to?.toLowerCase() || '';
+                                          // V3.2 format: Match by for_travel_segment.scheduled_activity_name
+                                          if (stop.for_travel_segment?.scheduled_activity_name) {
+                                            const scheduledName = stop.for_travel_segment.scheduled_activity_name.toLowerCase();
+                                            return activityNameLower.includes(scheduledName.split(' ').slice(-2).join(' ')) ||
+                                                   scheduledName.includes(activityNameLower.split(' ').slice(-2).join(' '));
+                                          }
 
-                                          // "Drive to Cabo" → show Lagos→Sagres AND Sagres→Cabo stops (full route)
+                                          // V3.0 format fallback: Match by between.to
+                                          const stopTo = stop.between?.to?.toLowerCase() || '';
+                                          if (!stopTo) return false;
+
+                                          // "Drive to Cabo" → show Lagos→Sagres AND Sagres→Cabo stops
                                           if (activityNameLower.includes('cabo')) {
                                             return stopTo.includes('sagres') || stopTo.includes('cabo');
                                           }
-
                                           // "Drive to Sagres" → show Lagos→Sagres stops
                                           if (activityNameLower.includes('sagres')) {
                                             return stopTo.includes('sagres');
                                           }
-
-                                          // "Depart for Douro" - only show Douro stops if activity mentions Douro
+                                          // "Depart for Douro" → show Douro stops
                                           if (activityNameLower.includes('douro') && stopTo.includes('douro')) {
                                             return true;
                                           }
-
                                           return false;
                                         });
                                       }
@@ -725,9 +1000,14 @@ export default function TripDetailsPage() {
                                   {(() => {
                                     const dayTitleLower = (day.title || '').toLowerCase();
                                     if (segment.route_stops && dayTitleLower.includes('douro')) {
-                                      const douroStops = segment.route_stops.filter(stop =>
-                                        stop.between?.to?.toLowerCase().includes('douro')
-                                      );
+                                      const douroStops = segment.route_stops.filter(stop => {
+                                        // V3.2 format
+                                        if (stop.for_travel_segment?.scheduled_activity_name?.toLowerCase().includes('douro')) {
+                                          return true;
+                                        }
+                                        // V3.0 format fallback
+                                        return stop.between?.to?.toLowerCase().includes('douro');
+                                      });
                                       if (douroStops.length > 0) {
                                         return (
                                           <div className="border-l-2 border-blue-500/30 pl-2 my-0.5">
@@ -853,12 +1133,10 @@ export default function TripDetailsPage() {
           ) : selectedSegment ? (
             <SegmentDetailContent segment={selectedSegment} tripId={tripId} />
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <div className="text-center p-8">
-                <MapPin className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                <p className="text-sm">Select a segment or activity to view details</p>
-              </div>
-            </div>
+            <TripPhotoGallery
+              trip={trip}
+              onPhotoClick={handleActivityClick}
+            />
           )}
         </ScrollArea>
       </div>

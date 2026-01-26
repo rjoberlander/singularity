@@ -1045,7 +1045,13 @@ export type TripStatus = 'planning' | 'confirmed' | 'in_progress' | 'completed';
 export interface RouteStop {
   id: string;
   name: string;
-  between: { from: string; to: string };  // e.g., { from: "Lisbon", to: "Lagos" }
+  between?: { from: string; to: string };  // V3.0 format: e.g., { from: "Lisbon", to: "Lagos" }
+  // V3.2 format: Links to a scheduled travel activity
+  for_travel_segment?: {
+    scheduled_activity_id?: string;
+    scheduled_activity_name?: string;
+    slot_type?: string;  // e.g., "travel"
+  };
   detour_time?: string;   // e.g., "5 min"
   visit_duration?: string;  // e.g., "30-45 min"
   reason?: string;  // Why visit this stop

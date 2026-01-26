@@ -1,26 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   useTripFull,
   useUpdateTrip,
   useDeleteTrip,
+  useUpdateTripStatus,
   getTripStatusColor,
   getTripStatusLabel,
   formatTripDateRange,
   calculateTripDuration,
   API_URL,
 } from "@/lib/api";
+import type { Trip } from "@singularity/shared-types";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +37,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -48,8 +49,6 @@ import {
   Hotel,
   Edit,
   Trash2,
-  MoreHorizontal,
-  Settings,
   Share2,
   CalendarDays,
   ListTodo,
@@ -57,15 +56,16 @@ import {
   Layers,
   FileText,
   Clock,
-  Upload,
   Wand2,
   Loader2,
   ClipboardCheck,
   ShieldCheck,
+  X,
+  Check,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { TripSettingsSheet } from "@/components/travel/TripSettingsSheet";
 
 const TABS = [
   { value: "details", label: "Details", icon: FileText, href: "/details" },
@@ -90,12 +90,85 @@ export default function TripDetailLayout({
   const tripId = params.id as string;
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
   const [showAssembleDialog, setShowAssembleDialog] = useState(false);
   const [isAssembling, setIsAssembling] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    destination: "",
+    origin: "",
+    start_date: "",
+    end_date: "",
+    transportation_type: "",
+    traveler_count: 1,
+  });
 
   const { data: trip, isLoading, error } = useTripFull(tripId);
   const deleteTrip = useDeleteTrip();
+  const updateTrip = useUpdateTrip();
+  const updateStatus = useUpdateTripStatus();
+
+  const TRIP_STATUSES = ['planning', 'confirmed', 'in_progress', 'completed'] as const;
+
+  const handleStatusChange = async (status: string) => {
+    try {
+      await updateStatus.mutateAsync({ id: tripId, status });
+      toast.success(`Status updated to ${getTripStatusLabel(status)}`);
+    } catch (error) {
+      toast.error("Failed to update status");
+    }
+  };
+
+  // Initialize edit form when trip data loads
+  useEffect(() => {
+    if (trip) {
+      setEditForm({
+        name: trip.name || "",
+        destination: trip.destination || "",
+        origin: trip.origin || "",
+        start_date: trip.start_date || "",
+        end_date: trip.end_date || "",
+        transportation_type: trip.transportation_type || "",
+        traveler_count: trip.traveler_count || 1,
+      });
+    }
+  }, [trip]);
+
+  const handleSaveEdit = async () => {
+    try {
+      await updateTrip.mutateAsync({
+        id: tripId,
+        data: {
+          name: editForm.name || undefined,
+          destination: editForm.destination || undefined,
+          origin: editForm.origin || undefined,
+          start_date: editForm.start_date || undefined,
+          end_date: editForm.end_date || undefined,
+          transportation_type: (editForm.transportation_type || undefined) as Trip["transportation_type"],
+          traveler_count: editForm.traveler_count || undefined,
+        },
+      });
+      toast.success("Trip updated");
+      setIsEditing(false);
+    } catch (error) {
+      toast.error("Failed to update trip");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    if (trip) {
+      setEditForm({
+        name: trip.name || "",
+        destination: trip.destination || "",
+        origin: trip.origin || "",
+        start_date: trip.start_date || "",
+        end_date: trip.end_date || "",
+        transportation_type: trip.transportation_type || "",
+        traveler_count: trip.traveler_count || 1,
+      });
+    }
+    setIsEditing(false);
+  };
 
   const handleDeleteTrip = async () => {
     try {
@@ -197,146 +270,239 @@ export default function TripDetailLayout({
   return (
     <div className="container max-w-6xl py-2 space-y-2">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Link href="/travel">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
+      <div className="flex items-start gap-2">
+        <Link href="/travel">
+          <Button variant="ghost" size="icon" className="h-8 w-8 mt-1">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </Link>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">{trip.name}</h1>
-          <Badge
-            style={{
-              backgroundColor: getTripStatusColor(trip.status),
-              color: "white",
-            }}
-          >
-            {getTripStatusLabel(trip.status)}
-          </Badge>
           {trip.description && (
-            <span className="text-muted-foreground text-sm ml-2">{trip.description}</span>
+            <p className="text-muted-foreground text-sm mt-1">{trip.description}</p>
           )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAssembleDialog(true)}
-            className="border-purple-500/50 text-purple-600 hover:bg-purple-500/10 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            Assemble Schedule
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowSettingsSheet(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import Research
-          </Button>
-          <Button variant="outline" size="sm">
-            <Share2 className="h-4 w-4 mr-2" />
-            Share
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Trip
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowSettingsSheet(true)}>
-                <Upload className="h-4 w-4 mr-2" />
-                Import Research
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setShowDeleteDialog(true)}
-                className="text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete Trip
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
       {/* Trip Overview Card */}
       <Card>
         <CardContent className="py-3 px-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {/* Destination */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                <MapPin className="h-4 w-4" />
-                Destination
+          <div className="flex items-start gap-3">
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-3">
+              {/* Destination */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  <MapPin className="h-4 w-4" />
+                  Destination
+                </div>
+                {isEditing ? (
+                  <div className="space-y-1">
+                    <Input
+                      value={editForm.origin}
+                      onChange={(e) => setEditForm({ ...editForm, origin: e.target.value })}
+                      placeholder="Origin"
+                      className="h-7 text-sm"
+                    />
+                    <Input
+                      value={editForm.destination}
+                      onChange={(e) => setEditForm({ ...editForm, destination: e.target.value })}
+                      placeholder="Destination"
+                      className="h-7 text-sm"
+                    />
+                  </div>
+                ) : (
+                  <p className="font-medium">
+                    {trip.origin && `${trip.origin} to `}
+                    {trip.destination || "Not set"}
+                  </p>
+                )}
               </div>
-              <p className="font-medium">
-                {trip.origin && `${trip.origin} to `}
-                {trip.destination || "Not set"}
-              </p>
+
+              {/* Dates */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  <Calendar className="h-4 w-4" />
+                  Dates
+                </div>
+                {isEditing ? (
+                  <div className="space-y-1">
+                    <Input
+                      type="date"
+                      value={editForm.start_date}
+                      onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                      className="h-7 text-sm"
+                    />
+                    <Input
+                      type="date"
+                      value={editForm.end_date}
+                      onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                      className="h-7 text-sm"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <p className="font-medium">
+                      {formatTripDateRange(trip.start_date, trip.end_date)}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {calculateTripDuration(trip.start_date, trip.end_date)} days
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Transport */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  {getTransportIcon(trip.transportation_type) || <Plane className="h-4 w-4" />}
+                  Transportation
+                </div>
+                {isEditing ? (
+                  <select
+                    value={editForm.transportation_type}
+                    onChange={(e) => setEditForm({ ...editForm, transportation_type: e.target.value })}
+                    className="h-7 text-sm rounded border bg-background px-2 w-full"
+                  >
+                    <option value="">Not Set</option>
+                    <option value="flying">Flying</option>
+                    <option value="driving">Driving</option>
+                    <option value="both">Both</option>
+                  </select>
+                ) : (
+                  <p className="font-medium capitalize">
+                    {trip.transportation_type || "Not Set"}
+                  </p>
+                )}
+              </div>
+
+              {/* Travelers */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  <Users className="h-4 w-4" />
+                  Travelers
+                </div>
+                {isEditing ? (
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editForm.traveler_count}
+                    onChange={(e) => setEditForm({ ...editForm, traveler_count: parseInt(e.target.value) || 1 })}
+                    className="h-7 text-sm w-16"
+                  />
+                ) : (
+                  <p className="font-medium">{trip.traveler_count || 1}</p>
+                )}
+              </div>
+
+              {/* Created */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  <Clock className="h-4 w-4" />
+                  Created
+                </div>
+                <p className="font-medium">
+                  {trip.created_at
+                    ? new Date(trip.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                    : "Unknown"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {trip.created_at
+                    ? new Date(trip.created_at).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : ""}
+                </p>
+              </div>
             </div>
 
-            {/* Dates */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                <Calendar className="h-4 w-4" />
-                Dates
+            {/* Action Buttons & Status */}
+            <div className="flex flex-col items-end gap-2 shrink-0">
+              <div className="flex items-center gap-1">
+                {isEditing ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleCancelEdit}
+                      className="h-8 w-8"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleSaveEdit}
+                      className="h-8 w-8 text-green-600 hover:text-green-700"
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsEditing(true)}
+                      className="h-8 w-8"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
               </div>
-              <p className="font-medium">
-                {formatTripDateRange(trip.start_date, trip.end_date)}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {calculateTripDuration(trip.start_date, trip.end_date)} days
-              </p>
-            </div>
 
-            {/* Transport */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                {getTransportIcon(trip.transportation_type) || <Plane className="h-4 w-4" />}
-                Transportation
-              </div>
-              <p className="font-medium capitalize">
-                {trip.transportation_type || "Not Set"}
-              </p>
-            </div>
-
-            {/* Travelers */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                <Users className="h-4 w-4" />
-                Travelers
-              </div>
-              <p className="font-medium">{trip.traveler_count || 1}</p>
-            </div>
-
-            {/* Created */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                <Clock className="h-4 w-4" />
-                Created
-              </div>
-              <p className="font-medium">
-                {trip.created_at
-                  ? new Date(trip.created_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  : "Unknown"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {trip.created_at
-                  ? new Date(trip.created_at).toLocaleTimeString("en-US", {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })
-                  : ""}
-              </p>
+              {/* Status Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1"
+                    style={{
+                      borderColor: getTripStatusColor(trip.status),
+                      color: getTripStatusColor(trip.status),
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: getTripStatusColor(trip.status) }}
+                    />
+                    {getTripStatusLabel(trip.status)}
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {TRIP_STATUSES.map((status) => (
+                    <DropdownMenuItem
+                      key={status}
+                      onClick={() => handleStatusChange(status)}
+                      className="gap-2"
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: getTripStatusColor(status) }}
+                      />
+                      {getTripStatusLabel(status)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardContent>
@@ -445,13 +611,6 @@ export default function TripDetailLayout({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Settings Sheet for Importing Research */}
-      <TripSettingsSheet
-        tripId={tripId}
-        tripName={trip.name}
-        open={showSettingsSheet}
-        onOpenChange={setShowSettingsSheet}
-      />
     </div>
   );
 }

@@ -322,18 +322,78 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
     if (options.segment_id) {
       segmentId = options.segment_id;
 
+      // CRITICAL: Validate dates match before proceeding with import
+      const { data: existingSegment, error: fetchError } = await supabase
+        .from('trip_segments')
+        .select('id, name, start_date, end_date')
+        .eq('id', segmentId)
+        .single();
+
+      if (fetchError) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot find segment with ID ${segmentId}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const jsonStartDate = payload.metadata.dates.start;
+      const jsonEndDate = payload.metadata.dates.end;
+      const dbStartDate = existingSegment.start_date;
+      const dbEndDate = existingSegment.end_date;
+
+      // Calculate day counts
+      const jsonDayCount = Math.ceil(
+        (new Date(jsonEndDate).getTime() - new Date(jsonStartDate).getTime()) / (1000 * 60 * 60 * 24)
+      ) + 1; // +1 because both start and end dates are inclusive
+      const segmentDayCount = Math.ceil(
+        (new Date(dbEndDate).getTime() - new Date(dbStartDate).getTime()) / (1000 * 60 * 60 * 24)
+      ) + 1;
+
+      // First check: Day counts MUST match - if not, cannot import at all
+      if (jsonDayCount !== segmentDayCount) {
+        return res.status(400).json({
+          success: false,
+          error: `DAY COUNT MISMATCH: Cannot import. JSON file has ${jsonDayCount} days but segment "${existingSegment.name}" has ${segmentDayCount} days. The number of days must match exactly. Please regenerate the JSON file with the correct number of days (${segmentDayCount} days: ${dbStartDate} to ${dbEndDate}).`,
+          day_count_mismatch: {
+            json_days: jsonDayCount,
+            segment_days: segmentDayCount,
+            json_dates: { start: jsonStartDate, end: jsonEndDate },
+            segment_dates: { start: dbStartDate, end: dbEndDate },
+            segment_name: existingSegment.name,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Second check: If day counts match but dates are different, allow date correction
+      if (jsonStartDate !== dbStartDate || jsonEndDate !== dbEndDate) {
+        return res.status(400).json({
+          success: false,
+          error: `DATE MISMATCH: JSON file has dates ${jsonStartDate} to ${jsonEndDate}, but segment "${existingSegment.name}" has dates ${dbStartDate} to ${dbEndDate}. The dates can be corrected since the day count matches (${segmentDayCount} days).`,
+          date_mismatch: {
+            json_dates: { start: jsonStartDate, end: jsonEndDate },
+            segment_dates: { start: dbStartDate, end: dbEndDate },
+            segment_name: existingSegment.name,
+            day_count: segmentDayCount,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // Process segment-level alternatives (no replaces field) - alternatives are at root level of payload
       const segmentAlternatives = payload.alternatives?.filter(
         (alt: any) => !alt.replaces || (!alt.replaces.scheduled_activity_id && !alt.replaces.scheduled_activity_name)
       ) || [];
 
       // Update the existing segment with the research data
+      // IMPORTANT: Do NOT update dates - trip basics is the master plan
+      // Only update research content (city_info, route_stops, etc.)
       const segmentData = {
-        name: payload.segment.name,
+        // name: payload.segment.name,  // Don't change name either - master plan owns it
         description: payload.segment.description,
         theme: payload.segment.theme,  // V3
-        start_date: payload.metadata.dates.start,
-        end_date: payload.metadata.dates.end,
+        // start_date and end_date are NEVER updated - master plan owns these
         location_name: payload.segment.location?.location_name,
         latitude: payload.segment.location?.latitude,
         longitude: payload.segment.location?.longitude,
@@ -432,11 +492,12 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         if (existingDays && existingDays.length > 0) {
           const existingDayIds = existingDays.map((d: { id: string }) => d.id);
 
-          // Delete activities for these days first
+          // Delete activities for these days first (but keep backup activities - they're segment-level)
           const { error: deleteActivitiesError } = await supabase
             .from('trip_activities')
             .delete()
-            .in('day_id', existingDayIds);
+            .in('day_id', existingDayIds)
+            .eq('is_backup', false);  // Only delete non-backup activities linked to days
 
           if (deleteActivitiesError) {
             console.warn('Failed to delete existing activities:', deleteActivitiesError.message);
@@ -451,6 +512,29 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
           if (deleteDaysError) {
             console.warn('Failed to delete existing days:', deleteDaysError.message);
           }
+        }
+
+        // Delete existing backup activities (alternatives) for this segment
+        // They will be recreated from the import
+        const { error: deleteBackupActivitiesError } = await supabase
+          .from('trip_activities')
+          .delete()
+          .eq('segment_id', segmentId)
+          .eq('is_backup', true);
+
+        if (deleteBackupActivitiesError) {
+          console.warn('Failed to delete existing backup activities:', deleteBackupActivitiesError.message);
+        }
+
+        // Delete existing research items for this segment
+        // They will be recreated from the import
+        const { error: deleteResearchError } = await supabase
+          .from('trip_research_items')
+          .delete()
+          .eq('segment_id', segmentId);
+
+        if (deleteResearchError) {
+          console.warn('Failed to delete existing research items:', deleteResearchError.message);
         }
       }
 
@@ -736,9 +820,18 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
         }
 
         // Create the alternative activity
-        // Map priority to valid values (must_do, should_do, could_do) or null
-        const validPriorities = ['must_do', 'should_do', 'could_do'];
-        const mappedPriority = alt.priority && validPriorities.includes(alt.priority) ? alt.priority : null;
+        // Map priority to valid database values: must_do, recommended, optional, if_time
+        const activityPriorityMap: Record<string, string> = {
+          'must_do': 'must_do',
+          'recommended': 'recommended',
+          'optional': 'optional',
+          'if_time': 'if_time',
+          'alternative': 'optional',  // alternatives default to optional
+          'backup': 'optional',
+          'should_do': 'recommended',
+          'could_do': 'optional',
+        };
+        const mappedPriority = alt.priority ? (activityPriorityMap[alt.priority.toLowerCase()] || 'optional') : 'optional';
 
         const alternativeActivityData: any = {
           trip_id: tripId,
@@ -811,8 +904,18 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
           continue; // Skip if already exists
         }
 
-        const validPriorities = ['must_do', 'should_do', 'could_do'];
-        const mappedPriority = alt.priority && validPriorities.includes(alt.priority) ? alt.priority : null;
+        // Map priority to valid database values: must_do, recommended, optional, if_time
+        const activityPriorityMap: Record<string, string> = {
+          'must_do': 'must_do',
+          'recommended': 'recommended',
+          'optional': 'optional',
+          'if_time': 'if_time',
+          'alternative': 'optional',
+          'backup': 'optional',
+          'should_do': 'recommended',
+          'could_do': 'optional',
+        };
+        const mappedPriority = alt.priority ? (activityPriorityMap[alt.priority.toLowerCase()] || 'optional') : 'optional';
 
         const generalAltData: any = {
           trip_id: tripId,
@@ -868,22 +971,65 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
     // ========================================
 
     if (opts.create_research_items && payload.research_items?.length > 0) {
+      // Normalize item_type to valid database values
+      const normalizeItemType = (type: string): string => {
+        const validTypes = [
+          'restaurant', 'hike', 'attraction', 'beach', 'hotel',
+          'activity', 'shop', 'service', 'viewpoint', 'transport'
+        ];
+        const typeMap: Record<string, string> = {
+          'accommodation': 'hotel',
+          'museum': 'attraction',
+          'tour': 'activity',
+          'experience': 'activity',
+          'neighborhood': 'attraction',
+          'landmark': 'attraction',
+          'site': 'attraction',
+          'park': 'attraction',
+          'winery': 'restaurant',
+          'cafe': 'restaurant',
+          'bar': 'restaurant',
+        };
+        const normalized = type?.toLowerCase() || 'attraction';
+        if (validTypes.includes(normalized)) return normalized;
+        return typeMap[normalized] || 'attraction';
+      };
+
+      // Normalize priority to valid database values
+      const normalizePriority = (priority: string): string => {
+        const validPriorities = ['must_do', 'recommended', 'optional', 'backup', 'if_time'];
+        const priorityMap: Record<string, string> = {
+          'alternative': 'backup',
+          'must-do': 'must_do',
+          'mustdo': 'must_do',
+          'required': 'must_do',
+          'essential': 'must_do',
+          'nice_to_have': 'optional',
+          'nice-to-have': 'optional',
+          'low': 'if_time',
+        };
+        const normalized = priority?.toLowerCase() || 'recommended';
+        if (validPriorities.includes(normalized)) return normalized;
+        return priorityMap[normalized] || 'recommended';
+      };
+
       const itemsData = payload.research_items.map((item) => ({
         trip_id: tripId,
         segment_id: segmentId || null,
 
-        // Required
-        item_type: item.item_type,
+        // Required - normalize item_type to valid database values
+        item_type: normalizeItemType(item.item_type),
         name: item.name,
         source_url: item.source_url,
-        source_name: item.source_name,
+        // Default source_name if missing
+        source_name: item.source_name || 'Claude Research Agent',
         why_relevant: item.why_relevant,
 
-        // Classification
+        // Classification - normalize priority to valid database values
         category: item.category,
-        priority: item.priority,
+        priority: normalizePriority(item.priority || ''),
         status:
-          opts.auto_approve_must_do && item.priority === 'must_do' ? 'approved' : 'unprocessed',
+          opts.auto_approve_must_do && normalizePriority(item.priority || '') === 'must_do' ? 'approved' : 'unprocessed',
 
         // V3 Location (structured) - takes precedence
         location: item.location,
@@ -1052,6 +1198,7 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
 router.post('/import/validate', async (req: Request, res: Response): Promise<any> => {
   try {
     const payload: TripImportPayload = req.body;
+    const { segment_id } = req.query;  // Optional: validate against existing segment
     const issues: string[] = [];
     const warnings: string[] = [];
 
@@ -1069,6 +1216,44 @@ router.post('/import/validate', async (req: Request, res: Response): Promise<any
       issues.push('Missing segment section');
     } else {
       if (!payload.segment.name) issues.push('Missing segment.name');
+    }
+
+    // CRITICAL: Validate dates against existing segment if segment_id provided
+    if (segment_id && payload.metadata?.dates) {
+      const { data: existingSegment, error: segmentError } = await supabase
+        .from('trip_segments')
+        .select('id, name, start_date, end_date')
+        .eq('id', segment_id)
+        .single();
+
+      if (segmentError) {
+        issues.push(`Cannot find segment with ID ${segment_id}`);
+      } else if (existingSegment) {
+        const jsonStartDate = payload.metadata.dates.start;
+        const jsonEndDate = payload.metadata.dates.end;
+        const dbStartDate = existingSegment.start_date;
+        const dbEndDate = existingSegment.end_date;
+
+        // Calculate day counts
+        const jsonDayCount = Math.ceil(
+          (new Date(jsonEndDate).getTime() - new Date(jsonStartDate).getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+        const segmentDayCount = Math.ceil(
+          (new Date(dbEndDate).getTime() - new Date(dbStartDate).getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+        if (jsonDayCount !== segmentDayCount) {
+          issues.push(
+            `DAY COUNT MISMATCH: JSON has ${jsonDayCount} days but segment "${existingSegment.name}" has ${segmentDayCount} days. ` +
+            `Cannot import - please regenerate JSON with ${segmentDayCount} days (${dbStartDate} to ${dbEndDate}).`
+          );
+        } else if (jsonStartDate !== dbStartDate || jsonEndDate !== dbEndDate) {
+          warnings.push(
+            `DATE MISMATCH: JSON has ${jsonStartDate} to ${jsonEndDate}, but segment has ${dbStartDate} to ${dbEndDate}. ` +
+            `Day count matches (${segmentDayCount} days), so dates can be corrected during import.`
+          );
+        }
+      }
     }
 
     // Detect v3 format (has _template_version, metadata.version starts with "3", or nested days structure)

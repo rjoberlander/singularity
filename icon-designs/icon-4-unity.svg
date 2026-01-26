@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Icon 4: Unity Symbol - Overlapping arcs forming wholeness -->
+  <!-- Elegant contemporary with harmonious balance -->
+  <path d="M100 30 A70 70 0 0 1 170 100" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"/>
+  <path d="M170 100 A70 70 0 0 1 100 170" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"/>
+  <path d="M100 170 A70 70 0 0 1 30 100" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"/>
+  <path d="M30 100 A70 70 0 0 1 100 30" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"/>
+  <!-- Inner unity -->
+  <circle cx="100" cy="100" r="25" fill="none" stroke="#10B981" stroke-width="4"/>
+  <circle cx="100" cy="100" r="6" fill="#10B981"/>
+</svg>

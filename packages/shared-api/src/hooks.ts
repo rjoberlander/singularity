@@ -1661,6 +1661,7 @@ export function useUpdateTripStatus() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.id, "full"] });
     },
   });
 }

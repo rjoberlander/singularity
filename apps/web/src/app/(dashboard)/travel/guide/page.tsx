@@ -1290,7 +1290,7 @@ For each segment: pick_type (BEST_OVERALL, BEST_VALUE, BEST_LUXURY), scores, pri
 }
 
 function getMcpPromptPhase3(): string {
-  return `# Activity Research - Claude Project Instructions
+  return `# Activity Research Agent - Claude Project Instructions (V3.2)
 
 ## Getting Trip ID
 User will paste a URL like \`http://localhost:3000/travel/[uuid]\` - extract the UUID as Trip ID.
@@ -1302,6 +1302,7 @@ SELECT
   (SELECT family_profile FROM travel_settings WHERE user_id = 'b201a860-05a3-4ddc-bb89-4c4271177271') as family_profile,
   (SELECT jsonb_object_agg(template_key, default_content) FROM travel_guide_template_definitions WHERE phase_number = 3) as templates,
   (SELECT jsonb_agg(jsonb_build_object(
+    'segment_id', id,
     'segment_number', segment_number,
     'name', name,
     'location', location_name,
@@ -1314,26 +1315,38 @@ SELECT
   ) ORDER BY segment_number) FROM trip_segments WHERE trip_id = '[TRIP_ID]') as segments
 \`\`\`
 
-This returns:
-- **family_profile**: Kids' ages, interests, dietary needs
-- **templates**: instructions + output-template format
-- **segments**: All segments with theme, key_experiences, research_status
-
 ## Your Role
-Deep research agent for ONE segment at a time. 50+ sources → COMPLETE narratives (no summaries).
+Deep research for ONE segment at a time. 50+ sources → COMPLETE narratives (no summaries).
 
-## Per Segment Output
-- **8-10 must_do** with full deep_dive (500-1000 words each)
-- **10-15 recommended** items
-- **5-8 optional** items
+## V3.2 Format Requirements
 
-## Content Requirements (CRITICAL)
-Each must_do needs:
-- **deep_dive.why_it_matters**: 200-400 word narrative
-- **deep_dive.the_story**: 300-600 word history
-- **kid_engagement**: ACTUAL SCRIPTS by age ("Look at the ceiling! Does it look like trees?")
+### Schedule Slots - EVERY slot needs:
+- \`activity_id\`: "day2-activity-boat", "day2-rest", "day2-travel-cabo"
+- \`slot_type\`: "activity" | "downtime" | "meal" | "travel"
+
+### Route Stops - Link to travel activity:
+\`\`\`json
+"for_travel_segment": {
+  "scheduled_activity_name": "Drive to Cabo",
+  "scheduled_activity_id": "day2-travel-cabo",
+  "slot_type": "travel"
+}
+\`\`\`
+
+### Alternatives - Two types:
+1. **Linked** (replaces specific activity): \`replaces: {scheduled_activity_id, slot_type}\`
+2. **General** (backup option): \`replaces: null\`
+
+**Required fields**: \`trigger\`, \`why_not_scheduled\`
+
+### Downtime Alternatives (CRITICAL)
+Every REST/NAP slot needs 1-2 alternatives with \`replaces.slot_type: "downtime"\`
+
+## Content Requirements
+- **deep_dive**: 500-1000 words for must_do items
+- **kid_engagement**: ACTUAL SCRIPTS by child name ("Look at the ceiling! Does it look like trees?")
 - **city_info.deep_history**: 2000-4000 words in sections
 
 ## Output
-Complete JSON → import at http://localhost:3000/travel/[trip-id] → "Import Research"`;
+Complete JSON → import at http://localhost:3000/travel/[trip-id]/plan → Select segment`;
 }

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Icon 1: Concentric Rings - Holistic convergence -->
+  <!-- Mid-century modern style with clean geometric circles -->
+  <circle cx="100" cy="100" r="80" fill="none" stroke="#10B981" stroke-width="3"/>
+  <circle cx="100" cy="100" r="55" fill="none" stroke="#10B981" stroke-width="3"/>
+  <circle cx="100" cy="100" r="30" fill="none" stroke="#10B981" stroke-width="3"/>
+  <circle cx="100" cy="100" r="8" fill="#10B981"/>
+</svg>

@@ -1,16 +1,12 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Star,
   MapPin,
-  RefreshCw,
-  CheckCircle,
-  XCircle,
   Calendar,
-  AlertCircle,
   Globe,
   Clock,
   Users,
@@ -31,15 +27,86 @@ import {
   ExternalLink,
   ArrowLeftRight,
 } from "lucide-react";
-import { TripSegment } from "@singularity/shared-types";
+import { TripSegment, TripDay, TripActivity, TripMedia } from "@singularity/shared-types";
 import {
-  useFetchGooglePlacesForSegment,
-  useTripMedia,
-  useApproveTripMedia,
+  useTripFull,
   formatTripDate,
+  parseLocalDate,
 } from "@/lib/api";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+// Extract google_place_id from media file_url (format: .../google_places_PLACE_ID_photos...)
+function extractGooglePlaceId(fileUrl: string): string | null {
+  const match = fileUrl.match(/google_places_(.+?)_photos_/);
+  return match ? match[1] : null;
+}
+
+// Parse caption format: "Day X · Date | Place Name" or just "Place Name"
+function parseCaption(caption: string | null | undefined): { dayInfo: string | null; placeName: string | null } {
+  if (!caption) return { dayInfo: null, placeName: null };
+
+  // Check for "Day X · Date | Place Name" format
+  const match = caption.match(/^(Day \d+ · .+?) \| (.+)$/);
+  if (match) {
+    return { dayInfo: match[1], placeName: match[2] };
+  }
+
+  // No day info, just place name
+  return { dayInfo: null, placeName: caption };
+}
+
+// Photo with overlay info
+interface PhotoWithInfo {
+  photo: TripMedia;
+  activityName: string;
+  dayDate: string;
+  dayNumber: number | null;
+  location: string;
+  isAlternative: boolean;
+  captionDayInfo?: string | null; // Pre-formatted day info from caption
+}
+
+// Photo card component with overlay
+function PhotoCard({ photoInfo }: { photoInfo: PhotoWithInfo }) {
+  const localDate = photoInfo.dayDate ? parseLocalDate(photoInfo.dayDate) : null;
+  const dateStr = localDate
+    ? localDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    : '';
+
+  return (
+    <div className="relative aspect-square rounded-lg overflow-hidden group">
+      <img
+        src={photoInfo.photo.file_url}
+        alt={photoInfo.photo.caption || photoInfo.activityName}
+        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+        loading="lazy"
+      />
+      {/* Only show overlay if we have a real activity name (not "Unknown Location") */}
+      {photoInfo.activityName !== 'Unknown Location' && (
+        <>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-2 text-white text-left">
+            {/* Day info above location - prefer caption day info, fallback to computed */}
+            {photoInfo.captionDayInfo ? (
+              <p className="text-[10px] text-white/80">{photoInfo.captionDayInfo}</p>
+            ) : photoInfo.dayNumber && dateStr ? (
+              <p className="text-[10px] text-white/80">
+                Day {photoInfo.dayNumber} · {dateStr}
+              </p>
+            ) : null}
+            {/* Location name */}
+            <p className="text-xs font-medium truncate">{photoInfo.activityName}</p>
+            {photoInfo.isAlternative && (
+              <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-orange-500/80 text-[9px] font-medium rounded">
+                ALT
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 interface SegmentDetailContentProps {
   segment: TripSegment;
@@ -50,41 +117,157 @@ export function SegmentDetailContent({
   segment,
   tripId,
 }: SegmentDetailContentProps) {
-  const fetchGoogle = useFetchGooglePlacesForSegment();
-  const approveMedia = useApproveTripMedia();
+  // Get full trip data
+  const { data: trip } = useTripFull(tripId);
 
-  // Get media for this segment
-  const { data: allMedia } = useTripMedia(tripId, "segment", segment.id);
+  // Get days for this segment
+  const segmentDays = useMemo(() => {
+    if (!trip?.days) return [];
+    return trip.days
+      .filter(d => d.segment_id === segment.id)
+      .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
+  }, [trip?.days, segment.id]);
 
-  // Filter: user photos first (is_google_sourced=false OR approved=true)
-  // Then show pending Google photos (is_google_sourced=true, approved=null)
-  const userPhotos =
-    allMedia?.filter((m) => !m.is_google_sourced || m.approved === true) || [];
-  const pendingGooglePhotos =
-    allMedia?.filter((m) => m.is_google_sourced && m.approved === null) || [];
-
-  const handleFetchGoogle = async () => {
-    try {
-      const result = await fetchGoogle.mutateAsync({
-        tripId,
-        segmentId: segment.id,
-      });
-      toast.success(
-        result.message || `Fetched data from Google. ${result.photos_added} photos added.`
-      );
-    } catch (error) {
-      toast.error("Failed to fetch from Google Places");
+  // Build a map of day_id to day number (global across all trip days)
+  const dayToGlobalNumber = useMemo(() => {
+    if (!trip?.days) return {};
+    const uniqueDays = new Map<string, typeof trip.days[0]>();
+    for (const day of trip.days) {
+      if (!uniqueDays.has(day.date)) {
+        uniqueDays.set(day.date, day);
+      }
     }
-  };
+    const sortedDays = Array.from(uniqueDays.values()).sort(
+      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
+    );
+    const map: Record<string, number> = {};
+    sortedDays.forEach((day, index) => {
+      map[day.id] = index + 1;
+    });
+    return map;
+  }, [trip?.days]);
 
-  const handleApprovePhoto = async (mediaId: string, approved: boolean) => {
-    try {
-      await approveMedia.mutateAsync({ tripId, mediaId, approved });
-      toast.success(approved ? "Photo approved" : "Photo rejected");
-    } catch (error) {
-      toast.error("Failed to update photo");
+  // Get activities for this segment
+  const segmentActivities = useMemo(() => {
+    if (!trip?.activities) return [];
+    const dayIds = new Set(segmentDays.map(d => d.id));
+    return trip.activities.filter(a => a.day_id && dayIds.has(a.day_id));
+  }, [trip?.activities, segmentDays]);
+
+  // Build activity lookup by ID
+  const activityMap = useMemo(() => {
+    return new Map((trip?.activities || []).map(a => [a.id, a]));
+  }, [trip?.activities]);
+
+  // Build activity lookup by google_place_id (for matching orphaned media)
+  const activityByPlaceId = useMemo(() => {
+    const map = new Map<string, TripActivity>();
+    for (const activity of trip?.activities || []) {
+      if (activity.google_place_id) {
+        map.set(activity.google_place_id, activity);
+      }
     }
-  };
+    return map;
+  }, [trip?.activities]);
+
+  // Build activity lookup by name (for matching by caption/place name)
+  const activityByName = useMemo(() => {
+    const map = new Map<string, TripActivity>();
+    for (const activity of trip?.activities || []) {
+      const name = activity.name.toLowerCase();
+      if (!map.has(name)) {
+        map.set(name, activity);
+      }
+    }
+    return map;
+  }, [trip?.activities]);
+
+  // Collect photos - show all activity media, matching to activities when possible
+  // Limit to 2 photos per unique place, max 30 total
+  const photosWithInfo: PhotoWithInfo[] = useMemo(() => {
+    if (!trip?.media) return [];
+
+    // Get all activity media grouped by place name (from caption) to avoid duplicates
+    const activityMedia = trip.media.filter(m => m.parent_type === 'activity');
+
+    // First, dedupe by file_url to ensure same image never appears twice
+    const seenUrls = new Set<string>();
+    const uniqueMedia = activityMedia.filter(m => {
+      if (seenUrls.has(m.file_url)) return false;
+      seenUrls.add(m.file_url);
+      return true;
+    });
+
+    const mediaByPlace: Record<string, TripMedia[]> = {};
+    for (const media of uniqueMedia) {
+      const { placeName } = parseCaption(media.caption);
+      // Use place name as key (normalized), fallback to caption, then parent_id
+      const groupKey = (placeName || media.caption || media.parent_id).toLowerCase();
+      if (!mediaByPlace[groupKey]) mediaByPlace[groupKey] = [];
+      mediaByPlace[groupKey].push(media);
+    }
+
+    const result: PhotoWithInfo[] = [];
+    const dayMap = new Map(segmentDays.map(d => [d.id, d]));
+    const PHOTOS_PER_PLACE = 2;
+    const MAX_PHOTOS = 30;
+
+    for (const [placeKey, photos] of Object.entries(mediaByPlace)) {
+      const photosToTake = photos.slice(0, PHOTOS_PER_PLACE);
+      const firstPhoto = photos[0];
+
+      // Try to find activity by parent_id first, then by google_place_id, then by name/caption
+      let activity = activityMap.get(firstPhoto.parent_id);
+      if (!activity && firstPhoto?.file_url) {
+        const placeId = extractGooglePlaceId(firstPhoto.file_url);
+        if (placeId) {
+          activity = activityByPlaceId.get(placeId);
+        }
+      }
+      // Try to match by caption (place name) to activity name
+      if (!activity && firstPhoto?.caption) {
+        const { placeName } = parseCaption(firstPhoto.caption);
+        if (placeName) {
+          activity = activityByName.get(placeName.toLowerCase());
+        }
+      }
+
+      for (const photo of photosToTake) {
+        if (result.length >= MAX_PHOTOS) break;
+
+        // Parse caption for day info and place name
+        const { dayInfo, placeName } = parseCaption(photo.caption);
+
+        // Use parsed place name, fallback to activity name
+        let activityName = placeName || activity?.name || 'Unknown Location';
+        let dayDate = segment.start_date;
+        let dayNumber: number | null = null;
+        let isAlternative = false;
+        let captionDayInfo = dayInfo; // Day info from caption takes priority
+
+        if (activity) {
+          isAlternative = activity.is_backup || false;
+          const day = activity.day_id ? dayMap.get(activity.day_id) : null;
+          if (day && !captionDayInfo) {
+            dayDate = day.date;
+            dayNumber = dayToGlobalNumber[activity.day_id!] || null;
+          }
+        }
+
+        result.push({
+          photo,
+          activityName,
+          dayDate,
+          dayNumber,
+          location: activity?.address || segment.location_name || segment.name,
+          isAlternative,
+          captionDayInfo,
+        });
+      }
+      if (result.length >= MAX_PHOTOS) break;
+    }
+    return result;
+  }, [trip?.media, activityMap, activityByPlaceId, activityByName, segmentDays, dayToGlobalNumber, segment]);
 
   // Calculate days in segment
   const startDate = new Date(segment.start_date);
@@ -127,91 +310,22 @@ export function SegmentDetailContent({
         )}
       </div>
 
-      {/* Google Data Button */}
-      <Button
-        variant="outline"
-        onClick={handleFetchGoogle}
-        disabled={fetchGoogle.isPending}
-        className="w-full mb-6"
-      >
-        <RefreshCw
-          className={cn("h-4 w-4 mr-2", fetchGoogle.isPending && "animate-spin")}
-        />
-        {segment.photos_fetched ? "Refresh from Google" : "Fetch from Google"}
-      </Button>
-
-      {/* Photos Section - User photos first */}
-      {userPhotos.length > 0 && (
+      {/* Activity Photos Section */}
+      {photosWithInfo.length > 0 && (
         <div className="mb-6">
-          <h4 className="text-sm font-medium mb-3">Photos</h4>
-          <div className="grid grid-cols-3 gap-2">
-            {userPhotos.slice(0, 9).map((photo) => (
-              <div
-                key={photo.id}
-                className="relative aspect-square rounded-lg overflow-hidden group"
-              >
-                <img
-                  src={photo.file_url}
-                  alt={photo.caption || "Segment photo"}
-                  className="w-full h-full object-cover"
-                />
-                {photo.google_attribution_name && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
-                    <span className="text-white text-xs">
-                      {photo.google_attribution_name}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Pending Google Photos - Need Approval */}
-      {pendingGooglePhotos.length > 0 && (
-        <div className="mb-6">
-          <h4 className="text-sm font-medium mb-3 flex items-center gap-2 text-amber-600">
-            <AlertCircle className="h-4 w-4" />
-            Pending Approval ({pendingGooglePhotos.length})
+          <h4 className="text-sm font-medium mb-3">
+            Photos from Activities ({photosWithInfo.length})
           </h4>
           <div className="grid grid-cols-3 gap-2">
-            {pendingGooglePhotos.map((photo) => (
-              <div
-                key={photo.id}
-                className="relative aspect-square rounded-lg overflow-hidden group"
-              >
-                <img
-                  src={photo.file_url}
-                  alt="Google photo"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleApprovePhoto(photo.id, true)}
-                  >
-                    <CheckCircle className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleApprovePhoto(photo.id, false)}
-                  >
-                    <XCircle className="h-4 w-4" />
-                  </Button>
-                </div>
-                {photo.google_attribution_name && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
-                    <span className="text-white text-xs">
-                      {photo.google_attribution_name}
-                    </span>
-                  </div>
-                )}
-              </div>
+            {photosWithInfo.slice(0, 12).map((photoInfo, index) => (
+              <PhotoCard key={photoInfo.photo.id} photoInfo={photoInfo} />
             ))}
           </div>
+          {photosWithInfo.length > 12 && (
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              +{photosWithInfo.length - 12} more photos
+            </p>
+          )}
         </div>
       )}
 
