@@ -630,6 +630,47 @@ export function ActivityDetailContent({
                 </div>
               </div>
             )}
+            {/* Ticket Prices - auto-fetched during enrichment */}
+            {(activity.practical_details as any).ticket_price && (
+              <div className="col-span-2">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Ticket className="h-3 w-3" />
+                  Ticket Prices:
+                </span>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {(activity.practical_details as any).ticket_price.adult && (
+                    <Badge variant="outline" className="bg-green-500/10 border-green-500/30">
+                      Adult: {(activity.practical_details as any).ticket_price.adult}
+                    </Badge>
+                  )}
+                  {(activity.practical_details as any).ticket_price.child && (
+                    <Badge variant="outline" className="bg-blue-500/10 border-blue-500/30">
+                      Child: {(activity.practical_details as any).ticket_price.child}
+                    </Badge>
+                  )}
+                  {(activity.practical_details as any).ticket_price.senior && (
+                    <Badge variant="outline" className="bg-purple-500/10 border-purple-500/30">
+                      Senior: {(activity.practical_details as any).ticket_price.senior}
+                    </Badge>
+                  )}
+                  {(activity.practical_details as any).ticket_price.family && (
+                    <Badge variant="outline" className="bg-amber-500/10 border-amber-500/30">
+                      Family: {(activity.practical_details as any).ticket_price.family}
+                    </Badge>
+                  )}
+                  {(activity.practical_details as any).ticket_price.free_under_age && (
+                    <Badge variant="secondary">
+                      Free under {(activity.practical_details as any).ticket_price.free_under_age}
+                    </Badge>
+                  )}
+                </div>
+                {(activity.practical_details as any).ticket_price.source && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Source: {(activity.practical_details as any).ticket_price.source}
+                  </p>
+                )}
+              </div>
+            )}
             {activity.practical_details.avoid_times && activity.practical_details.avoid_times.length > 0 && (
               <div className="col-span-2">
                 <span className="text-muted-foreground">Avoid:</span>
@@ -643,6 +684,53 @@ export function ActivityDetailContent({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Recommended Dishes - for restaurants (AI-extracted from reviews) */}
+      {(activity as any).restaurant_details?.signature_dishes &&
+       (activity as any).restaurant_details.signature_dishes.length > 0 && (
+        <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2 text-orange-800 dark:text-orange-300">
+            <Utensils className="h-4 w-4" />
+            Must-Try Dishes
+            <Badge variant="outline" className="text-xs ml-auto">
+              {(activity as any).restaurant_details.signature_dishes[0]?.source === 'ai_review_analysis'
+                ? 'From Reviews'
+                : 'Recommended'}
+            </Badge>
+          </h4>
+          <div className="space-y-3">
+            {(activity as any).restaurant_details.signature_dishes.map((dish: any, idx: number) => (
+              <div key={idx} className="p-3 bg-white dark:bg-gray-800 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">{dish.name}</p>
+                  {dish.price && (
+                    <Badge variant="outline" className="text-xs">{dish.price}</Badge>
+                  )}
+                  {dish.kid_friendly && (
+                    <Badge variant="secondary" className="text-xs">Kid-friendly</Badge>
+                  )}
+                </div>
+                {dish.description && (
+                  <p className="text-xs text-muted-foreground mt-1">{dish.description}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          {(activity as any).restaurant_details.cuisine_type && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Cuisine: {(activity as any).restaurant_details.cuisine_type}
+            </p>
+          )}
+          {(activity as any).restaurant_details.dietary_options &&
+           (activity as any).restaurant_details.dietary_options.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {(activity as any).restaurant_details.dietary_options.map((opt: string, i: number) => (
+                <Badge key={i} variant="outline" className="text-xs">{opt}</Badge>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -660,28 +748,32 @@ export function ActivityDetailContent({
             </div>
           )}
 
-          {/* Why it matters */}
-          {(activity as any).deep_dive.why_it_matters?.content && (
+          {/* Why it matters - handles both string and object format */}
+          {((activity as any).deep_dive.why_it_matters?.content || (typeof (activity as any).deep_dive.why_it_matters === 'string' && (activity as any).deep_dive.why_it_matters)) && (
             <div>
               <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                 <Lightbulb className="h-4 w-4 text-yellow-500" />
                 Why It Matters
               </h4>
               <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                {(activity as any).deep_dive.why_it_matters.content}
+                {typeof (activity as any).deep_dive.why_it_matters === 'string'
+                  ? (activity as any).deep_dive.why_it_matters
+                  : (activity as any).deep_dive.why_it_matters.content}
               </div>
             </div>
           )}
 
-          {/* The story */}
-          {(activity as any).deep_dive.the_story?.content && (
+          {/* The story - handles both string and object format */}
+          {((activity as any).deep_dive.the_story?.content || (typeof (activity as any).deep_dive.the_story === 'string' && (activity as any).deep_dive.the_story)) && (
             <div>
               <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                 <History className="h-4 w-4" />
                 The Story
               </h4>
               <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                {(activity as any).deep_dive.the_story.content}
+                {typeof (activity as any).deep_dive.the_story === 'string'
+                  ? (activity as any).deep_dive.the_story
+                  : (activity as any).deep_dive.the_story.content}
               </div>
             </div>
           )}

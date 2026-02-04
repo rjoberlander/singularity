@@ -685,16 +685,39 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
               };
 
               // Try to find matching research_item for rich content
-              // Match by activity_name or location - use case-insensitive partial match
+              // Use fuzzy word-based matching to handle name variations
               const activityNameLower = (item.activity_name || '').toLowerCase();
               const locationLower = (item.location || '').toLowerCase();
+
+              // Helper function for fuzzy word matching
+              const fuzzyMatch = (str1: string, str2: string): boolean => {
+                // First try exact substring match
+                if (str1.includes(str2) || str2.includes(str1)) {
+                  return true;
+                }
+                // Extract significant words (skip common Portuguese articles/prepositions)
+                const stopWords = new Set(['da', 'das', 'de', 'do', 'dos', 'e', 'a', 'o', 'as', 'os', 'em', 'no', 'na', 'nos', 'nas', 'the', 'of', 'and', 'in', 'at', 'to', '&']);
+                const getWords = (s: string) => s.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+
+                const words1 = getWords(str1);
+                const words2 = getWords(str2);
+
+                if (words1.length === 0 || words2.length === 0) return false;
+
+                // Count matching words
+                const matchingWords = words1.filter(w1 =>
+                  words2.some(w2 => w1 === w2 || w1.includes(w2) || w2.includes(w1))
+                );
+
+                // Match if at least 60% of the smaller word set matches
+                const minWords = Math.min(words1.length, words2.length);
+                return matchingWords.length >= minWords * 0.6;
+              };
+
               const matchedResearch = researchItems.find((r: any) => {
                 const researchNameLower = (r.name || '').toLowerCase();
-                // Match if activity_name or location contains research_item name
-                return activityNameLower.includes(researchNameLower) ||
-                       locationLower.includes(researchNameLower) ||
-                       researchNameLower.includes(activityNameLower) ||
-                       (locationLower && researchNameLower.includes(locationLower));
+                return fuzzyMatch(activityNameLower, researchNameLower) ||
+                       fuzzyMatch(locationLower, researchNameLower);
               });
 
               // Determine activity type - use explicit type, then infer from name
@@ -2553,6 +2576,164 @@ router.get('/guide/template-definitions', async (req: Request, res: Response): P
     return res.json({
       success: true,
       data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// =============================================
+// MEAL IMPORT
+// =============================================
+
+/**
+ * POST /api/v1/travel/import/meals
+ *
+ * Import meal research to update existing meal activities with restaurant details.
+ * Updates segment_activities entries that currently have generic names like "Dinner".
+ */
+router.post('/import/meals', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { payload, trip_id } = req.body as {
+      payload: {
+        meals: Array<{
+          activity_id: string;
+          original_name: string;
+          recommended: {
+            name: string;
+            why_chosen: string;
+            cuisine?: string;
+            price_range?: string;
+            address?: string;
+            google_maps_url?: string;
+            reservation_needed?: boolean;
+            typical_wait?: string;
+            kid_notes?: string;
+            must_try?: string[];
+            tips?: string;
+          };
+          alternatives?: Array<{
+            name: string;
+            why_backup: string;
+            cuisine?: string;
+            price_range?: string;
+          }>;
+        }>;
+      };
+      trip_id: string;
+    };
+
+    if (!payload || !trip_id || !payload.meals) {
+      return res.status(400).json({
+        success: false,
+        error: 'payload, trip_id, and payload.meals are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Verify trip belongs to user
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id, name')
+      .eq('id', trip_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found or access denied',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const errors: string[] = [];
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    for (const meal of payload.meals) {
+      // Verify activity exists and belongs to this trip
+      const { data: activity, error: activityError } = await supabase
+        .from('trip_activities')
+        .select('id, trip_id, name')
+        .eq('id', meal.activity_id)
+        .single();
+
+      if (activityError || !activity) {
+        errors.push(`Activity ${meal.activity_id} not found`);
+        skippedCount++;
+        continue;
+      }
+
+      if (activity.trip_id !== trip_id) {
+        errors.push(`Activity ${meal.activity_id} does not belong to this trip`);
+        skippedCount++;
+        continue;
+      }
+
+      // Build the update data
+      const rec = meal.recommended;
+      const updateData: Record<string, unknown> = {
+        // Update name to include restaurant name
+        name: `${meal.original_name} at ${rec.name}`,
+        // Location info
+        location_name: rec.name,
+        address: rec.address,
+        google_maps_url: rec.google_maps_url,
+        // Reservation info
+        reservation_required: rec.reservation_needed || false,
+        reservation_details: rec.typical_wait ? `Typical wait: ${rec.typical_wait}` : undefined,
+        // Kid info
+        kid_friendliness: rec.kid_notes,
+        // Tips and notes
+        tips: [
+          rec.tips,
+          rec.must_try?.length ? `Must try: ${rec.must_try.join(', ')}` : null,
+        ].filter(Boolean).join('\n'),
+        why_its_great: rec.why_chosen,
+        // Store alternatives and details in activity_details JSONB
+        activity_details: {
+          cuisine: rec.cuisine,
+          price_range: rec.price_range,
+          alternatives: meal.alternatives,
+        },
+        updated_at: new Date().toISOString(),
+      };
+
+      // Remove undefined values
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === undefined) {
+          delete updateData[key];
+        }
+      });
+
+      const { error: updateError } = await supabase
+        .from('trip_activities')
+        .update(updateData)
+        .eq('id', meal.activity_id);
+
+      if (updateError) {
+        errors.push(`Failed to update ${meal.activity_id}: ${updateError.message}`);
+        skippedCount++;
+      } else {
+        updatedCount++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        updated: updatedCount,
+        skipped: skippedCount,
+        total: payload.meals.length,
+        errors: errors.length > 0 ? errors : undefined,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {

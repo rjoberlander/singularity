@@ -106,6 +106,7 @@ export default function TripPlanPage() {
       basics: getStepCompletionStatus("basics", tripData, storedProgress),
       accommodations: getStepCompletionStatus("accommodations", tripData, storedProgress),
       segments: getStepCompletionStatus("segments", tripData, storedProgress),
+      meals: getStepCompletionStatus("meals", tripData, storedProgress),
       days_activities: getStepCompletionStatus("days_activities", tripData, storedProgress),
     };
 
@@ -395,8 +396,8 @@ export default function TripPlanPage() {
       setShowImportDialog(false);
       // Invalidate queries to refresh the UI - await to ensure refetch completes
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trip-segments", tripId], refetchType: 'all' }),
-        queryClient.invalidateQueries({ queryKey: ["trip-full", tripId], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "segments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"], refetchType: 'all' }),
       ]);
       router.refresh();
     } catch (error) {
@@ -482,8 +483,8 @@ export default function TripPlanPage() {
       setDateMismatchInfo(null);
       // Invalidate queries to refresh the UI - await to ensure refetch completes
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trip-segments", tripId], refetchType: 'all' }),
-        queryClient.invalidateQueries({ queryKey: ["trip-full", tripId], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "segments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"], refetchType: 'all' }),
       ]);
       router.refresh();
     } catch (error) {
@@ -627,8 +628,8 @@ export default function TripPlanPage() {
       setSkeletonFile(null);
       // Invalidate queries to refresh the UI - await to ensure refetch completes
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trip-segments", tripId], refetchType: 'all' }),
-        queryClient.invalidateQueries({ queryKey: ["trip-full", tripId], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "segments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"], refetchType: 'all' }),
       ]);
       router.refresh();
     } catch (error) {
@@ -706,8 +707,8 @@ export default function TripPlanPage() {
 
       // Invalidate queries to refresh the UI - await to ensure refetch completes
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trip-segments", tripId], refetchType: 'all' }),
-        queryClient.invalidateQueries({ queryKey: ["trip-full", tripId], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "segments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"], refetchType: 'all' }),
       ]);
       router.refresh();
     } catch (error) {
@@ -826,25 +827,27 @@ export default function TripPlanPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5 text-purple-500" />
-              Assemble Daily Schedule
+              Enrich Data & Assemble Schedule
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>
-                This will use AI to create a detailed day-by-day schedule with 15-minute
-                precision, including travel times between activities.
-              </p>
-              <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
-                <div className="font-medium text-foreground">What happens:</div>
-                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li>Pulls your hotel selection</li>
-                  <li>Pulls your activities and research</li>
-                  <li>Calculates travel times via Google Maps</li>
-                  <li>Creates 15-min precision schedules</li>
-                </ul>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  This will enrich your activities with Google Places data (ratings, photos, hours)
+                  and create a detailed day-by-day schedule with 15-minute precision.
+                </p>
+                <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
+                  <div className="font-medium text-foreground">What happens:</div>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong className="text-purple-600">Enrich activities</strong> with Google Places (ratings, photos, hours, tags)</li>
+                    <li>Pulls your hotel selection and activities</li>
+                    <li>Calculates travel times via Google Maps</li>
+                    <li>Creates 15-min precision schedules</li>
+                  </ul>
+                </div>
+                <p className="text-amber-600 dark:text-amber-400 font-medium">
+                  This will replace any existing assembled schedule.
+                </p>
               </div>
-              <p className="text-amber-600 dark:text-amber-400 font-medium">
-                This will replace any existing assembled schedule.
-              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -857,12 +860,12 @@ export default function TripPlanPage() {
               {isAssembling ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Assembling...
+                  Enriching & Assembling...
                 </>
               ) : (
                 <>
                   <Wand2 className="h-4 w-4 mr-2" />
-                  Assemble Schedule
+                  Enrich & Assemble
                 </>
               )}
             </AlertDialogAction>

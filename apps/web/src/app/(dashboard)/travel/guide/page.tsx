@@ -73,6 +73,7 @@ export default function TravelGuidePage() {
       1: { content: getMcpPromptPhase1(), name: "Phase 1: Trip Planning" },
       2: { content: getMcpPromptPhase2(), name: "Phase 2: Hotel Research" },
       3: { content: getMcpPromptPhase3(), name: "Phase 3: Activity Research" },
+      4: { content: getMcpPromptPhase4(), name: "Phase 4: Meal Research" },
     };
     const prompt = prompts[phase];
     if (prompt) {
@@ -448,12 +449,79 @@ export default function TravelGuidePage() {
                   </div>
                 </div>
 
-                {/* Phase 4: Daily Assembly - AUTOMATED BY APP */}
+                {/* Phase 4: Meal Research */}
+                <div className="p-4 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-amber-500" />
+                      <div className="font-medium text-amber-700 dark:text-amber-400">Phase 4: Meal Research</div>
+                    </div>
+                    <div className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded">Restaurant research</div>
+                  </div>
+
+                  {/* 3-Column Layout */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* Column 1: Claude */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Claude Project</div>
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <Folder className="h-6 w-6 text-amber-500" />
+                        <span className="text-sm font-semibold">Meal Research</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">Research specific restaurants for generic meals like &quot;Dinner&quot;, &quot;Lunch&quot;.</p>
+                    </div>
+
+                    {/* Column 2: What It Does */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">What It Does</div>
+                      <div className="space-y-1 text-[10px] text-muted-foreground">
+                        <p>• Finds meals with generic names</p>
+                        <p>• Researches kid-friendly restaurants</p>
+                        <p>• Considers location & timing</p>
+                        <p>• Provides 2-3 options per meal</p>
+                      </div>
+                      <div className="flex items-center gap-1 pt-1">
+                        <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-[10px] text-muted-foreground">Output: meals.json</span>
+                      </div>
+                    </div>
+
+                    {/* Column 3: How to Use */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">How to Use</div>
+                      <div className="space-y-2">
+                        <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20">
+                          <div className="text-[10px] font-semibold text-amber-600 mb-1">APP:</div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Import on trip plan page → Meals section → updates activities
+                          </p>
+                        </div>
+                        <div className="p-2 rounded bg-red-500/10 border border-red-500/20">
+                          <div className="text-[10px] font-semibold text-red-500 mb-1">Claude Project Instructions:</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-[10px] justify-between"
+                            onClick={() => openMcpPrompt(4)}
+                          >
+                            <span>Copy to Claude Project</span>
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          <p className="text-[9px] text-muted-foreground mt-1">
+                            Paste into Claude Project&apos;s Instructions. Claude fetches meals needing research from Supabase.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 5: Daily Assembly - AUTOMATED BY APP */}
                 <div className="p-4 rounded-lg bg-purple-500/5 border border-purple-500/20">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-purple-500" />
-                      <div className="font-medium text-purple-700 dark:text-purple-400">Phase 4: Daily Assembly</div>
+                      <div className="font-medium text-purple-700 dark:text-purple-400">Phase 5: Daily Assembly</div>
                     </div>
                     <div className="text-xs bg-purple-500/10 text-purple-600 px-2 py-0.5 rounded">Automated by App</div>
                   </div>
@@ -461,8 +529,8 @@ export default function TravelGuidePage() {
                   {/* Different layout - App Automated */}
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      Unlike Phases 1-3, this phase is <span className="font-semibold text-purple-500">fully automated</span> by the app.
-                      No Claude Project needed — the app combines your Phase 2 hotel and Phase 3 research data to generate
+                      Unlike Phases 1-4, this phase is <span className="font-semibold text-purple-500">fully automated</span> by the app.
+                      No Claude Project needed — the app combines your Phase 2 hotel, Phase 3 research, and Phase 4 meals to generate
                       precise 15-minute schedules with travel times.
                     </p>
 
@@ -471,7 +539,7 @@ export default function TravelGuidePage() {
                       <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
                         <div className="text-2xl mb-1">📥</div>
                         <div className="text-[10px] font-semibold text-purple-600">1. Pull Data</div>
-                        <p className="text-[9px] text-muted-foreground mt-1">Reads Phase 2 hotel + Phase 3 activities from database</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Reads hotels, activities, and meals from database</p>
                       </div>
                       <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
                         <div className="text-2xl mb-1">🗺️</div>
@@ -494,7 +562,7 @@ export default function TravelGuidePage() {
                     <div className="flex items-center justify-between p-3 rounded-lg border border-dashed border-purple-500/30 bg-purple-500/5">
                       <div>
                         <div className="text-sm font-medium text-purple-600">Ready to assemble?</div>
-                        <p className="text-[10px] text-muted-foreground">Complete Phase 2 (hotel) and Phase 3 (research) first, then click "Assemble Schedule" on your trip page.</p>
+                        <p className="text-[10px] text-muted-foreground">Complete Phase 2 (hotel), Phase 3 (activities), and Phase 4 (meals) first, then click &quot;Assemble Schedule&quot; on your trip page.</p>
                       </div>
                       <Button variant="outline" size="sm" disabled className="text-purple-600 border-purple-500/30">
                         <Calendar className="h-3 w-3 mr-1" />
@@ -1349,4 +1417,114 @@ Every REST/NAP slot needs 1-2 alternatives with \`replaces.slot_type: "downtime"
 
 ## Output
 Complete JSON → import at http://localhost:3000/travel/[trip-id]/plan → Select segment`;
+}
+
+function getMcpPromptPhase4(): string {
+  return `# Meal Research Agent - Claude Project Instructions
+
+## Purpose
+Research specific restaurants for meals that currently have generic names like "Dinner", "Lunch", "Breakfast", etc.
+
+## Getting Trip ID
+User will paste a URL like \`http://localhost:3000/travel/[uuid]\` - extract the UUID as Trip ID.
+
+## Before Starting: Run This ONE Query
+Replace [TRIP_ID] with the UUID from the URL:
+\`\`\`sql
+SELECT
+  (SELECT family_profile FROM travel_settings WHERE user_id = 'b201a860-05a3-4ddc-bb89-4c4271177271') as family_profile,
+  (SELECT jsonb_agg(jsonb_build_object(
+    'segment_id', s.id,
+    'segment_number', s.segment_number,
+    'name', s.name,
+    'location', s.location_name,
+    'dates', s.start_date || ' to ' || s.end_date
+  ) ORDER BY s.segment_number) FROM trip_segments s WHERE s.trip_id = '[TRIP_ID]') as segments,
+  (SELECT jsonb_agg(jsonb_build_object(
+    'activity_id', a.id,
+    'segment_id', a.segment_id,
+    'date', a.date,
+    'name', a.name,
+    'activity_type', a.activity_type,
+    'start_time', a.start_time,
+    'end_time', a.end_time,
+    'location', a.location_name
+  ) ORDER BY a.date, a.start_time)
+  FROM trip_activities a
+  WHERE a.trip_id = '[TRIP_ID]'
+  AND a.activity_type = 'meal'
+  AND (
+    LOWER(a.name) IN ('breakfast', 'lunch', 'dinner', 'brunch', 'snack', 'coffee')
+    OR LOWER(a.name) LIKE '%breakfast%'
+    OR LOWER(a.name) LIKE '%lunch%'
+    OR LOWER(a.name) LIKE '%dinner%'
+    OR LOWER(a.name) LIKE 'quick %'
+    OR LOWER(a.name) LIKE 'easy %'
+    OR LOWER(a.name) LIKE 'light %'
+    OR LOWER(a.name) LIKE 'early %'
+    OR (a.google_place_id IS NULL AND LOWER(a.name) NOT LIKE '% at %')
+  )) as meals_needing_research
+\`\`\`
+
+This returns:
+- **family_profile**: Dietary restrictions, preferences, kids info
+- **segments**: Location context for each segment
+- **meals_needing_research**: All meals with generic names that need restaurant research
+
+## Your Role
+For each meal in \`meals_needing_research\`:
+1. Consider the location (from segment), time of day, and family preferences
+2. Research 2-3 specific restaurant options
+3. Pick the best option and provide details
+
+## Research Criteria
+Consider:
+- **Kid-friendliness**: High chairs, kids menu, space to move
+- **Location**: Walking distance from day's activities
+- **Timing**: Appropriate for the meal slot (breakfast spots for morning, etc.)
+- **Cuisine**: Variety across the trip, local specialties
+- **Price**: Match family budget expectations
+- **Reservations**: Note if required and typical wait times
+
+## Output Format
+\`\`\`json
+{
+  "meals": [
+    {
+      "activity_id": "uuid-from-query",
+      "original_name": "Dinner",
+      "recommended": {
+        "name": "Restaurant Name",
+        "why_chosen": "Best kid-friendly option with outdoor seating near hotel",
+        "cuisine": "Portuguese Traditional",
+        "price_range": "$$",
+        "address": "Full address",
+        "google_maps_url": "https://maps.google.com/...",
+        "reservation_needed": true,
+        "typical_wait": "15-20 min without reservation",
+        "kid_notes": "High chairs available, kids menu",
+        "must_try": ["Grilled fish", "Pastel de nata for dessert"],
+        "tips": "Ask for table on the terrace"
+      },
+      "alternatives": [
+        {
+          "name": "Alternative Restaurant",
+          "why_backup": "Good if primary is full",
+          "cuisine": "Seafood",
+          "price_range": "$$"
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+## Important
+- Only research meals that appear in \`meals_needing_research\`
+- Skip meals that already have specific restaurant names (like "Lunch at Time Out Market")
+- Focus on restaurants within walking distance of the day's activities
+- Consider the full day's schedule when recommending dinner spots
+
+## Output
+Complete JSON → import at http://localhost:3000/travel/[trip-id]/plan → Meals section`;
 }

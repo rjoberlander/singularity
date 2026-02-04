@@ -1107,6 +1107,7 @@ export interface TripPlanningProgress {
   basics: PlanningStepProgress;
   accommodations: PlanningStepProgress;
   segments: PlanningStepProgress;
+  meals: PlanningStepProgress;
   days_activities: PlanningStepProgress;
 }
 
@@ -1172,7 +1173,7 @@ export interface UpdateTripRequest extends Partial<CreateTripRequest> {
 }
 
 export interface UpdateTripPlanningProgressRequest {
-  step: 'basics' | 'accommodations' | 'segments' | 'days_activities';
+  step: 'basics' | 'accommodations' | 'segments' | 'meals' | 'days_activities';
   auto_suggested?: boolean;
   completed?: boolean;
 }
@@ -1532,12 +1533,25 @@ export interface TripActivity {
       kids?: string;
       under_x_free?: string;
     };
+    // Ticket/admission pricing (auto-fetched during enrichment for attractions)
+    ticket_price?: {
+      adult?: string;
+      child?: string;
+      senior?: string;
+      family?: string;
+      free_under_age?: number;
+      currency?: string;
+      source?: string;
+      fetched_at?: string;
+    };
     time_needed?: string;
     avoid_times?: string[];
     best_times?: string[];
     getting_there?: string;
     combo_tickets?: string;
   };
+  // Restaurant-specific details (enriched with AI review analysis)
+  restaurant_details?: RestaurantDetails;
   kid_engagement?: {
     age_7?: string[];
     age_5?: string[];
@@ -2195,8 +2209,10 @@ export interface HikeDetails {
 export interface SignatureDish {
   name: string;
   description: string;
-  price: string;
-  kid_friendly: boolean;
+  price?: string;
+  kid_friendly?: boolean;
+  // Source of recommendation: 'ai_review_analysis' (auto-extracted from Google reviews) or 'imported' (from Claude research)
+  source?: 'ai_review_analysis' | 'imported';
 }
 
 export interface RestaurantDetails {
@@ -2909,3 +2925,522 @@ export interface AssembleScheduleResponse {
 
 // Validation status for daily_schedule_items
 export type ScheduleItemValidationStatus = 'pending' | 'valid' | 'warning' | 'error';
+
+// ============================================================================
+// RV LOCATIONS TYPES
+// ============================================================================
+
+// RV Location category options
+export type RVLocationCategory =
+  | 'harvest_hosts'
+  | 'national_parks'
+  | 'state_parks'
+  | 'hot_springs'
+  | 'lake_river'
+  | 'boondocking'
+  | 'couples_getaway'
+  | 'other';
+
+// RV Location status options
+export type RVLocationStatus = 'researching' | 'want_to_visit' | 'visited' | 'not_interested';
+
+// RV hookup types
+export type RVHookupType = 'full' | 'electric_only' | 'water_electric' | 'dry' | 'none';
+
+// RV road accessibility levels
+export type RVRoadAccessibility = 'paved' | 'gravel' | 'dirt' | 'rough_4x4';
+
+// RV cell coverage levels
+export type RVCellCoverage = 'excellent' | 'good' | 'spotty' | 'none';
+
+// RV activity types
+export type RVActivityType =
+  | 'hike'
+  | 'bike'
+  | 'swim'
+  | 'fish'
+  | 'kayak'
+  | 'paddleboard'
+  | 'horseback'
+  | 'wildlife_viewing'
+  | 'stargazing'
+  | 'hot_springs'
+  | 'beach'
+  | 'playground'
+  | 'visitor_center'
+  | 'ranger_program'
+  | 'scenic_drive'
+  | 'photography'
+  | 'other';
+
+// RV activity time of day
+export type RVActivityTimeOfDay = 'morning' | 'midday' | 'afternoon' | 'evening' | 'any';
+
+// RV Logistics JSONB structure
+export interface RVLogistics {
+  max_trailer_length_ft?: number;
+  hookups?: RVHookupType;
+  road_accessibility?: RVRoadAccessibility;
+  cell_coverage?: RVCellCoverage;
+  starlink_friendly?: boolean;
+  dump_station?: boolean;
+  fifth_wheel_accessible?: boolean;
+  generator_allowed?: boolean;
+  pet_friendly?: boolean;
+  max_stay_nights?: number;
+}
+
+// RV Best Season JSONB structure
+export interface RVBestSeason {
+  best?: string[];  // ['spring', 'fall']
+  avoid?: string[];  // ['summer'] (too hot)
+  notes?: string;
+}
+
+// RV Vibe ratings (1-5 scale)
+export interface RVVibe {
+  solitude_level?: number;      // 1 = crowded, 5 = isolated
+  other_kids_around?: number;   // 1 = rare, 5 = many families
+  relaxation_factor?: number;   // 1 = active, 5 = pure relaxation
+  scenic_beauty?: number;       // 1 = meh, 5 = breathtaking
+  adventure_level?: number;     // 1 = chill, 5 = extreme adventure
+  family_friendly?: number;     // 1 = adults only, 5 = perfect for kids
+}
+
+// RV Educational Value JSONB structure
+export interface RVEducationalValue {
+  visitor_center?: boolean;
+  junior_ranger_program?: boolean;
+  ranger_programs?: boolean;
+  topics?: string[];  // ['geology', 'wildlife', 'history']
+}
+
+// Kid engagement per child
+export interface RVChildEngagement {
+  suitable?: boolean;
+  engagement_level?: 'high' | 'medium' | 'low';
+  activities?: string[];
+  notes?: string;
+}
+
+// RV Kid Engagement JSONB structure
+export interface RVKidEngagement {
+  parker?: RVChildEngagement;    // 8 years old
+  charlotte?: RVChildEngagement; // 5 years old
+  xander?: RVChildEngagement;    // 3 years old
+}
+
+// RV Location main interface
+export interface RVLocation {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  hook?: string;
+  category?: RVLocationCategory;
+  location_name?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  latitude?: number;
+  longitude?: number;
+  google_place_id?: string;
+  google_rating?: number;
+  google_review_count?: number;
+  google_price_level?: number;
+  rv_logistics?: RVLogistics;
+  reservation_required?: boolean;
+  reservation_url?: string;
+  reservation_notes?: string;
+  cost_per_night?: number;
+  cost_currency?: string;
+  cost_notes?: string;
+  best_season?: RVBestSeason;
+  drive_time_from_la?: string;
+  drive_distance_miles?: number;
+  vibe?: RVVibe;
+  educational_value?: RVEducationalValue;
+  kid_engagement?: RVKidEngagement;
+  website?: string;
+  phone?: string;
+  cover_image_url?: string;
+  status?: RVLocationStatus;
+  priority?: number;
+  tags?: string[];
+  pros?: string[];
+  cons?: string[];
+  notes?: string;
+  converted_to_trip_id?: string;
+  enriched_at?: string;
+  created_at: string;
+  updated_at: string;
+  // Populated via joins
+  activities?: RVLocationActivity[];
+  media?: RVLocationMedia[];
+}
+
+// RV Location Activity interface
+export interface RVLocationActivity {
+  id: string;
+  location_id: string;
+  name: string;
+  description?: string;
+  activity_type?: RVActivityType;
+  time_of_day?: RVActivityTimeOfDay;
+  kid_engagement?: RVKidEngagement;
+  duration_minutes?: number;
+  duration_text?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  distance_from_campsite?: string;
+  cost_estimate?: number;
+  cost_notes?: string;
+  google_place_id?: string;
+  google_rating?: number;
+  alltrails_url?: string;
+  alltrails_rating?: number;
+  difficulty?: string;
+  distance_miles?: number;
+  elevation_gain_ft?: number;
+  tips?: string;
+  notes?: string;
+  sort_order?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// RV Location Media interface
+export interface RVLocationMedia {
+  id: string;
+  location_id: string;
+  activity_id?: string;
+  user_id: string;
+  file_url: string;
+  thumbnail_url?: string;
+  media_type?: 'image' | 'video';
+  original_filename?: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+  width?: number;
+  height?: number;
+  caption?: string;
+  google_attribution_name?: string;
+  google_attribution_uri?: string;
+  is_google_sourced?: boolean;
+  sort_order?: number;
+  created_at: string;
+}
+
+// RV Research Settings interface
+export interface RVResearchSettings {
+  id: string;
+  user_id: string;
+  claude_instructions?: string;
+  family_profile?: {
+    members?: Array<{
+      name: string;
+      age?: number;
+      engagement_style?: string;
+    }>;
+    equipment?: {
+      trailer_model?: string;
+      trailer_length_ft?: number;
+      tow_vehicle?: string;
+      has_starlink?: boolean;
+      has_bikes?: boolean;
+      has_kayak?: boolean;
+      has_paddleboard?: boolean;
+    };
+  };
+  output_template?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// Create RV Location request
+export interface CreateRVLocationRequest {
+  name: string;
+  description?: string;
+  hook?: string;
+  category?: RVLocationCategory;
+  location_name?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  latitude?: number;
+  longitude?: number;
+  google_place_id?: string;
+  rv_logistics?: RVLogistics;
+  reservation_required?: boolean;
+  reservation_url?: string;
+  reservation_notes?: string;
+  cost_per_night?: number;
+  cost_currency?: string;
+  cost_notes?: string;
+  best_season?: RVBestSeason;
+  drive_time_from_la?: string;
+  drive_distance_miles?: number;
+  vibe?: RVVibe;
+  educational_value?: RVEducationalValue;
+  kid_engagement?: RVKidEngagement;
+  website?: string;
+  phone?: string;
+  cover_image_url?: string;
+  status?: RVLocationStatus;
+  priority?: number;
+  tags?: string[];
+  pros?: string[];
+  cons?: string[];
+  notes?: string;
+}
+
+// Create RV Location Activity request
+export interface CreateRVLocationActivityRequest {
+  name: string;
+  description?: string;
+  activity_type?: RVActivityType;
+  time_of_day?: RVActivityTimeOfDay;
+  kid_engagement?: RVKidEngagement;
+  duration_minutes?: number;
+  duration_text?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  distance_from_campsite?: string;
+  cost_estimate?: number;
+  cost_notes?: string;
+  google_place_id?: string;
+  alltrails_url?: string;
+  difficulty?: string;
+  distance_miles?: number;
+  elevation_gain_ft?: number;
+  tips?: string;
+  notes?: string;
+  sort_order?: number;
+}
+
+// Create RV Location Media request
+export interface CreateRVLocationMediaRequest {
+  activity_id?: string;
+  file_url: string;
+  thumbnail_url?: string;
+  media_type?: 'image' | 'video';
+  original_filename?: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+  width?: number;
+  height?: number;
+  caption?: string;
+  google_attribution_name?: string;
+  google_attribution_uri?: string;
+  is_google_sourced?: boolean;
+  sort_order?: number;
+}
+
+// RV Location Import Payload (JSON from Claude)
+export interface RVLocationImportPayload {
+  locations: Array<{
+    name: string;
+    hook?: string;
+    description?: string;
+    category?: RVLocationCategory;
+    location_name?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    latitude?: number;
+    longitude?: number;
+    drive_time_from_la?: string;
+    drive_distance_miles?: number;
+    rv_logistics?: RVLogistics;
+    best_season?: RVBestSeason;
+    vibe?: RVVibe;
+    educational_value?: RVEducationalValue;
+    kid_engagement?: RVKidEngagement;
+    cost_per_night?: number;
+    cost_notes?: string;
+    reservation_required?: boolean;
+    reservation_url?: string;
+    reservation_notes?: string;
+    website?: string;
+    phone?: string;
+    pros?: string[];
+    cons?: string[];
+    tags?: string[];
+    notes?: string;
+    activities?: Array<{
+      name: string;
+      description?: string;
+      activity_type?: RVActivityType;
+      time_of_day?: RVActivityTimeOfDay;
+      kid_engagement?: RVKidEngagement;
+      duration_minutes?: number;
+      duration_text?: string;
+      distance_from_campsite?: string;
+      cost_estimate?: number;
+      alltrails_url?: string;
+      difficulty?: string;
+      distance_miles?: number;
+      elevation_gain_ft?: number;
+      tips?: string;
+    }>;
+  }>;
+}
+
+// RV Location Import Result
+export interface RVLocationImportResult {
+  success: boolean;
+  created: {
+    locations: number;
+    activities: number;
+  };
+  errors?: string[];
+  location_ids: string[];
+}
+
+// RV Location Convert to Trip request
+export interface RVLocationConvertToTripRequest {
+  start_date?: string;
+  end_date?: string;
+  traveler_count?: number;
+}
+
+// RV Location Convert to Trip result
+export interface RVLocationConvertToTripResult {
+  success: boolean;
+  trip_id: string;
+  segment_id: string;
+  activity_count: number;
+}
+
+// RV Research Output Template (Claude's expected output format)
+export interface RVResearchOutputTemplate {
+  _template_info?: {
+    name: string;
+    version: string;
+    description?: string;
+  };
+  locations: Array<{
+    // Required
+    name: string;
+    hook: string;
+    description: string;
+    category: RVLocationCategory;
+    state: string;
+    city: string;
+    drive_time_from_la: string;
+
+    // Logistics
+    rv_logistics: {
+      max_trailer_length_ft?: number;
+      hookups: RVHookupType;
+      cell_coverage: RVCellCoverage;
+      road_accessibility?: string;
+      fifth_wheel_accessible?: boolean;
+    };
+
+    // Vibe (Claude generates 1-5 ratings)
+    vibe: RVVibe;
+
+    // Season & Cost
+    best_season: RVBestSeason;
+    cost_per_night?: number;
+    cost_notes?: string;
+    reservation_required: boolean;
+    reservation_notes?: string;
+
+    // Kid Engagement (per child)
+    kid_engagement: RVKidEngagement;
+
+    // Educational
+    educational_value?: RVEducationalValue;
+
+    // Lists
+    pros?: string[];
+    cons?: string[];
+    tags?: string[];
+
+    // Activities (specific, not generic)
+    activities: Array<{
+      name: string;
+      activity_type: RVActivityType;
+      description: string;
+      duration_text?: string;
+      difficulty?: string;
+      distance_miles?: number;
+      elevation_gain_ft?: number;
+      kid_engagement?: RVKidEngagement;
+      tips?: string;
+    }>;
+  }>;
+}
+
+// RV Import Validation Result (for dry-run)
+export interface RVImportValidationResult {
+  valid: boolean;
+  location_count: number;
+  activity_count: number;
+  warnings: Array<{
+    type: 'duplicate_name' | 'missing_recommended' | 'invalid_value';
+    message: string;
+    location_name?: string;
+    field?: string;
+  }>;
+  errors: Array<{
+    type: 'missing_required' | 'invalid_type' | 'invalid_enum';
+    message: string;
+    location_name?: string;
+    field?: string;
+  }>;
+}
+
+// RV Review Highlights (from AI analysis)
+export interface RVReviewHighlights {
+  positive: Array<{
+    text: string;
+    author?: string;
+    rating?: number;
+  }>;
+  negative: Array<{
+    text: string;
+    author?: string;
+    rating?: number;
+  }>;
+  summary: string;
+  last_updated: string;
+}
+
+// RV Enrichment Options
+export interface RVEnrichmentOptions {
+  fetch_reviews?: boolean;
+  fetch_photos?: boolean;
+  fetch_hours?: boolean;
+  enrich_activities?: boolean;
+  max_photos?: number;
+}
+
+// RV Enrichment Result
+export interface RVEnrichmentResult {
+  success: boolean;
+  location_updated: boolean;
+  activities_enriched: number;
+  photos_added: number;
+  reviews_fetched: number;
+  errors?: string[];
+}
+
+// RV Activity Suggestion
+export interface RVActivitySuggestion {
+  name: string;
+  activity_type: RVActivityType;
+  description: string;
+  duration_text?: string;
+  difficulty?: string;
+  distance_miles?: number;
+  elevation_gain_ft?: number;
+  why_recommended: string;
+  kid_engagement?: RVKidEngagement;
+  google_place_id?: string;
+  alltrails_url?: string;
+}

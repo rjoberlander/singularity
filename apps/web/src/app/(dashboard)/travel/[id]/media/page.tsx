@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { useTripFull, useDeleteTripMedia } from "@/lib/api";
+import { useTripFull, useDeleteTripMedia, useDeduplicateTripMedia, useBulkDeleteTripMedia } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,7 +26,14 @@ import {
   Clock,
   Calendar,
   Route,
+  Copy,
+  Loader2,
+  CheckSquare,
+  Square,
+  X,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 import type { TripMedia, TripActivity, TripDay, TripSegment } from "@singularity/shared-types";
 
 interface EnrichedMedia extends TripMedia {
@@ -53,7 +60,18 @@ function enrichMediaWithContext(
   const dayMap = new Map(days.map(d => [d.id, d]));
   const activityMap = new Map(activities.map(a => [a.id, a]));
 
-  return media.map(m => {
+  // Deduplicate by file_url - keep the first occurrence (which has more context)
+  const seenUrls = new Set<string>();
+  const deduped = media.filter(m => {
+    const url = m.file_url;
+    if (seenUrls.has(url)) {
+      return false;
+    }
+    seenUrls.add(url);
+    return true;
+  });
+
+  return deduped.map(m => {
     const enriched: EnrichedMedia = { ...m };
 
     if (m.parent_type === "activity" && m.parent_id) {
@@ -91,6 +109,11 @@ function enrichMediaWithContext(
             enriched.segmentNumber = segment.segment_number;
           }
         }
+      } else {
+        // Activity not found - use caption if available (may contain activity name)
+        if (m.caption) {
+          enriched.activityName = m.caption;
+        }
       }
     } else if (m.parent_type === "day" && m.parent_id) {
       const day = dayMap.get(m.parent_id);
@@ -114,6 +137,15 @@ function enrichMediaWithContext(
         enriched.segmentNumber = segment.segment_number;
         enriched.sortDate = segment.start_date;
       }
+      // For segment photos, caption often contains the segment or location name
+      if (m.caption && !enriched.activityName) {
+        enriched.activityName = m.caption;
+      }
+    }
+
+    // Final fallback: use caption if nothing else is set
+    if (!enriched.activityName && !enriched.segmentName && m.caption) {
+      enriched.activityName = m.caption;
     }
 
     return enriched;
@@ -148,9 +180,14 @@ export default function TripMediaPage() {
   const params = useParams();
   const tripId = params.id as string;
   const [deleteTarget, setDeleteTarget] = useState<EnrichedMedia | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const { data: trip } = useTripFull(tripId);
   const { mutate: deleteMedia, isPending: isDeleting } = useDeleteTripMedia();
+  const { mutate: deduplicateMedia, isPending: isDeduplicating } = useDeduplicateTripMedia();
+  const { mutate: bulkDeleteMedia, isPending: isBulkDeleting } = useBulkDeleteTripMedia();
 
   const enrichedMedia = useMemo(() => {
     if (!trip?.media) return [];
@@ -171,6 +208,63 @@ export default function TripMediaPage() {
     );
   };
 
+  const handleDeduplicate = () => {
+    deduplicateMedia(
+      { tripId },
+      {
+        onSuccess: (result) => {
+          if (result.stats.duplicates_removed > 0) {
+            toast.success(`Removed ${result.stats.duplicates_removed} duplicate photos`);
+          } else {
+            toast.info("No duplicates found");
+          }
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to deduplicate");
+        },
+      }
+    );
+  };
+
+  const toggleSelection = (mediaId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(mediaId)) {
+        next.delete(mediaId);
+      } else {
+        next.add(mediaId);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(enrichedMedia.map(m => m.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelecting(false);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    bulkDeleteMedia(
+      { tripId, mediaIds: Array.from(selectedIds) },
+      {
+        onSuccess: (result) => {
+          toast.success(`Deleted ${result.deleted_count} photos`);
+          setSelectedIds(new Set());
+          setIsSelecting(false);
+          setShowBulkDeleteConfirm(false);
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : "Failed to delete photos");
+        },
+      }
+    );
+  };
+
   if (!trip) return null;
 
   return (
@@ -179,21 +273,83 @@ export default function TripMediaPage() {
         <div>
           <h2 className="text-lg font-semibold">Photos & Media</h2>
           <p className="text-sm text-muted-foreground">
-            Trip photos and documents ({enrichedMedia.length} items)
+            {isSelecting && selectedIds.size > 0
+              ? `${selectedIds.size} of ${enrichedMedia.length} selected`
+              : `Trip photos and documents (${enrichedMedia.length} items)`}
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Upload Media
-        </Button>
+        <div className="flex items-center gap-2">
+          {isSelecting ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAll}
+                disabled={selectedIds.size === enrichedMedia.length}
+              >
+                <CheckSquare className="h-4 w-4 mr-2" />
+                Select All
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={selectedIds.size === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete ({selectedIds.size})
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearSelection}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setIsSelecting(true)}
+                disabled={enrichedMedia.length === 0}
+              >
+                <CheckSquare className="h-4 w-4 mr-2" />
+                Select
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDeduplicate}
+                disabled={isDeduplicating || enrichedMedia.length === 0}
+              >
+                {isDeduplicating ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4 mr-2" />
+                )}
+                {isDeduplicating ? "Removing..." : "Remove Duplicates"}
+              </Button>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Upload Media
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {enrichedMedia.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {enrichedMedia.map((media) => (
+          {enrichedMedia.map((media) => {
+            const isSelected = selectedIds.has(media.id);
+            return (
             <div
               key={media.id}
-              className="group rounded-lg overflow-hidden bg-muted border"
+              className={`group rounded-lg overflow-hidden bg-muted border transition-all ${
+                isSelecting ? "cursor-pointer" : ""
+              } ${isSelected ? "ring-2 ring-primary ring-offset-2" : ""}`}
+              onClick={isSelecting ? () => toggleSelection(media.id) : undefined}
             >
               {/* Image container */}
               <div className="relative aspect-square">
@@ -201,7 +357,9 @@ export default function TripMediaPage() {
                   <img
                     src={media.thumbnail_url || media.file_url}
                     alt={media.caption || "Trip photo"}
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full object-cover transition-opacity ${
+                      isSelected ? "opacity-75" : ""
+                    }`}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-muted">
@@ -209,17 +367,31 @@ export default function TripMediaPage() {
                   </div>
                 )}
 
-                {/* Delete button overlay */}
-                <button
-                  onClick={() => setDeleteTarget(media)}
-                  className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                  title="Delete photo"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                {/* Selection checkbox */}
+                {isSelecting && (
+                  <div className="absolute top-2 left-2">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleSelection(media.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-5 w-5 bg-white/90 border-2"
+                    />
+                  </div>
+                )}
+
+                {/* Delete button overlay - hide when selecting */}
+                {!isSelecting && (
+                  <button
+                    onClick={() => setDeleteTarget(media)}
+                    className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                    title="Delete photo"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
 
                 {/* Alternate badge */}
-                {media.isAlternate && (
+                {media.isAlternate && !isSelecting && (
                   <span className="absolute top-2 left-2 px-2 py-0.5 text-xs font-medium bg-amber-500 text-white rounded">
                     Alternate
                   </span>
@@ -228,14 +400,24 @@ export default function TripMediaPage() {
 
               {/* Metadata */}
               <div className="p-3 space-y-1.5 text-sm bg-card">
-                {media.activityName && (
+                {/* Show activity name or caption as primary label */}
+                {media.activityName ? (
                   <p className="font-medium text-foreground truncate" title={media.activityName}>
                     {media.activityName}
+                  </p>
+                ) : media.segmentName ? (
+                  <p className="font-medium text-foreground truncate" title={media.segmentName}>
+                    {media.segmentName}
+                  </p>
+                ) : (
+                  <p className="font-medium text-foreground truncate">
+                    {media.parent_type === "trip" ? "Trip photo" : "Photo"}
                   </p>
                 )}
 
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  {media.segmentName && (
+                  {/* Show segment name in details if we have activity name as primary */}
+                  {media.activityName && media.segmentName && (
                     <span className="flex items-center gap-1" title="Segment">
                       <Route className="h-3 w-3" />
                       {media.segmentName}
@@ -263,15 +445,10 @@ export default function TripMediaPage() {
                     </span>
                   )}
                 </div>
-
-                {!media.segmentName && !media.dayNumber && !media.activityLocation && (
-                  <p className="text-xs text-muted-foreground">
-                    {media.parent_type === "trip" ? "Trip photo" : `${media.parent_type} photo`}
-                  </p>
-                )}
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       ) : (
         <Card>
@@ -289,7 +466,7 @@ export default function TripMediaPage() {
         </Card>
       )}
 
-      {/* Delete confirmation dialog */}
+      {/* Delete single photo confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -311,6 +488,35 @@ export default function TripMediaPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} Photos</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedIds.size} selected photos? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedIds.size} Photos`
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

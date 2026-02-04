@@ -134,9 +134,10 @@ export function PlanStepCard({
   const isBasicsStep = step.id === "basics";
   const isDaysActivitiesStep = step.id === "days_activities";
   const isSegmentsStep = step.id === "segments";
+  const isMealsStep = step.id === "meals";
   const isAccommodationsStep = step.id === "accommodations";
   const canEdit = isBasicsStep && !isCompleted;
-  const canImport = (isSegmentsStep || isAccommodationsStep) && onImportResearch;
+  const canImport = (isSegmentsStep || isAccommodationsStep || isMealsStep) && onImportResearch;
   const canImportSkeleton = isBasicsStep && onImportSkeleton;
 
   // Determine if any drag-drop is enabled
@@ -442,6 +443,9 @@ export function PlanStepCard({
                   <ul className="space-y-0.5 text-muted-foreground">
                     <li>• Fetch Google opening hours</li>
                     <li>• Get ratings, reviews & photos</li>
+                    <li className="text-xs opacity-80 ml-2">↳ 20 photos (primary), 10 (alternates)</li>
+                    <li>• Restaurant: Top 3-5 dishes from reviews</li>
+                    <li>• Attraction: Ticket prices if available</li>
                     <li className="text-green-600 dark:text-green-400">• Skip already enriched</li>
                   </ul>
                 </div>
@@ -467,7 +471,23 @@ export function PlanStepCard({
             {/* Enrichment status by segment */}
             {status.segmentDetails && status.segmentDetails.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium">Enrichment status:</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">Enrichment status:</p>
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-purple-500" />
+                      Complete
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm border-2 border-purple-500" />
+                      Partial
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm bg-muted" />
+                      None
+                    </span>
+                  </div>
+                </div>
                 <table className="text-xs w-full">
                   <thead>
                     <tr className="text-muted-foreground border-b border-border/50">
@@ -534,7 +554,7 @@ export function PlanStepCard({
                 data-testid="assemble-schedule-button"
               >
                 {isAssembling ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Sparkles className="h-5 w-5 mr-2" />}
-                {isAssembling ? "Assembling Schedule..." : "Assemble Schedule"}
+                {isAssembling ? "Enriching & Assembling..." : "Enrich Data & Assemble Schedule"}
               </Button>
             </div>
 
@@ -556,6 +576,9 @@ export function PlanStepCard({
                 <ExternalLink className="h-3 w-3" />
               </Link>
             </div>
+
+            {/* Pre-validation Issues */}
+            <PreValidationIssues status={status} />
 
             {/* Validation Results (if any) */}
             {validationResult && validationResult.issues.length > 0 && (
@@ -598,11 +621,9 @@ export function PlanStepCard({
                                     "w-4 h-4 rounded-sm text-[9px] flex items-center justify-center font-medium",
                                     day.hasActivity
                                       ? "bg-green-500 text-white"
-                                      : seg.researchStatus === "completed"
-                                      ? "bg-purple-500 text-white"
                                       : "bg-muted text-muted-foreground"
                                   )}
-                                  title={`${day.date}: ${day.hasActivity ? "Has activities" : seg.researchStatus === "completed" ? "Research completed" : "No activities"}`}
+                                  title={`${day.date}: ${day.hasActivity ? "Has activities" : "No activities"}`}
                                 >
                                   {day.dayOfMonth}
                                 </div>
@@ -610,10 +631,8 @@ export function PlanStepCard({
                             </div>
                           </td>
                           <td className="py-0.5 text-center">
-                            {seg.researchStatus === "completed" ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-purple-500 mx-auto" />
-                            ) : seg.researchStatus === "in_progress" ? (
-                              <div className="w-3.5 h-3.5 rounded-full border-2 border-purple-500 mx-auto" />
+                            {seg.days?.some(d => d.hasActivity) ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mx-auto" />
                             ) : (
                               <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/30 mx-auto" />
                             )}
@@ -680,8 +699,51 @@ export function PlanStepCard({
                 </div>
               )}
 
+              {/* Meals Table (for Meals step) */}
+              {isMealsStep && status.mealDetails && status.mealDetails.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">
+                    {status.mealDetails.filter(m => !m.needsResearch).length} of {status.mealDetails.length} meals researched
+                  </p>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="text-xs w-full">
+                      <thead className="sticky top-0 bg-card">
+                        <tr className="text-muted-foreground border-b border-border/50">
+                          <th className="text-left py-1 pr-2 font-medium">Date</th>
+                          <th className="text-left py-1 pr-2 font-medium">Meal</th>
+                          <th className="text-center py-1 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {status.mealDetails.map((meal) => (
+                          <tr key={meal.activityId} className="border-b border-border/30 last:border-0">
+                            <td className="py-0.5 pr-2 text-muted-foreground whitespace-nowrap">
+                              {meal.date ? formatDateCompact(meal.date) : "-"}
+                            </td>
+                            <td className="py-0.5 pr-2 max-w-[200px] truncate" title={meal.name}>
+                              {meal.name}
+                            </td>
+                            <td className="py-0.5 text-center">
+                              {meal.needsResearch ? (
+                                <span title="Needs research">
+                                  <AlertCircle className="h-3.5 w-3.5 text-amber-500 mx-auto" />
+                                </span>
+                              ) : (
+                                <span title="Researched">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mx-auto" />
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Default Summary for non-table steps (basics, days_activities) */}
-              {!isSegmentsStep && !isAccommodationsStep && status.summary.length > 0 && (
+              {!isSegmentsStep && !isAccommodationsStep && !isMealsStep && status.summary.length > 0 && (
                 <ul className="text-xs space-y-0">
                   {status.summary.map((item, idx) => (
                     <li key={idx} className="text-foreground">{item}</li>
@@ -956,11 +1018,131 @@ export function PlanStepCard({
                 </>
               )}
 
+              {/* Meals - Meal research import */}
+              {isMealsStep && canImport && (
+                <>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p className="font-medium text-foreground">Research meals:</p>
+                    <ol className="list-decimal list-inside space-y-0.5 text-[11px]">
+                      <li>Go to <span className="font-medium text-foreground">Claude Project</span></li>
+                      <li>Open <span className="font-medium text-foreground">Meal Research</span></li>
+                      <li>Research &amp; export JSON</li>
+                    </ol>
+                  </div>
+                  <input type="file" id={`import-file-${step.id}`} className="hidden" accept=".json" onChange={handleFileSelect} />
+                  <div
+                    className={cn(
+                      "border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors",
+                      isDragging ? "border-purple-500 bg-purple-500/10" : "border-purple-500/30 hover:border-purple-500/50 hover:bg-purple-500/5"
+                    )}
+                    onClick={() => document.getElementById(`import-file-${step.id}`)?.click()}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    data-testid={`import-${step.id}-dropzone`}
+                  >
+                    <Sparkles className="h-4 w-4 mx-auto mb-1 text-purple-500" />
+                    <p className="text-[11px] text-purple-600 dark:text-purple-400">
+                      {isDragging ? "Drop meals JSON" : "Drop or click to import"}
+                    </p>
+                  </div>
+                </>
+              )}
+
             </div>
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function PreValidationIssues({ status }: { status: StepCompletionStatus }) {
+  if (!status.segmentDetails || status.segmentDetails.length === 0) {
+    return null;
+  }
+
+  // Collect specific days without activities
+  const daysWithoutActivities: string[] = [];
+  // Collect unenriched activities with details: "Jun 26: Easy first dinner (no Google Place match)"
+  const unenrichedDetails: string[] = [];
+  // Track dates we've already added to avoid duplicates from overlapping segments
+  const seenDates = new Set<string>();
+
+  for (const seg of status.segmentDetails) {
+    if (!seg.days) continue;
+
+    for (const day of seg.days) {
+      if (seenDates.has(day.date)) continue;
+      seenDates.add(day.date);
+
+      // Format date nicely: "Jun 26"
+      const date = new Date(day.date + 'T12:00:00');
+      const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      if (!day.hasActivity) {
+        daysWithoutActivities.push(formatted);
+      }
+
+      // Collect unenriched activities
+      if (day.unenrichedActivities && day.unenrichedActivities.length > 0) {
+        for (const activity of day.unenrichedActivities) {
+          unenrichedDetails.push(`${formatted}: ${activity.name} (${activity.reason})`);
+        }
+      }
+    }
+  }
+
+  // Collect missing hotels
+  const segmentsWithoutHotels: string[] = [];
+  if (status.accommodationDetails) {
+    for (const s of status.accommodationDetails) {
+      if (!s.hasAccommodation) {
+        segmentsWithoutHotels.push(s.segmentName);
+      }
+    }
+  }
+
+  // If no issues, don't render
+  if (segmentsWithoutHotels.length === 0 && daysWithoutActivities.length === 0 && unenrichedDetails.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 p-2 bg-muted/30 rounded-lg border border-border/50">
+      <div className="flex items-center gap-2 text-xs font-medium mb-1.5">
+        <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+        <span>Issues</span>
+      </div>
+      <div className="space-y-1">
+        {segmentsWithoutHotels.length > 0 && (
+          <div className="text-[11px] flex items-start gap-1.5 text-red-600 dark:text-red-400">
+            <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+            <span>No hotel: {segmentsWithoutHotels.join(', ')}</span>
+          </div>
+        )}
+        {daysWithoutActivities.length > 0 && (
+          <div className="text-[11px] flex items-start gap-1.5 text-red-600 dark:text-red-400">
+            <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+            <span>Missing activities: {daysWithoutActivities.join(', ')}</span>
+          </div>
+        )}
+        {unenrichedDetails.length > 0 && (
+          <div className="text-[11px] flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+            <div>
+              <span>Not enriched:</span>
+              <ul className="mt-0.5 ml-1">
+                {unenrichedDetails.map((detail, idx) => (
+                  <li key={idx}>• {detail}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

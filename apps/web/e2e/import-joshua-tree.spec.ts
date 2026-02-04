@@ -1,0 +1,533 @@
+import { test, expect } from "@playwright/test";
+
+const JOSHUA_TREE_DATA = {
+  "locations": [
+    {
+      "name": "Jumbo Rocks Campground",
+      "address": "Loop Rd, Twentynine Palms, CA 92277",
+      "website": "https://www.nps.gov/jotr/planyourvisit/jumbo-rocks-campground.htm",
+      "phone": "(760) 367-5500",
+      "hook": "Camp among massive granite boulders that create a natural playground for kids, with rock scrambling opportunities right from your campsite and some of the most iconic Joshua Tree landscapes.",
+      "description": "Jumbo Rocks is Joshua Tree's most family-beloved campground, where towering granite boulders surround every site creating natural privacy screens and endless exploration opportunities. The 124-site campground sits at 4,380 feet elevation with formations that look like something from a Flintstones episode. Kids spend mornings scrambling over rocks while parents enjoy coffee watching sunrise paint the boulders in pastel hues. The Skull Rock Nature Trail starts right in the campground, and the central location puts you within easy reach of all major park attractions.",
+      "category": "national_parks",
+      "state": "CA",
+      "city": "Twentynine Palms",
+      "drive_time_from_la": "2.5-3 hours",
+      "rv_logistics": {
+        "max_trailer_length_ft": 35,
+        "hookups": "dry",
+        "cell_coverage": "none",
+        "road_accessibility": "Park Boulevard is paved and well-maintained. Campground roads are paved but narrow. Larger RV sites use parallel parking along main road. Avoid turnaround at loop end - very tight for trailers over 20ft. Recommended sites for 28ft: #85, #91, #84, #90, #88, #87.",
+        "fifth_wheel_accessible": true
+      },
+      "vibe": {
+        "solitude_level": 3,
+        "relaxation_factor": 4,
+        "scenic_beauty": 5,
+        "adventure_level": 5,
+        "family_friendly": 5
+      },
+      "best_season": {
+        "best": ["october", "november", "march", "april", "may"],
+        "avoid": ["june", "july", "august", "september"],
+        "notes": "Summer temperatures exceed 100°F, dangerous for hiking with children. Spring offers wildflowers and Joshua tree blooms. Fall brings the Night Sky Festival in October and comfortable 75-85°F days. Winter is pleasant but nights can drop below freezing."
+      },
+      "cost_per_night": 25,
+      "reservation_required": true,
+      "reservation_notes": "Book via Recreation.gov up to 6 months in advance. Books out quickly on weekends and holidays. $30 park entrance fee additional. Request specific larger sites (85, 91, 84, 90, 88, 87) when booking. Generator hours: 7-9am, 12-2pm, 5-7pm only.",
+      "kid_engagement": {
+        "parker": {
+          "suitable": true,
+          "engagement_level": 5,
+          "activities": ["Endless boulder scrambling from campsite", "Skull Rock Trail exploration", "Hide-and-seek among rock formations", "Rock climbing observation", "Junior Ranger program completion", "Stargazing after dark"]
+        },
+        "charlotte": {
+          "suitable": true,
+          "engagement_level": 5,
+          "activities": ["Boulder hide-and-seek games", "Rock shape scavenger hunts (find animals in rocks)", "Discovery Trail designed by kids", "Ranger campfire programs Friday/Saturday nights", "Junior Ranger badge earning", "Collecting unique rock shapes"]
+        },
+        "xander": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Textured rock sensory exploration", "Sandy ground play", "Short walks between boulders", "Watching lizards and wildlife", "Campfire time in evening", "Looking at stars before bedtime"]
+        }
+      },
+      "educational_value": {
+        "visitor_center": false,
+        "junior_ranger_program": true,
+        "topics": ["desert geology", "rock formation processes", "Mojave desert ecology", "Joshua tree biology", "night sky astronomy", "Native American petroglyphs"]
+      },
+      "pros": [
+        "Iconic boulder formations create natural playground for kids",
+        "Skull Rock Trail starts right in campground",
+        "Central location for accessing all park attractions",
+        "International Dark Sky Park for incredible stargazing",
+        "Camp host on-site and Friday/Saturday evening ranger programs"
+      ],
+      "cons": [
+        "No water, hookups, or flush toilets (vault toilets only)",
+        "Zero cell service for all carriers",
+        "Dump station 30 miles away at Cottonwood - plan ahead"
+      ],
+      "tags": ["national-park", "stargazing", "rock-scrambling", "kid-friendly", "boulder-camping", "dark-sky"],
+      "activities": [
+        {
+          "name": "Skull Rock Nature Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/skull-rock-nature-trail",
+          "description": "Loop through boulder piles and desert washes to the iconic skull-shaped rock formation. The hollowed-out eye sockets were formed by water erosion over millions of years. Trail passes through Jumbo Rocks Campground and includes interpretive signs about geology and plants.",
+          "duration_text": "45 minutes - 1 hour",
+          "difficulty": "easy",
+          "distance_miles": 1.7,
+          "elevation_gain_ft": 141,
+          "trail_surface": "Sandy and occasionally hard rock, some rocky steps, narrow sections as narrow as 2ft in places",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Finding the skull in the rock", "Rock scrambling detours", "Counting different rock shapes"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Skull photo opportunity", "Game: spot the skull first!", "Collecting visual memories of rock faces"]},
+            "xander": {"suitable": true, "engagement_level": 4, "activities": ["Walking through sandy sections", "Touching different rock textures", "Spotting lizards"]}
+          },
+          "tips": "Start from campground early morning to avoid crowds. Very popular trail - parking at Skull Rock trailhead fills fast. The skull is actually visible from the road but the full loop is worthwhile. Bring water."
+        },
+        {
+          "name": "Discovery Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/discovery-trail",
+          "description": "Trail designed BY kids FOR kids in partnership with park rangers in 2012-2013. Features slot canyons, rock scrambling opportunities, and a binoculars station. Located across from Skull Rock.",
+          "duration_text": "30-45 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0.8,
+          "elevation_gain_ft": 50,
+          "trail_surface": "Sandy with some rocky sections",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Exploring slot canyons", "Rock scrambling sections", "Using binoculars station"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Kid-designed trail features", "Mini adventures in slot canyons", "Nature discovery games"]},
+            "xander": {"suitable": true, "engagement_level": 4, "activities": ["Walking through mini canyons", "Textured rock exploration", "Short enough for his attention span"]}
+          },
+          "tips": "Perfect for short attention spans - the varied terrain keeps kids engaged. Combine with Skull Rock for a morning adventure. Best trail for ages 3-7 in the entire park."
+        },
+        {
+          "name": "Arch Rock Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/arch-rock-trail--2",
+          "description": "Lollipop-style trail to the famous 30-foot granite arch formation. Features cholla cacti, interesting geology, and educational wayside signs. Popular photography spot.",
+          "duration_text": "45 minutes - 1 hour",
+          "difficulty": "easy",
+          "distance_miles": 1.2,
+          "elevation_gain_ft": 100,
+          "trail_surface": "Sandy first section, rocky loop section, deep sand, hard pack dirt, uneven rocky surfaces",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Scrambling to get close to the arch", "Nature arch photography", "Trail exploration"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Finding the arch shape", "Reading trail signs together", "Nature treasure hunt"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Walking sandy sections", "Looking at the big arch", "May need carrier for return trip"]}
+          },
+          "tips": "Parking at Twin Tanks lot fills quickly on weekends. Arrive by 9am. Some rock scrambling needed for close-up arch photos. AllTrails app recommended as trail markings can be confusing near the arch."
+        },
+        {
+          "name": "Barker Dam Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/barker-dam--2",
+          "description": "Loop exploring historic Barker Dam built by ranchers in the early 1900s, a rock art site with petroglyphs, and iconic boulder formations. Features Joshua trees, creosote bush, piñon pines, and views of rock climbers.",
+          "duration_text": "1 hour",
+          "difficulty": "easy",
+          "distance_miles": 1.3,
+          "elevation_gain_ft": 65,
+          "trail_surface": "Rocky and sandy surfaces, mostly flat with some optional rock scrambling",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Finding the historic dam", "Spotting petroglyphs", "Watching rock climbers", "Optional scrambling detours"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Dam discovery adventure", "Ancient art treasure hunt", "Counting Joshua trees"]},
+            "xander": {"suitable": true, "engagement_level": 4, "activities": ["Looking at water (when present)", "Flat walking sections", "Wildlife watching"]}
+          },
+          "tips": "Dam reservoir is sometimes filled with water depending on recent rain. Vault toilets at parking lot. Educational value with petroglyphs makes this excellent for Richard's history interests. Go early - popular trail."
+        },
+        {
+          "name": "Hidden Valley Nature Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/hidden-valley--3",
+          "description": "One-mile loop through scenic valley surrounded by tall boulder formations. Rumored to have been used by 19th-century cattle rustlers to hide stolen livestock. Features interpretive panels about biodiversity, cultural history, and geology.",
+          "duration_text": "45 minutes - 1 hour",
+          "difficulty": "easy",
+          "distance_miles": 1.0,
+          "elevation_gain_ft": 118,
+          "trail_surface": "Hard-packed dirt, soft sand, gravel, rocks, boulders; trail width 1.5-3ft with some steep sections",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Cattle rustler history stories", "Rock scrambling opportunities", "Boulder exploration"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Hidden valley mystery game", "Reading interpretive signs", "Playing cattle rustler"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Walking the valley floor", "Looking at big rocks", "May struggle with stairs at beginning/end"]}
+          },
+          "tips": "#1 rated kid-friendly trail in Joshua Tree. Parking lot fills fast - arrive by 9am on weekends. Not stroller-accessible due to rock stairs. Perfect for the Oberlander family philosophy of depth over breadth."
+        },
+        {
+          "name": "Cap Rock Nature Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/cap-rock-trail",
+          "description": "Family-friendly trail looping around Cap Rock, a stunning geologic formation with a balanced rock 'cap' on top. Surrounded by Joshua trees and Mojave yuccas. Picnic area with grills and restrooms at trailhead.",
+          "duration_text": "20-30 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0.5,
+          "elevation_gain_ft": 19,
+          "trail_surface": "Packed dirt, relatively flat with minimal elevation change, some parts potentially wheelchair accessible",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Rock scrambling opportunities", "Balanced rock observation", "Quick exploring"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Finding the 'cap' rock", "Nature trail walking", "Picnic spot games"]},
+            "xander": {"suitable": true, "engagement_level": 5, "activities": ["Perfect length for attention span", "Flat easy walking", "Lunch at picnic area aligns with noon rest"]}
+          },
+          "tips": "Shortest loop trail - perfect for Xander's attention span or afternoon wind-down. Restrooms available. Keys View Road can close due to parking overflow. Great rock scrambling nearby."
+        },
+        {
+          "name": "Cholla Cactus Garden",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/cholla-cactus-garden",
+          "description": "Short loop through an incredible concentration of 'teddy bear' cholla cacti in the transition zone between Colorado and Mojave Deserts. 10+ acres of cacti that appear to glow golden at sunrise/sunset.",
+          "duration_text": "15-20 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0.25,
+          "elevation_gain_ft": 9,
+          "trail_surface": "Flat, hard-packed dirt; wide path suitable for families",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Counting hundreds of cacti", "Photography of glowing cacti", "Learning about desert adaptation"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["'Don't touch the teddy bears' game", "Cactus counting challenge", "Sunset colors"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Looking at fuzzy-looking cacti", "Very short walk", "Visual stimulation"]}
+          },
+          "tips": "CRITICAL: Supervise children closely! Cholla segments can break off and attach painfully to skin/clothing. Stay on trail, wear closed-toed shoes. Best at golden hour for photography. No shade, no restrooms. Located on Pinto Basin Road south of main attractions."
+        },
+        {
+          "name": "Keys View Scenic Overlook",
+          "activity_type": "scenic_drive",
+          "description": "Panoramic overlook at 5,185 feet with views of Coachella Valley, Palm Springs, San Andreas Fault, San Jacinto Peak, Salton Sea, and on clear days, Mexico. Informational signs and 3D map display.",
+          "duration_text": "20-30 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0.25,
+          "elevation_gain_ft": 20,
+          "trail_surface": "Paved path, wheelchair accessible, gentle slope",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Using viewfinders/binoculars", "Spotting landmarks", "Fault line education"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Finding Palm Springs below", "Panorama photo", "Counting mountain peaks"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Looking at the big view", "Using binoculars", "Short easy walk"]}
+          },
+          "tips": "IMPORTANT: RVs are NOT ALLOWED on Keys View Road (narrow, winding, small turnaround). Park the 5th wheel at campground and drive separately. Best at sunrise or sunset. Very crowded at sunset."
+        },
+        {
+          "name": "Ranger Evening Program at Jumbo Rocks",
+          "activity_type": "ranger_program",
+          "description": "Ranger-led educational programs at the campground amphitheater. Topics vary and may include night sky astronomy, desert wildlife, geology, or park history.",
+          "duration_text": "45 minutes - 1 hour",
+          "difficulty": "easy",
+          "distance_miles": 0,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Amphitheater seating",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Learning from rangers", "Asking questions", "Night sky viewing"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Story-time from rangers", "Interactive programs", "Campfire atmosphere"]},
+            "xander": {"suitable": true, "engagement_level": 2, "activities": ["May be past bedtime", "Evening wind-down", "Stars observation"]}
+          },
+          "tips": "Programs typically Friday and Saturday nights. Check NPS calendar for exact schedule. Bring chairs or blankets. Aligns with family wind-down time - may work for older kids but likely past Xander's 8pm bedtime."
+        },
+        {
+          "name": "Dark Sky Stargazing",
+          "activity_type": "stargazing",
+          "description": "Joshua Tree is an International Dark Sky Park certified in 2017. Designated stargazing areas include Quail Springs, Hidden Valley, Cap Rock, and Ryan Mountain parking lots. Milky Way visible March-September.",
+          "duration_text": "30 minutes - 2 hours",
+          "difficulty": "easy",
+          "distance_miles": 0,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Parking lots and open ground",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 5, "activities": ["Constellation identification", "Milky Way viewing", "Shooting star watching"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Star counting games", "Finding the Big Dipper", "Making wishes on stars"]},
+            "xander": {"suitable": true, "engagement_level": 2, "activities": ["Brief star viewing before bed", "Likely past bedtime for extended viewing"]}
+          },
+          "tips": "Best during new moon phases. Bring red-light flashlights (white light ruins night vision). October Night Sky Festival features astronomers with telescopes. Perseid Meteor Shower in mid-August (100 meteors/hour). Starlink satellite will help stay connected for planning."
+        }
+      ]
+    },
+    {
+      "name": "Black Rock Campground",
+      "address": "9800 Black Rock Canyon Road, Yucca Valley, CA 92284",
+      "website": "https://www.nps.gov/jotr/planyourvisit/black-rock-campground.htm",
+      "phone": "(760) 367-3001",
+      "hook": "The most RV-friendly and amenity-rich campground in Joshua Tree with flush toilets, drinking water, a dump station, and reliable cell service - plus one of the densest Joshua tree forests in the park.",
+      "description": "Black Rock stands apart as Joshua Tree's most civilized camping option, offering flush toilets, drinking water spigots, and an on-site dump station - amenities you won't find at any other in-park campground. The 99 sites sit at 4,000 feet in one of the thickest Joshua tree forests in the park, with trails departing directly from camp. Cell service actually works here (unlike deeper in the park), making it ideal for families who need connectivity. The trade-off is location: Black Rock sits on the northwest perimeter, requiring a 30-minute drive through a separate entrance to reach the iconic boulder formations at Jumbo Rocks and Hidden Valley.",
+      "category": "national_parks",
+      "state": "CA",
+      "city": "Yucca Valley",
+      "drive_time_from_la": "2.5 hours",
+      "rv_logistics": {
+        "max_trailer_length_ft": 42,
+        "hookups": "dry",
+        "cell_coverage": "good",
+        "road_accessibility": "Campground roads are in rough condition with washouts and crumbling pavement. Some internal roads have low-hanging Joshua tree branches. Sites are sloped - bring leveling blocks. Site 7 is pull-through. Best large sites: 38, 41, 43, 45, 46, 47, 48 (up to 42ft). Arrive before dark - poor signage.",
+        "fifth_wheel_accessible": true
+      },
+      "vibe": {
+        "solitude_level": 3,
+        "relaxation_factor": 4,
+        "scenic_beauty": 4,
+        "adventure_level": 3,
+        "family_friendly": 5
+      },
+      "best_season": {
+        "best": ["october", "november", "march", "april", "may"],
+        "avoid": ["june", "july", "august", "september"],
+        "notes": "Summer is dangerously hot. Spring wildflowers and pleasant temperatures. Fall offers Night Sky Festival and comfortable hiking weather. Winter can freeze at night but days are mild."
+      },
+      "cost_per_night": 25,
+      "reservation_required": true,
+      "reservation_notes": "Book via Recreation.gov up to 6 months in advance. No park entrance fee required at Black Rock itself (separate $30 fee when entering main park). Request sites 7, 9, 13, 15, 17, 20 (38-40ft) or 38, 41, 43, 45-48 (42ft) for larger rigs.",
+      "kid_engagement": {
+        "parker": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Hiking trails from campground", "Joshua tree forest exploration", "Junior Ranger program", "Wildlife spotting (desert tortoise, roadrunners)", "Panorama Loop trail"]
+        },
+        "charlotte": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Nature center visit", "Joshua tree counting games", "Junior Ranger activities", "Evening ranger programs at amphitheater", "Bird watching"]
+        },
+        "xander": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Flush toilet convenience for potty training", "Short nature walks", "Wildlife watching", "Joshua tree forest sensory experience", "Easier logistics for nap schedule"]
+        }
+      },
+      "educational_value": {
+        "visitor_center": true,
+        "junior_ranger_program": true,
+        "topics": ["Joshua tree ecology", "desert wildlife", "Mojave desert plants", "California Riding and Hiking Trail history"]
+      },
+      "pros": [
+        "Only in-park campground with flush toilets and running water",
+        "On-site dump station - critical for RV convenience",
+        "Reliable cell service (Verizon 3 bars, AT&T 4 bars, T-Mobile 3 bars)",
+        "Accommodates up to 42ft trailers - most RV-friendly",
+        "5 miles from Yucca Valley for groceries, showers, supplies"
+      ],
+      "cons": [
+        "30-minute drive to main park attractions (Skull Rock, Hidden Valley, Arch Rock)",
+        "Campground roads in poor condition with washouts",
+        "Less scenic than boulder campgrounds - Joshua trees instead of rocks"
+      ],
+      "tags": ["national-park", "rv-friendly", "flush-toilets", "cell-service", "dump-station", "family-friendly"],
+      "activities": [
+        {
+          "name": "Panorama Loop Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/panorama-loop-trail",
+          "description": "Spectacular loop trail starting from Black Rock Campground with panoramic views of the Little San Bernardino Mountains and Palm Springs area. One of the best hikes accessible directly from any campground.",
+          "duration_text": "2-3 hours",
+          "difficulty": "moderate",
+          "distance_miles": 6.0,
+          "elevation_gain_ft": 800,
+          "trail_surface": "Dirt trail with some rocky sections",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["View exploration", "Trail navigation", "Mountain identification"]},
+            "charlotte": {"suitable": false, "engagement_level": 2, "activities": ["Too long for age 5 - consider Hi-View instead"]},
+            "xander": {"suitable": false, "engagement_level": 1, "activities": ["Too long - not suitable for age 3"]}
+          },
+          "tips": "Full loop is too long for young children. Consider doing the Hi-View Nature Trail instead (1.3 miles). Richard can do this early morning while Chi supervises kids at camp. Spectacular views worth the effort."
+        },
+        {
+          "name": "Hi-View Nature Trail",
+          "activity_type": "hike",
+          "alltrails_url": "https://www.alltrails.com/trail/us/california/hi-view-nature-trail",
+          "description": "Shorter loop starting from Black Rock Campground with interpretive signs and desert views. Family-appropriate alternative to the full Panorama Loop.",
+          "duration_text": "45 minutes - 1 hour",
+          "difficulty": "easy",
+          "distance_miles": 1.3,
+          "elevation_gain_ft": 200,
+          "trail_surface": "Dirt trail, some rocky sections",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Reading interpretive signs", "View hunting", "Desert plant identification"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Nature trail exploration", "Sign reading games", "Plant spotting"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Shorter walk", "Looking at plants", "May need carrier for part"]}
+          },
+          "tips": "Perfect morning activity before driving to main park attractions. Starts right from campground. Do before 11am to align with family active morning schedule."
+        },
+        {
+          "name": "Black Rock Nature Center Visit",
+          "activity_type": "visitor_center",
+          "description": "On-site nature center staffed by rangers with exhibits, trail maps, and information. Pick up Junior Ranger booklets here. Open 8am-4pm (closed 11am-12pm), closed Mon-Wed in summer.",
+          "duration_text": "30-45 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Indoor facility",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Exhibits exploration", "Junior Ranger booklet pickup", "Ranger questions"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Interactive exhibits", "Junior Ranger program start", "Nature discovery"]},
+            "xander": {"suitable": true, "engagement_level": 3, "activities": ["Indoor exploration", "Air conditioning break", "Quick visit"]}
+          },
+          "tips": "Get Junior Ranger booklets here before exploring. Closed 11am-12pm for lunch. Check summer hours - closed Mon-Wed June-August. Rangers can suggest best activities for kids' ages."
+        },
+        {
+          "name": "Drive to Main Park Attractions",
+          "activity_type": "scenic_drive",
+          "description": "30-minute scenic drive from Black Rock to the main park attractions (Skull Rock, Hidden Valley, Jumbo Rocks). Exit Black Rock, drive through Joshua Tree town, enter via West Entrance or North Entrance.",
+          "duration_text": "30-40 minutes each way",
+          "difficulty": "easy",
+          "distance_miles": 20,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Paved roads",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 3, "activities": ["Car games during drive", "Landscape watching", "Navigation helper"]},
+            "charlotte": {"suitable": true, "engagement_level": 3, "activities": ["Audiobook/music time", "Joshua tree counting", "Window watching"]},
+            "xander": {"suitable": true, "engagement_level": 2, "activities": ["Nap time in car - perfect timing for midday rest", "Snack time"]}
+          },
+          "tips": "Plan this drive during Xander's nap time (12-3pm) - he can sleep in car while you reposition. $30 park entrance fee required when entering main park from Black Rock. Stock up on supplies in Joshua Tree town during the drive."
+        }
+      ]
+    },
+    {
+      "name": "Joshua Tree Lake RV & Campground",
+      "address": "2601 Sunfair Road, Joshua Tree, CA 92252",
+      "website": "https://www.joshuatreelake.com/",
+      "phone": "(760) 366-1213",
+      "hook": "The only option near Joshua Tree with full hookups (30/50 amp, water, sewer) and pull-through sites that easily accommodate large 5th wheels - plus a fishing lake, playground, and relaxed campground vibe.",
+      "description": "This private campground 5 miles north of Highway 62 solves the 5th wheel logistics that plague in-park camping. Full hookups with 30/50 amp service, water, and sewer let you run AC during hot spells and maintain all modern conveniences. The property features a decorative lake stocked with bass and catfish (currently closed for maintenance - call ahead), art installations throughout the grounds, a small playground, and a fenced dog park. Sites are dirt pads with privacy shrubs between rows. The trade-off is a 30+ minute drive to park trailheads - but for families needing hookups and space for a 28ft 5th wheel, this is the practical choice. The campground hosts the annual Joshua Tree Music Festival, so check event schedules.",
+      "category": "other",
+      "state": "CA",
+      "city": "Joshua Tree",
+      "drive_time_from_la": "2.5 hours",
+      "rv_logistics": {
+        "max_trailer_length_ft": 45,
+        "hookups": "full",
+        "cell_coverage": "good",
+        "road_accessibility": "5 miles north of Highway 62 on Sunfair Road. Paved check-in parking. Internal roads are hard-packed desert sand with some softer patches. Wide roads between rows, easy to navigate. Sites are dirt pads - may need leveling blocks. Pull-through sites available.",
+        "fifth_wheel_accessible": true
+      },
+      "vibe": {
+        "solitude_level": 3,
+        "relaxation_factor": 4,
+        "scenic_beauty": 3,
+        "adventure_level": 2,
+        "family_friendly": 4
+      },
+      "best_season": {
+        "best": ["october", "november", "march", "april", "may"],
+        "avoid": ["june", "july", "august"],
+        "notes": "Full hookups with A/C make summer more tolerable than in-park dry camping, but still hot. Avoid Joshua Tree Music Festival weekends (May/October) unless you want the experience - campground fills and has live music. Spring and fall ideal."
+      },
+      "cost_per_night": 55,
+      "reservation_required": false,
+      "reservation_notes": "Book direct via website (joshuatreelake.com) using ResNexus system. Walk-ins accepted during office hours. Full hookups on Nighthawk Drive and Starling Street rows. Check-in strictly at 12pm (no early arrivals). Gate locked at 8pm - call ahead for late arrival. Weekly/monthly rates available.",
+      "kid_engagement": {
+        "parker": {
+          "suitable": true,
+          "engagement_level": 3,
+          "activities": ["Playground exploration", "Lake wildlife watching (ducks, koi, owl sightings)", "Fishing when lake open", "Evening stargazing", "Art installation discovery"]
+        },
+        "charlotte": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Playground time", "Duck feeding at lake", "Art treasure hunt", "Camp store visit", "Dog park watching"]
+        },
+        "xander": {
+          "suitable": true,
+          "engagement_level": 4,
+          "activities": ["Playground perfect for his age", "Lake walking loop (5-6 minutes)", "Bird watching", "Sand play at dog park", "Familiar RV comforts with full hookups"]
+        }
+      },
+      "educational_value": {
+        "visitor_center": false,
+        "junior_ranger_program": false,
+        "topics": ["desert wildlife at lake", "aquaculture history (1960s experimental catfish farm)", "desert night sky"]
+      },
+      "pros": [
+        "Full hookups (30/50 amp, water, sewer) - only option near park with this",
+        "Easily accommodates 40+ foot 5th wheels with pull-through sites",
+        "Playground, lake, dog park for family activities",
+        "Good cell coverage (Verizon 4 bars, AT&T 4 bars)",
+        "Security gate locked at 8pm - safe environment",
+        "Hot showers included"
+      ],
+      "cons": [
+        "30+ minute drive to park trailheads - not ideal for quick morning hikes",
+        "No laundry on-site (9 miles to town)",
+        "Lake fishing currently closed for maintenance - call to confirm status",
+        "Less scenic than in-park camping - you're outside the park experience"
+      ],
+      "tags": ["full-hookups", "rv-park", "private-campground", "family-friendly", "playground", "fishing-lake"],
+      "activities": [
+        {
+          "name": "Lake and Grounds Exploration",
+          "activity_type": "wildlife_viewing",
+          "description": "Walk around the artificial lake (5-6 minutes loop) observing ducks, koi fish, various birds, and owl sightings. Art installations throughout the property add visual interest.",
+          "duration_text": "20-30 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0.25,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Dirt paths, flat terrain",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 3, "activities": ["Wildlife spotting", "Art discovery", "Lake circumnavigation"]},
+            "charlotte": {"suitable": true, "engagement_level": 4, "activities": ["Duck counting", "Art treasure hunt", "Koi fish watching"]},
+            "xander": {"suitable": true, "engagement_level": 5, "activities": ["Perfect length walk", "Water watching", "Bird sounds", "Sensory stimulation from textures"]}
+          },
+          "tips": "Best in morning or evening when birds are most active. Benches and shaded seating areas around lake. Good wind-down activity before dinner."
+        },
+        {
+          "name": "Playground Time",
+          "activity_type": "playground",
+          "description": "Small playground on-site for children. Good for burning energy between park adventures.",
+          "duration_text": "30-60 minutes",
+          "difficulty": "easy",
+          "distance_miles": 0,
+          "elevation_gain_ft": 0,
+          "trail_surface": "Playground surface",
+          "kid_engagement": {
+            "parker": {"suitable": true, "engagement_level": 4, "activities": ["Climbing", "Slides", "Making friends with other campers' kids"]},
+            "charlotte": {"suitable": true, "engagement_level": 5, "activities": ["Playground games", "Social play", "Swinging"]},
+            "xander": {"suitable": true, "engagement_level": 5, "activities": ["Age-appropriate play", "Safe contained area", "Energy burning"]}
+          },
+          "tips": "Perfect for afternoon wind-down between park adventures (4-7pm family rhythm). Lets kids decompress while parents prep dinner at RV with full hookup conveniences."
+        }
+      ]
+    }
+  ]
+};
+
+test.describe("Joshua Tree Import", () => {
+  test("import Joshua Tree locations via RV Locations page", async ({ page }) => {
+    // Login
+    await page.goto("http://localhost:3000/login");
+    await page.fill('input[type="email"]', "rjoberlander@gmail.com");
+    await page.fill('input[type="password"]', "Cookie123!");
+    await page.click('button[type="submit"]');
+
+    // Wait for redirect after login
+    await page.waitForURL("**/dashboard**", { timeout: 10000 });
+
+    // Navigate to RV Locations
+    await page.goto("http://localhost:3000/rv-locations");
+    await page.waitForLoadState("networkidle");
+
+    // Click the Import button (should open import sheet)
+    const importButton = page.locator('button:has-text("Import")');
+    await importButton.click();
+
+    // Wait for the import sheet to appear
+    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+
+    // Find the textarea for JSON input
+    const jsonTextarea = page.locator('textarea');
+    await jsonTextarea.fill(JSON.stringify(JOSHUA_TREE_DATA, null, 2));
+
+    // Click the import/submit button in the dialog
+    const submitButton = page.locator('[role="dialog"] button:has-text("Import")');
+    await submitButton.click();
+
+    // Wait for import to complete - look for success message or the locations to appear
+    await page.waitForTimeout(3000);
+
+    // Take a screenshot to verify
+    await page.screenshot({
+      path: "e2e/screenshots/joshua-tree-import.png",
+      fullPage: true
+    });
+
+    // Verify at least one location appears
+    const jumboRocks = page.locator('text=Jumbo Rocks');
+    await expect(jumboRocks.first()).toBeVisible({ timeout: 10000 });
+
+    console.log("Joshua Tree locations imported successfully!");
+  });
+});

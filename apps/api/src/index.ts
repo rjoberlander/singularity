@@ -35,6 +35,7 @@ import scheduleItemsRoutes from './routes/scheduleItems';
 import userDietRoutes from './routes/userDiet';
 import routineVersionsRoutes from './routes/routineVersions';
 import travelRoutes from './routes/travel';
+import rvLocationsRoutes from './routes/rv-locations';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
 
 // Import cron jobs
@@ -163,6 +164,7 @@ app.use('/api/v1/schedule-items', authenticateUser, scheduleItemsRoutes); // Sch
 app.use('/api/v1/user-diet', authenticateUser, userDietRoutes); // User diet settings
 app.use('/api/v1/routine-versions', authenticateUser, routineVersionsRoutes); // Routine versions (change log)
 app.use('/api/v1/travel', travelRoutes); // Travel module (auth handled in routes, public routes for shared trips)
+app.use('/api/v1/rv-locations', rvLocationsRoutes); // RV Locations module
 
 // ==============================================
 // Error Handling

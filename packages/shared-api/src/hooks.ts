@@ -18,6 +18,7 @@ import {
   scheduleItemsApi,
   userDietApi,
   routineVersionsApi,
+  rvLocationsApi,
 } from "./index";
 import type {
   Biomarker,
@@ -98,6 +99,18 @@ import type {
   ValidationResult,
   ValidationIssue,
   ScheduleItemValidationStatus,
+  // RV Locations types
+  RVLocation,
+  RVLocationActivity,
+  RVLocationMedia,
+  RVResearchSettings,
+  CreateRVLocationRequest,
+  CreateRVLocationActivityRequest,
+  CreateRVLocationMediaRequest,
+  RVLocationImportPayload,
+  RVLocationImportResult,
+  RVImportValidationResult,
+  RVLocationConvertToTripResult,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1677,7 +1690,7 @@ export function useUpdateTripPlanningProgress() {
       completed,
     }: {
       id: string;
-      step: 'basics' | 'accommodations' | 'segments' | 'days_activities';
+      step: 'basics' | 'accommodations' | 'segments' | 'meals' | 'days_activities';
       auto_suggested?: boolean;
       completed?: boolean;
     }) => {
@@ -2416,6 +2429,47 @@ export function useReorderTripMedia() {
   });
 }
 
+export function useDeduplicateTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId }: { tripId: string }) => {
+      const response = await travelApi.media.deduplicate(tripId);
+      return response.data as {
+        success: boolean;
+        message: string;
+        stats: {
+          total: number;
+          hashes_computed: number;
+          duplicates_removed: number;
+          remaining: number;
+        };
+      };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useBulkDeleteTripMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tripId, mediaIds }: { tripId: string; mediaIds: string[] }) => {
+      const response = await travelApi.media.bulkDelete(tripId, mediaIds);
+      return response.data as {
+        success: boolean;
+        message: string;
+        deleted_count: number;
+      };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
 // Sharing Hooks
 export function useTripSharing(tripId: string) {
   return useQuery({
@@ -2919,6 +2973,64 @@ export function useImportTemplate() {
     queryFn: async () => {
       const response = await travelApi.import.getTemplate();
       return response.data;
+    },
+  });
+}
+
+/**
+ * Import meals research
+ * Updates existing meal activities with restaurant details from Claude research
+ */
+export function useImportMeals() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      payload,
+      trip_id,
+    }: {
+      payload: {
+        meals: Array<{
+          activity_id: string;
+          original_name: string;
+          recommended: {
+            name: string;
+            why_chosen: string;
+            cuisine?: string;
+            price_range?: string;
+            address?: string;
+            google_maps_url?: string;
+            reservation_needed?: boolean;
+            typical_wait?: string;
+            kid_notes?: string;
+            must_try?: string[];
+            tips?: string;
+          };
+          alternatives?: Array<{
+            name: string;
+            why_backup: string;
+            cuisine?: string;
+            price_range?: string;
+          }>;
+        }>;
+      };
+      trip_id: string;
+    }) => {
+      const response = await travelApi.import.meals({ payload, trip_id });
+      return response.data as {
+        success: boolean;
+        data: {
+          updated: number;
+          skipped: number;
+          total: number;
+          errors?: string[];
+        };
+      };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.trip_id] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.trip_id, "full"] });
     },
   });
 }
@@ -3493,4 +3605,538 @@ export function useSaveRoutineVersion() {
       queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
     },
   });
+}
+
+// ============================================
+// RV Locations Hooks
+// ============================================
+
+// RV Location Hooks
+export function useRVLocations(params?: {
+  category?: string;
+  status?: string;
+  state?: string;
+  tags?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: ["rv-locations", params],
+    queryFn: async () => {
+      const response = await rvLocationsApi.list(params);
+      return response.data.data as RVLocation[];
+    },
+  });
+}
+
+export function useRVLocation(id: string) {
+  return useQuery({
+    queryKey: ["rv-locations", id],
+    queryFn: async () => {
+      const response = await rvLocationsApi.get(id);
+      return response.data.data as RVLocation;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useRVLocationFull(id: string) {
+  return useQuery({
+    queryKey: ["rv-locations", id, "full"],
+    queryFn: async () => {
+      const response = await rvLocationsApi.getFull(id);
+      return response.data.data as RVLocation & {
+        activities: RVLocationActivity[];
+        media: RVLocationMedia[];
+      };
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCreateRVLocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateRVLocationRequest) => {
+      const response = await rvLocationsApi.create(data);
+      return response.data.data as RVLocation;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+    },
+  });
+}
+
+export function useUpdateRVLocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<RVLocation> }) => {
+      const response = await rvLocationsApi.update(id, data);
+      return response.data.data as RVLocation;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.id] });
+    },
+  });
+}
+
+export function useDeleteRVLocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await rvLocationsApi.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+    },
+  });
+}
+
+// RV Location Activities Hooks
+export function useRVLocationActivities(locationId: string) {
+  return useQuery({
+    queryKey: ["rv-locations", locationId, "activities"],
+    queryFn: async () => {
+      const response = await rvLocationsApi.activities.list(locationId);
+      return response.data.data as RVLocationActivity[];
+    },
+    enabled: !!locationId,
+  });
+}
+
+export function useCreateRVLocationActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      data,
+    }: {
+      locationId: string;
+      data: CreateRVLocationActivityRequest;
+    }) => {
+      const response = await rvLocationsApi.activities.create(locationId, data);
+      return response.data.data as RVLocationActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+export function useUpdateRVLocationActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      activityId,
+      data,
+    }: {
+      locationId: string;
+      activityId: string;
+      data: Partial<RVLocationActivity>;
+    }) => {
+      const response = await rvLocationsApi.activities.update(locationId, activityId, data);
+      return response.data.data as RVLocationActivity;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+export function useDeleteRVLocationActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ locationId, activityId }: { locationId: string; activityId: string }) => {
+      await rvLocationsApi.activities.delete(locationId, activityId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+// RV Location Media Hooks
+export function useRVLocationMedia(locationId: string) {
+  return useQuery({
+    queryKey: ["rv-locations", locationId, "media"],
+    queryFn: async () => {
+      const response = await rvLocationsApi.media.list(locationId);
+      return response.data.data as RVLocationMedia[];
+    },
+    enabled: !!locationId,
+  });
+}
+
+export function useCreateRVLocationMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      data,
+    }: {
+      locationId: string;
+      data: CreateRVLocationMediaRequest;
+    }) => {
+      const response = await rvLocationsApi.media.create(locationId, data);
+      return response.data.data as RVLocationMedia;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+export function useCreateRVLocationMediaBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      media,
+    }: {
+      locationId: string;
+      media: CreateRVLocationMediaRequest[];
+    }) => {
+      const response = await rvLocationsApi.media.createBulk(locationId, media);
+      return response.data.data as RVLocationMedia[];
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+export function useDeleteRVLocationMedia() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ locationId, mediaId }: { locationId: string; mediaId: string }) => {
+      await rvLocationsApi.media.delete(locationId, mediaId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+// RV Location Google Places Hooks
+export function useFetchRVLocationGooglePlaces() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      placeId,
+      fetchPhotos = true,
+    }: {
+      locationId: string;
+      placeId?: string;
+      fetchPhotos?: boolean;
+    }) => {
+      const response = await rvLocationsApi.fetchGooglePlaces(locationId, {
+        place_id: placeId,
+        fetch_photos: fetchPhotos,
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+export function useFetchRVActivityGooglePlaces() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      activityId,
+      placeId,
+    }: {
+      locationId: string;
+      activityId: string;
+      placeId?: string;
+    }) => {
+      const response = await rvLocationsApi.fetchActivityGooglePlaces(locationId, activityId, {
+        place_id: placeId,
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
+// RV Location Import Hook
+export function useImportRVLocations() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: RVLocationImportPayload) => {
+      const response = await rvLocationsApi.import(payload);
+      return response.data.data as RVLocationImportResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+    },
+  });
+}
+
+// RV Location Import Validation Hook (dry-run)
+export function useValidateRVImport() {
+  return useMutation({
+    mutationFn: async (payload: RVLocationImportPayload) => {
+      const response = await rvLocationsApi.validateImport(payload);
+      return response.data as RVImportValidationResult;
+    },
+  });
+}
+
+// RV Location Enrichment Hook
+export function useEnrichRVLocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      options,
+    }: {
+      locationId: string;
+      options?: {
+        fetch_reviews?: boolean;
+        fetch_photos?: boolean;
+        fetch_hours?: boolean;
+        enrich_activities?: boolean;
+        max_photos?: number;
+      };
+    }) => {
+      const response = await rvLocationsApi.enrich(locationId, options);
+      return response.data as {
+        success: boolean;
+        location_updated: boolean;
+        activities_enriched: number;
+        photos_added: number;
+        reviews_fetched: number;
+        errors?: string[];
+      };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+    },
+  });
+}
+
+// RV Location Activity Suggestions Hook
+export function useSuggestRVActivities() {
+  return useMutation({
+    mutationFn: async (locationId: string) => {
+      const response = await rvLocationsApi.suggestActivities(locationId);
+      return response.data as {
+        success: boolean;
+        suggestions: Array<{
+          name: string;
+          activity_type: string;
+          description: string;
+          duration_text?: string;
+          difficulty?: string;
+          why_recommended: string;
+          kid_engagement?: Record<string, unknown>;
+        }>;
+      };
+    },
+  });
+}
+
+// RV Location Convert to Trip Hook
+export function useConvertRVLocationToTrip() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationId,
+      options,
+    }: {
+      locationId: string;
+      options?: { start_date?: string; end_date?: string; traveler_count?: number };
+    }) => {
+      const response = await rvLocationsApi.convertToTrip(locationId, options);
+      return response.data.data as RVLocationConvertToTripResult;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips"] });
+    },
+  });
+}
+
+// RV Location Settings Hooks
+export function useRVResearchSettings() {
+  return useQuery({
+    queryKey: ["rv-research-settings"],
+    queryFn: async () => {
+      const response = await rvLocationsApi.settings.get();
+      return response.data.data as RVResearchSettings | null;
+    },
+  });
+}
+
+export function useUpdateRVResearchSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      claude_instructions?: string;
+      family_profile?: RVResearchSettings["family_profile"];
+      output_template?: Record<string, unknown>;
+    }) => {
+      const response = await rvLocationsApi.settings.update(data);
+      return response.data.data as RVResearchSettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-research-settings"] });
+    },
+  });
+}
+
+export function useUpdateRVClaudeInstructions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (claude_instructions: string) => {
+      const response = await rvLocationsApi.settings.updateInstructions(claude_instructions);
+      return response.data.data as RVResearchSettings;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-research-settings"] });
+    },
+  });
+}
+
+// RV Location Helper Functions
+export function getRVLocationStatusColor(status: string): string {
+  switch (status) {
+    case "researching":
+      return "#3B82F6"; // blue
+    case "want_to_visit":
+      return "#22C55E"; // green
+    case "visited":
+      return "#6B7280"; // gray
+    case "not_interested":
+      return "#EF4444"; // red
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getRVLocationStatusLabel(status: string): string {
+  switch (status) {
+    case "researching":
+      return "Researching";
+    case "want_to_visit":
+      return "Want to Visit";
+    case "visited":
+      return "Visited";
+    case "not_interested":
+      return "Not Interested";
+    default:
+      return status;
+  }
+}
+
+export function getRVLocationCategoryLabel(category: string): string {
+  switch (category) {
+    case "harvest_hosts":
+      return "Harvest Hosts";
+    case "national_parks":
+      return "National Parks";
+    case "state_parks":
+      return "State Parks";
+    case "hot_springs":
+      return "Hot Springs";
+    case "lake_river":
+      return "Lake/River";
+    case "boondocking":
+      return "Boondocking";
+    case "couples_getaway":
+      return "Couples Getaway";
+    case "other":
+      return "Other";
+    default:
+      return category;
+  }
+}
+
+export function getRVLocationCategoryColor(category: string): string {
+  switch (category) {
+    case "harvest_hosts":
+      return "#F59E0B"; // amber
+    case "national_parks":
+      return "#22C55E"; // green
+    case "state_parks":
+      return "#84CC16"; // lime
+    case "hot_springs":
+      return "#EF4444"; // red
+    case "lake_river":
+      return "#3B82F6"; // blue
+    case "boondocking":
+      return "#8B5CF6"; // violet
+    case "couples_getaway":
+      return "#EC4899"; // pink
+    case "other":
+      return "#6B7280"; // gray
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getRVActivityTypeIcon(type: string): string {
+  switch (type) {
+    case "hike":
+      return "🥾";
+    case "bike":
+      return "🚴";
+    case "swim":
+      return "🏊";
+    case "fish":
+      return "🎣";
+    case "kayak":
+      return "🛶";
+    case "paddleboard":
+      return "🏄";
+    case "horseback":
+      return "🐴";
+    case "wildlife_viewing":
+      return "🦌";
+    case "stargazing":
+      return "⭐";
+    case "hot_springs":
+      return "♨️";
+    case "beach":
+      return "🏖️";
+    case "playground":
+      return "🎠";
+    case "visitor_center":
+      return "🏛️";
+    case "ranger_program":
+      return "🏕️";
+    case "scenic_drive":
+      return "🚗";
+    case "photography":
+      return "📷";
+    default:
+      return "📍";
+  }
 }

@@ -10,7 +10,7 @@ import type {
   PlanningStepProgress,
 } from "@singularity/shared-types";
 
-export type PlanningStepId = "basics" | "accommodations" | "segments" | "days_activities";
+export type PlanningStepId = "basics" | "accommodations" | "segments" | "meals" | "days_activities";
 
 export interface PlanningStepConfig {
   id: PlanningStepId;
@@ -37,6 +37,12 @@ export const PLANNING_STEPS: PlanningStepConfig[] = [
     title: "Segments",
     description: "Organize your trip into regional groupings covering all dates",
     tabHref: "/overview",
+  },
+  {
+    id: "meals",
+    title: "Meals",
+    description: "Research and plan restaurants for each meal",
+    tabHref: "/itinerary",
   },
   {
     id: "days_activities",
@@ -80,6 +86,7 @@ export interface StepCompletionStatus {
   accommodationDetails?: SegmentAccommodationInfo[];
   dateGaps?: string[];
   flightDetails?: FlightInfo[];
+  mealDetails?: MealInfo[];
 }
 
 /**
@@ -108,6 +115,7 @@ interface StepComputeResult {
   warnings: string[];
   segmentDetails?: SegmentInfo[];
   accommodationDetails?: SegmentAccommodationInfo[];
+  mealDetails?: MealInfo[];
   dateGaps?: string[];
   flightDetails?: FlightInfo[];
 }
@@ -152,14 +160,29 @@ export function computeStepAutoSuggestion(
         dateGaps: result.dateGaps,
       };
     }
+    case "meals": {
+      const result = computeMealsCompletion(trip);
+      const segmentsResult = computeSegmentsCompletion(trip);
+      return {
+        shouldSuggest: result.shouldSuggest,
+        summary: result.summary,
+        missingItems: result.missingItems,
+        warnings: [],
+        segmentDetails: segmentsResult.segmentDetails,
+        mealDetails: result.mealDetails,
+      };
+    }
     case "days_activities": {
       const result = computeDaysActivitiesCompletion(trip);
       // Also get segment details with enrichment data
       const segmentsResult = computeSegmentsCompletion(trip);
+      // Also get accommodation details for pre-validation checks
+      const accommodationsResult = computeAccommodationsCompletion(trip);
       return {
         ...result,
         warnings: [],
         segmentDetails: segmentsResult.segmentDetails,
+        accommodationDetails: accommodationsResult.segmentDetails,
       };
     }
     default:
@@ -460,6 +483,12 @@ function computeAccommodationsCompletion(trip: TripFullData): {
   return { shouldSuggest, summary, missingItems, segmentDetails };
 }
 
+export interface UnenrichedActivity {
+  name: string;
+  type: string;
+  reason: string;
+}
+
 export interface DayActivityStatus {
   date: string;      // YYYY-MM-DD
   dayOfMonth: number; // e.g., 15
@@ -468,6 +497,7 @@ export interface DayActivityStatus {
   enrichmentStatus?: 'not_started' | 'partial' | 'complete';
   enrichedCount?: number;  // Number of activities with enrichment
   totalEnrichable?: number; // Total activities that can be enriched
+  unenrichedActivities?: UnenrichedActivity[]; // Activities that need enrichment
   enrichmentErrors?: string[]; // Any enrichment errors for this day
   // Validation status
   validationErrors?: string[]; // Validation issues for this day
@@ -566,6 +596,36 @@ function computeSegmentsCompletion(trip: TripFullData): {
     'dining', 'meal', 'breakfast', 'lunch', 'dinner', 'snack', 'coffee', 'restaurant', 'cafe'
   ]);
 
+  // Activities that don't need a location/enrichment (based on name patterns)
+  // These are routine activities that happen at the accommodation or don't have a specific place
+  const noLocationNeededPatterns = [
+    /wake\s*up/i, /sleep/i, /bed/i, /pack/i, /rest/i, /pool\s*time/i,
+    /check\s*-?\s*(in|out)/i, /checkout/i, /checkin/i,
+    /luggage/i, /nap/i, /relax/i, /free\s*time/i,
+    /kids?\s*to\s*bed/i, /early\s*night/i
+  ];
+
+  // Check if activity name suggests it doesn't need enrichment
+  function activityNeedsEnrichment(name: string, type: string): boolean {
+    const lowerName = name.toLowerCase();
+    // Check if name matches any "no location needed" pattern
+    for (const pattern of noLocationNeededPatterns) {
+      if (pattern.test(lowerName)) {
+        return false;
+      }
+    }
+    // Meals at hotel/accommodation don't need separate enrichment
+    if (mealTypes.has(type) && (
+      lowerName.includes('at hotel') ||
+      lowerName.includes('at accommodation') ||
+      lowerName.includes('hotel breakfast') ||
+      lowerName.includes('room service')
+    )) {
+      return false;
+    }
+    return true;
+  }
+
   // Build accommodation map by segment_id
   const accommodations = trip.accommodations || [];
   const accommodationsBySegment = new Map<string, { name: string }>();
@@ -607,21 +667,43 @@ function computeSegmentsCompletion(trip: TripFullData): {
         const enrichmentErrors: string[] = [];
         const validationErrors: string[] = [];
 
+        const unenrichedActivities: UnenrichedActivity[] = [];
+
         if (enrichableActivities.length > 0) {
-          for (const activity of enrichableActivities) {
+          // Filter to activities that actually need enrichment (exclude "wake up", "kids to bed", etc.)
+          const activitiesNeedingEnrichment = enrichableActivities.filter(a =>
+            activityNeedsEnrichment(a.name || '', a.activity_type || '')
+          );
+
+          for (const activity of activitiesNeedingEnrichment) {
             // An activity is considered enriched if it has google_place_id AND
             // at least one of: google_rating, opening_hours, or photos_fetched
+            // Note: Supabase returns null (not undefined) for missing values
             const hasGoogleData = activity.google_place_id && (
-              activity.google_rating !== undefined ||
-              activity.opening_hours !== undefined ||
+              (activity.google_rating !== undefined && activity.google_rating !== null) ||
+              (activity.opening_hours !== undefined && activity.opening_hours !== null) ||
               activity.photos_fetched === true
             );
             if (hasGoogleData) {
               enrichedCount++;
+            } else {
+              // Track why this activity isn't enriched - this is a research gap
+              let reason = 'needs research';
+              if (activity.google_place_id) {
+                reason = 'missing Google data';
+              }
+              unenrichedActivities.push({
+                name: activity.name || 'Unnamed',
+                type: activity.activity_type || 'unknown',
+                reason,
+              });
             }
           }
 
-          if (enrichedCount === enrichableActivities.length) {
+          // Status based on activities that actually need enrichment
+          if (activitiesNeedingEnrichment.length === 0) {
+            enrichmentStatus = 'complete'; // No activities need enrichment
+          } else if (enrichedCount === activitiesNeedingEnrichment.length) {
             enrichmentStatus = 'complete';
           } else if (enrichedCount > 0) {
             enrichmentStatus = 'partial';
@@ -647,6 +729,7 @@ function computeSegmentsCompletion(trip: TripFullData): {
           enrichmentStatus,
           enrichedCount,
           totalEnrichable: enrichableActivities.length,
+          unenrichedActivities: unenrichedActivities.length > 0 ? unenrichedActivities : undefined,
           enrichmentErrors: enrichmentErrors.length > 0 ? enrichmentErrors : undefined,
           validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
           hasValidationErrors: validationErrors.length > 0,
@@ -763,6 +846,110 @@ function computeSegmentsCompletion(trip: TripFullData): {
   // If no trip dates, just check segments exist
   const shouldSuggest = segments.length > 0;
   return { shouldSuggest, summary, missingItems, segmentDetails };
+}
+
+// Generic meal names that indicate research is needed
+const genericMealPatterns = [
+  /^breakfast$/i, /^lunch$/i, /^dinner$/i,
+  /^early breakfast$/i, /^quick breakfast$/i, /^light lunch$/i, /^easy dinner$/i,
+  /^hotel breakfast$/i, /^breakfast at hotel$/i, /^breakfast at accommodation$/i,
+  /breakfast \(.*\)$/i, /lunch \(.*\)$/i, /dinner \(.*\)$/i,
+  /^meal$/i, /^snack$/i, /^coffee$/i,
+];
+
+function isGenericMealName(name: string): boolean {
+  const lowerName = name.toLowerCase().trim();
+  // Check if it matches any generic pattern
+  for (const pattern of genericMealPatterns) {
+    if (pattern.test(name)) {
+      return true;
+    }
+  }
+  // Also check for very short generic names
+  if (['breakfast', 'lunch', 'dinner', 'meal', 'snack'].includes(lowerName)) {
+    return true;
+  }
+  return false;
+}
+
+export interface MealInfo {
+  date: string;
+  name: string;
+  type: string;
+  needsResearch: boolean;
+  activityId: string;
+}
+
+function computeMealsCompletion(trip: TripFullData): {
+  shouldSuggest: boolean;
+  summary: string[];
+  missingItems: string[];
+  mealDetails?: MealInfo[];
+} {
+  const summary: string[] = [];
+  const missingItems: string[] = [];
+  const mealDetails: MealInfo[] = [];
+
+  const activities = trip.activities || [];
+  const days = trip.days || [];
+
+  // Meal activity types
+  const mealTypes = new Set([
+    'restaurant', 'dining', 'meal', 'breakfast', 'lunch', 'dinner',
+    'snack', 'coffee', 'cafe'
+  ]);
+
+  // Find all meal activities
+  const mealActivities = activities.filter(a =>
+    mealTypes.has(a.activity_type || '') ||
+    // Also check name patterns for activities that might be meals
+    /breakfast|lunch|dinner|meal|snack/i.test(a.name || '')
+  );
+
+  let researchedCount = 0;
+  let needsResearchCount = 0;
+
+  for (const meal of mealActivities) {
+    const needsResearch = isGenericMealName(meal.name || '');
+
+    // Get date from activity or its day
+    let date = meal.date || '';
+    if (!date && meal.day_id) {
+      const day = days.find(d => d.id === meal.day_id);
+      if (day) date = day.date;
+    }
+
+    mealDetails.push({
+      date,
+      name: meal.name || 'Unnamed',
+      type: meal.activity_type || 'unknown',
+      needsResearch,
+      activityId: meal.id,
+    });
+
+    if (needsResearch) {
+      needsResearchCount++;
+    } else {
+      researchedCount++;
+    }
+  }
+
+  const totalMeals = mealActivities.length;
+  if (totalMeals > 0) {
+    summary.push(`${totalMeals} meals planned`);
+    summary.push(`${researchedCount} researched, ${needsResearchCount} need research`);
+  } else {
+    missingItems.push('No meals found in activities');
+  }
+
+  if (needsResearchCount > 0) {
+    missingItems.push(`${needsResearchCount} meal${needsResearchCount !== 1 ? 's' : ''} need restaurant research`);
+  }
+
+  // Suggest completion only if all meals are researched
+  const shouldSuggest = totalMeals > 0 && needsResearchCount === 0;
+
+  return { shouldSuggest, summary, missingItems, mealDetails };
 }
 
 function computeDaysActivitiesCompletion(trip: TripFullData): {
@@ -891,6 +1078,7 @@ export function getDefaultPlanningProgress(): TripPlanningProgress {
     basics: { auto_suggested: false, completed: false },
     accommodations: { auto_suggested: false, completed: false },
     segments: { auto_suggested: false, completed: false },
+    meals: { auto_suggested: false, completed: false },
     days_activities: { auto_suggested: false, completed: false },
   };
 }

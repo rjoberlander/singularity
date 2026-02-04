@@ -738,6 +738,10 @@ export const travelApi = {
         parent_id: parentId,
         media_ids: mediaIds,
       }),
+    deduplicate: (tripId: string) =>
+      getApi().post(`/travel/trips/${tripId}/media/deduplicate`),
+    bulkDelete: (tripId: string, mediaIds: string[]) =>
+      getApi().post(`/travel/trips/${tripId}/media/bulk-delete`, { media_ids: mediaIds }),
   },
 
   // Sharing
@@ -805,6 +809,8 @@ export const travelApi = {
     import: (data: { payload: unknown; options?: unknown }) =>
       getApi().post("/travel/import", data),
     getTemplate: () => getApi().get("/travel/import/template"),
+    meals: (data: { payload: unknown; trip_id: string }) =>
+      getApi().post("/travel/import/meals", data),
   },
 
   // Research Items
@@ -843,6 +849,79 @@ export const travelApi = {
       const queryString = params.toString();
       return getApi().post(`/travel/trips/${tripId}/assemble-schedule${queryString ? `?${queryString}` : ''}`);
     },
+  },
+};
+
+// RV Locations
+export const rvLocationsApi = {
+  // Locations CRUD
+  list: (params?: {
+    category?: string;
+    status?: string;
+    state?: string;
+    tags?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => getApi().get("/rv-locations", { params }),
+  get: (id: string) => getApi().get(`/rv-locations/${id}`),
+  getFull: (id: string) => getApi().get(`/rv-locations/${id}/full`),
+  create: (data: unknown) => getApi().post("/rv-locations", data),
+  update: (id: string, data: unknown) => getApi().put(`/rv-locations/${id}`, data),
+  delete: (id: string) => getApi().delete(`/rv-locations/${id}`),
+
+  // Activities
+  activities: {
+    list: (locationId: string) =>
+      getApi().get(`/rv-locations/${locationId}/activities`),
+    create: (locationId: string, data: unknown) =>
+      getApi().post(`/rv-locations/${locationId}/activities`, data),
+    update: (locationId: string, activityId: string, data: unknown) =>
+      getApi().put(`/rv-locations/${locationId}/activities/${activityId}`, data),
+    delete: (locationId: string, activityId: string) =>
+      getApi().delete(`/rv-locations/${locationId}/activities/${activityId}`),
+  },
+
+  // Media
+  media: {
+    list: (locationId: string) =>
+      getApi().get(`/rv-locations/${locationId}/media`),
+    create: (locationId: string, data: unknown) =>
+      getApi().post(`/rv-locations/${locationId}/media`, data),
+    createBulk: (locationId: string, media: unknown[]) =>
+      getApi().post(`/rv-locations/${locationId}/media/bulk`, { media }),
+    delete: (locationId: string, mediaId: string) =>
+      getApi().delete(`/rv-locations/${locationId}/media/${mediaId}`),
+  },
+
+  // Google Places
+  fetchGooglePlaces: (locationId: string, data?: { place_id?: string; fetch_photos?: boolean }) =>
+    getApi().post(`/rv-locations/${locationId}/fetch-google`, data || {}),
+  fetchActivityGooglePlaces: (locationId: string, activityId: string, data?: { place_id?: string }) =>
+    getApi().post(`/rv-locations/${locationId}/activities/${activityId}/fetch-google`, data || {}),
+
+  // Import
+  import: (payload: unknown, dryRun?: boolean) =>
+    getApi().post("/rv-locations/import", payload, { params: dryRun ? { dryRun: 'true' } : undefined }),
+  validateImport: (payload: unknown) => getApi().post("/rv-locations/import/validate", payload),
+
+  // Enrichment
+  enrich: (locationId: string, options?: { fetch_reviews?: boolean; fetch_photos?: boolean; fetch_hours?: boolean; enrich_activities?: boolean; max_photos?: number }) =>
+    getApi().post(`/rv-locations/${locationId}/enrich`, options || {}),
+  suggestActivities: (locationId: string) =>
+    getApi().post(`/rv-locations/${locationId}/suggest-activities`),
+
+  // Convert to Trip
+  convertToTrip: (locationId: string, options?: { start_date?: string; end_date?: string; traveler_count?: number }) =>
+    getApi().post(`/rv-locations/${locationId}/convert-to-trip`, options || {}),
+
+  // Settings
+  settings: {
+    get: () => getApi().get("/rv-locations/settings"),
+    update: (data: { claude_instructions?: string; family_profile?: unknown; output_template?: unknown }) =>
+      getApi().put("/rv-locations/settings", data),
+    updateInstructions: (claude_instructions: string) =>
+      getApi().patch("/rv-locations/settings/instructions", { claude_instructions }),
   },
 };
 

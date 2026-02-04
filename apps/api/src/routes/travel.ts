@@ -28,6 +28,7 @@ import {
   TripSharing,
 } from '@singularity/shared-types';
 import crypto from 'crypto';
+import Anthropic from '@anthropic-ai/sdk';
 import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService';
 import { ScheduleValidationService } from '../services/schedule-validation';
 import type { ValidationResult, AssembleScheduleResponse } from '@singularity/shared-types';
@@ -709,11 +710,11 @@ router.patch('/trips/:id/planning-progress', authenticateUser, async (req: Reque
     const { step, auto_suggested, completed } = req.body;
 
     // Validate step
-    const validSteps = ['basics', 'accommodations', 'segments', 'days_activities'];
+    const validSteps = ['basics', 'accommodations', 'segments', 'meals', 'days_activities'];
     if (!step || !validSteps.includes(step)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid step. Must be one of: basics, accommodations, segments, days_activities',
+        error: 'Invalid step. Must be one of: basics, accommodations, segments, meals, days_activities',
         timestamp: new Date().toISOString()
       });
     }
@@ -1833,10 +1834,11 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
       console.error('Segment update error:', updateError);
     }
 
-    // Fetch and store photos (up to 20, deduped by content hash)
+    // Fetch and store photos - keep processing until we have 20 unique ones
     let photosAdded = 0;
     let photosSkipped = 0;
-    const photos = place.photos?.slice(0, 20) || [];
+    const targetPhotoCount = 20;
+    const allPhotos = place.photos || [];
 
     // Get existing photo references AND content hashes to avoid duplicates
     // Check at TRIP level, not just segment level, to prevent same photo appearing for different segments
@@ -1849,7 +1851,13 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
     const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
     const existingUrls = new Set(existingPhotos?.map(p => p.file_url).filter(Boolean) || []);
 
-    for (const photo of photos) {
+    // Process photos until we have enough unique ones (or run out of photos)
+    for (const photo of allPhotos) {
+      // Stop once we have enough unique photos
+      if (photosAdded >= targetPhotoCount) {
+        break;
+      }
+
       try {
         // Skip if we already have this photo reference
         if (existingRefs.has(photo.name)) {
@@ -3488,8 +3496,9 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
     // Fetch and store photos (up to 20, deduped by content hash)
     let photosAdded = 0;
     let photosSkipped = 0;
-    const photos = place.photos?.slice(0, 20) || [];
-    console.log(`[Google Photos] Activity: Place has ${place.photos?.length || 0} photos available, processing ${photos.length}`);
+    const targetPhotoCount = 20;
+    const allPhotos = place.photos || [];
+    console.log(`[Google Photos] Activity: Place has ${allPhotos.length} photos available, targeting ${targetPhotoCount} unique`);
 
     // Get day info for caption
     let dayCaption = '';
@@ -3528,7 +3537,13 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
     const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
     const existingUrls = new Set(existingPhotos?.map(p => p.file_url).filter(Boolean) || []);
 
-    for (const photo of photos) {
+    // Process photos until we have enough unique ones (or run out of photos)
+    for (const photo of allPhotos) {
+      // Stop once we have enough unique photos
+      if (photosAdded >= targetPhotoCount) {
+        break;
+      }
+
       try {
         // Skip if we already have this photo reference
         if (existingRefs.has(photo.name)) {
@@ -3973,6 +3988,230 @@ router.delete('/trips/:tripId/media/:mediaId', authenticateUser, async (req: Req
     });
   } catch (error) {
     console.error('DELETE /travel/trips/:tripId/media/:mediaId error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/media/deduplicate
+ * Remove duplicate media by content hash
+ * Computes hash for photos missing it, then removes duplicates keeping the oldest
+ */
+router.post('/trips/:tripId/media/deduplicate', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+
+    // Check trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get all media for this trip
+    const { data: allMedia, error: mediaError } = await supabase
+      .from('trip_media')
+      .select('id, file_url, content_hash, created_at')
+      .eq('trip_id', tripId)
+      .order('created_at', { ascending: true });
+
+    if (mediaError) {
+      return res.status(400).json({
+        success: false,
+        error: mediaError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!allMedia || allMedia.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No media to deduplicate',
+        stats: { total: 0, duplicates_removed: 0 },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Compute content hash for any media missing it
+    const mediaWithHashes: Array<{ id: string; hash: string }> = [];
+    let hashesComputed = 0;
+
+    for (const media of allMedia) {
+      let hash = media.content_hash;
+
+      if (!hash && media.file_url) {
+        try {
+          // Fetch the image and compute hash
+          const response = await fetch(media.file_url);
+          if (response.ok) {
+            const buffer = await response.arrayBuffer();
+            hash = crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex');
+
+            // Update the record with the computed hash
+            await supabase
+              .from('trip_media')
+              .update({ content_hash: hash })
+              .eq('id', media.id);
+
+            hashesComputed++;
+          }
+        } catch (fetchError) {
+          console.error(`Failed to fetch media ${media.id}:`, fetchError);
+          continue;
+        }
+      }
+
+      if (hash) {
+        mediaWithHashes.push({ id: media.id, hash });
+      }
+    }
+
+    // Group by hash and find duplicates
+    const hashGroups = new Map<string, string[]>();
+    for (const { id, hash } of mediaWithHashes) {
+      const group = hashGroups.get(hash) || [];
+      group.push(id);
+      hashGroups.set(hash, group);
+    }
+
+    // Delete duplicates (keep the first/oldest one in each group)
+    const idsToDelete: string[] = [];
+    for (const [hash, ids] of hashGroups) {
+      if (ids.length > 1) {
+        // Keep the first (oldest due to sort order), delete the rest
+        idsToDelete.push(...ids.slice(1));
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('trip_media')
+        .delete()
+        .in('id', idsToDelete);
+
+      if (deleteError) {
+        return res.status(400).json({
+          success: false,
+          error: deleteError.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Removed ${idsToDelete.length} duplicate photos`,
+      stats: {
+        total: allMedia.length,
+        hashes_computed: hashesComputed,
+        duplicates_removed: idsToDelete.length,
+        remaining: allMedia.length - idsToDelete.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/media/deduplicate error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/media/bulk-delete
+ * Delete multiple media items at once
+ */
+router.post('/trips/:tripId/media/bulk-delete', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+    const { media_ids } = req.body;
+
+    if (!Array.isArray(media_ids) || media_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'media_ids array is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Verify all media items belong to this trip and user
+    const { data: mediaItems, error: verifyError } = await supabase
+      .from('trip_media')
+      .select('id')
+      .eq('trip_id', tripId)
+      .eq('user_id', userId)
+      .in('id', media_ids);
+
+    if (verifyError) {
+      return res.status(400).json({
+        success: false,
+        error: verifyError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const validIds = mediaItems?.map(m => m.id) || [];
+    if (validIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid media items found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Delete the media items
+    const { error: deleteError } = await supabase
+      .from('trip_media')
+      .delete()
+      .in('id', validIds);
+
+    if (deleteError) {
+      return res.status(400).json({
+        success: false,
+        error: deleteError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${validIds.length} photos`,
+      deleted_count: validIds.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/media/bulk-delete error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -4952,13 +5191,22 @@ interface DaySchedule {
  * - skip_enrichment=true: Skip pre-flight Google data fetch for activities
  */
 router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  const log = (step: string, details?: Record<string, unknown>) => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[AssembleSchedule][${elapsed}s] ${step}`, details ? JSON.stringify(details) : '');
+  };
+
   try {
     const userId = req.user!.id;
     const { tripId } = req.params;
     const validateOnly = req.query.validate_only === 'true';
     const skipEnrichment = req.query.skip_enrichment === 'true';
 
+    log('START', { tripId, validateOnly, skipEnrichment });
+
     // 1. Verify trip ownership
+    log('Step 1: Verifying trip ownership');
     const { data: trip, error: tripError } = await supabase
       .from('trips')
       .select('*')
@@ -4967,14 +5215,17 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
       .single();
 
     if (tripError || !trip) {
+      log('FAIL: Trip not found', { tripError });
       return res.status(404).json({
         success: false,
         error: 'Trip not found',
         timestamp: new Date().toISOString()
       });
     }
+    log('Step 1 complete', { tripName: trip.name });
 
     // 2. Get trip days
+    log('Step 2: Fetching trip days');
     const { data: days } = await supabase
       .from('trip_days')
       .select('*')
@@ -4982,28 +5233,36 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
       .order('date', { ascending: true });
 
     if (!days || days.length === 0) {
+      log('FAIL: No days found');
       return res.status(400).json({
         success: false,
         error: 'No days found for this trip. Please generate days first.',
         timestamp: new Date().toISOString()
       });
     }
+    log('Step 2 complete', { daysCount: days.length });
 
     // 3. Get segments
+    log('Step 3: Fetching segments');
     const { data: segments } = await supabase
       .from('trip_segments')
       .select('*')
       .eq('trip_id', tripId)
       .order('start_date', { ascending: true });
 
+    log('Step 3 complete', { segmentsCount: segments?.length || 0 });
+
     // 4. Get accommodations
+    log('Step 4: Fetching accommodations');
     const { data: accommodations } = await supabase
       .from('trip_accommodations')
       .select('*')
       .eq('trip_id', tripId)
       .order('check_in_date', { ascending: true });
+    log('Step 4 complete', { accommodationsCount: accommodations?.length || 0 });
 
     // 5. Get activities (research items converted to activities)
+    log('Step 5: Fetching activities');
     const { data: activities } = await supabase
       .from('trip_activities')
       .select('*')
@@ -5011,45 +5270,84 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
       .eq('is_backup', false)
       .order('sort_order', { ascending: true });
 
+    log('Step 5 complete', { activitiesCount: activities?.length || 0 });
+
     // 6. Get research items (for additional context)
+    log('Step 6: Fetching research items');
     const { data: researchItems } = await supabase
       .from('trip_research_items')
       .select('*')
       .eq('trip_id', tripId)
       .eq('is_approved', true);
+    log('Step 6 complete', { researchItemsCount: researchItems?.length || 0 });
 
     // 6a. Get flights (for arrival/departure time validation)
+    log('Step 6a: Fetching flights');
     const { data: flights } = await supabase
       .from('trip_flights')
       .select('*')
       .eq('trip_id', tripId);
+    log('Step 6a complete', { flightsCount: flights?.length || 0 });
 
     // 6b. Pre-flight: Enrich activities with Google data if needed
     // Skips activities that already have google_data_fetched_at set
+    // Also fetches alternate activities for enrichment (with fewer photos)
     let activitiesEnriched = 0;
     let activitiesSkipped = 0;
-    if (!skipEnrichment && activities && activities.length > 0) {
+    let reviewsAnalyzed = 0;
+
+    // Get all activities including alternates for enrichment
+    log('Step 6b: Fetching all activities for enrichment');
+    const { data: allActivitiesForEnrichment } = await supabase
+      .from('trip_activities')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('sort_order', { ascending: true });
+    log('Step 6b complete', { totalActivitiesForEnrichment: allActivitiesForEnrichment?.length || 0 });
+
+    // Get Anthropic API key for review analysis (used later for schedule generation too)
+    log('Step 6c: Getting Anthropic API key');
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    const anthropicApiKeyForEnrichment = keyData?.api_key;
+    log('Step 6c complete', { hasAnthropicKey: !!anthropicApiKeyForEnrichment });
+
+    if (!skipEnrichment && allActivitiesForEnrichment && allActivitiesForEnrichment.length > 0) {
       // Get Google API key from environment (GOOGLE_PLACES_API_KEY)
       const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+      log('Step 7: ENRICHMENT PHASE', {
+        hasGoogleKey: !!googleApiKey,
+        activitiesToProcess: allActivitiesForEnrichment.length
+      });
+
       if (googleApiKey) {
+        // Enrich all activities (primary: 20 photos, alternates: 10 photos)
+        // Also analyzes reviews for restaurants and fetches ticket prices for attractions
+        log('Step 7: Starting Google enrichment...');
+        const enrichmentStartTime = Date.now();
         const enrichResult = await ScheduleValidationService.enrichActivitiesWithGoogleData(
           tripId,
           userId,
-          activities as any,
-          googleApiKey
+          allActivitiesForEnrichment as any,
+          googleApiKey,
+          anthropicApiKeyForEnrichment
         );
+        const enrichmentDuration = ((Date.now() - enrichmentStartTime) / 1000).toFixed(2);
         activitiesEnriched = enrichResult.enriched;
         activitiesSkipped = enrichResult.skipped;
-        console.log(`[Enrichment] Added ${enrichResult.photosAdded} photos`);
-        if (enrichResult.errors.length > 0) {
-          console.log('Google enrichment warnings:', enrichResult.errors);
-        }
-        if (activitiesSkipped > 0) {
-          console.log(`Skipped ${activitiesSkipped} activities (already enriched)`);
-        }
+        reviewsAnalyzed = enrichResult.reviewsAnalyzed;
 
-        // Reload activities with updated Google data
-        if (activitiesEnriched > 0) {
+        log('Step 7 ENRICHMENT COMPLETE', {
+          duration: `${enrichmentDuration}s`,
+          enriched: activitiesEnriched,
+          skipped: activitiesSkipped,
+          photosAdded: enrichResult.photosAdded,
+          reviewsAnalyzed,
+          errors: enrichResult.errors.length,
+          errorSamples: enrichResult.errors.slice(0, 5)
+        });
+
+        // Reload primary activities with updated Google data
+        if (activitiesEnriched > 0 && activities) {
           const { data: refreshedActivities } = await supabase
             .from('trip_activities')
             .select('*')
@@ -5117,10 +5415,12 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
     }
 
     // 7. Delete existing schedule items for this trip (full rebuild)
-    await supabase
+    log('Step 8: Deleting existing schedule items');
+    const { error: deleteError, count: deletedCount } = await supabase
       .from('daily_schedule_items')
-      .delete()
+      .delete({ count: 'exact' })
       .eq('trip_id', tripId);
+    log('Step 8 complete', { deletedItems: deletedCount || 0 });
 
     // 8. Prepare context for AI schedule generation
     const scheduleContext = {
@@ -5201,9 +5501,7 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
     };
 
     // 9. Call Claude API to generate the schedule
-    // Get user's API key using AIAPIKeyService
-    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
-
+    // Reuse keyData from earlier enrichment step (or fetch if not yet retrieved)
     if (!keyData) {
       return res.status(400).json({
         success: false,
@@ -5274,52 +5572,152 @@ Generate a schedule that:
 
 Return the complete schedule as a JSON array.`;
 
-    // Call Claude API
-    const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicApiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
+    // Call Claude API using SDK with extended timeout
+    log('Step 10: Calling Claude API for schedule generation', {
+      contextSize: JSON.stringify(scheduleContext).length,
+      daysInContext: scheduleContext.days.length,
+      activitiesInContext: scheduleContext.activities.length
+    });
+    const aiStartTime = Date.now();
+
+    // Create Anthropic client with 10 minute timeout for large trips
+    const anthropic = new Anthropic({
+      apiKey: anthropicApiKey,
+      timeout: 600000 // 10 minutes
+    });
+
+    let claudeData: { content: Array<{ text?: string }> };
+    try {
+      const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
+        max_tokens: 32000, // Balanced tokens for large trips (41 days)
         messages: [
           { role: 'user', content: userPrompt }
         ],
         system: systemPrompt
-      })
-    });
-
-    if (!claudeResponse.ok) {
-      const errorData = await claudeResponse.json() as { error?: { message?: string } };
-      console.error('Claude API error:', errorData);
+      });
+      claudeData = response as unknown as { content: Array<{ text?: string }> };
+    } catch (apiError: any) {
+      const aiDuration = ((Date.now() - aiStartTime) / 1000).toFixed(2);
+      if (apiError.status === 'timeout' || apiError.code === 'ETIMEDOUT' || apiError.message?.includes('timeout')) {
+        log('FAIL: Claude API timeout after 10 minutes', { duration: aiDuration });
+        return res.status(504).json({
+          success: false,
+          error: 'AI schedule generation timed out',
+          details: 'The request took longer than 10 minutes. Try a smaller trip or fewer activities.',
+          timestamp: new Date().toISOString()
+        });
+      }
+      log('FAIL: Claude API error', { error: apiError.message || String(apiError), duration: aiDuration });
       return res.status(500).json({
         success: false,
         error: 'Failed to generate schedule with AI',
-        details: errorData.error?.message,
+        details: apiError.message || String(apiError),
         timestamp: new Date().toISOString()
       });
     }
 
-    const claudeData = await claudeResponse.json() as { content: Array<{ text?: string }> };
+    const aiDuration = ((Date.now() - aiStartTime) / 1000).toFixed(2);
+    log('Step 10 Claude API response received', { duration: `${aiDuration}s` });
+
+    // Validate we got content
+    if (!claudeData?.content?.[0]?.text) {
+      log('FAIL: Claude API returned empty response');
+      return res.status(500).json({
+        success: false,
+        error: 'Claude API returned empty response',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     let scheduleJson: DaySchedule[];
 
     try {
       // Extract JSON from response
       const responseText = claudeData.content[0]?.text || '';
+      log('Step 11: Parsing AI response', { responseLength: responseText.length });
+      log('Step 11: AI response preview', { first500: responseText.substring(0, 500) });
+      log('Step 11: AI response end', { last500: responseText.substring(Math.max(0, responseText.length - 500)) });
+
       // Try to find JSON in the response (handle potential markdown wrapping)
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      let jsonMatch = responseText.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
-        throw new Error('No JSON array found in response');
+        // Response might be truncated, try to find partial JSON starting with [
+        const arrayStart = responseText.indexOf('[');
+        if (arrayStart === -1) {
+          log('FAIL: No JSON array found in AI response', { fullResponse: responseText.substring(0, 2000) });
+          throw new Error('No JSON array found in response');
+        }
+        // Get everything from [ to the end
+        jsonMatch = [responseText.substring(arrayStart)];
       }
-      scheduleJson = JSON.parse(jsonMatch[0]);
+
+      log('Step 11: JSON array found', { length: jsonMatch[0].length });
+
+      // Try to parse, if it fails try to repair truncated JSON
+      let jsonString = jsonMatch[0];
+      try {
+        scheduleJson = JSON.parse(jsonString);
+      } catch (initialError) {
+        log('Step 11: Initial JSON parse failed, attempting repair', { error: String(initialError) });
+
+        // Try to find the last complete day object (ends with }] for items array, then } for day object)
+        // Pattern: ..."items": [...]}
+        // Find all occurrences of complete day endings
+        const dayEndPattern = /\}\s*\]\s*\}\s*,?/g;
+        let lastGoodEnd = -1;
+        let match;
+        while ((match = dayEndPattern.exec(jsonString)) !== null) {
+          lastGoodEnd = match.index + match[0].length;
+        }
+
+        if (lastGoodEnd > 0) {
+          // Truncate to last complete day and close the array
+          let repairedJson = jsonString.substring(0, lastGoodEnd);
+          // Remove trailing comma if present
+          repairedJson = repairedJson.replace(/,\s*$/, '');
+          // Close the array
+          repairedJson += ']';
+          log('Step 11: Attempting to parse repaired JSON', {
+            originalLength: jsonString.length,
+            repairedLength: repairedJson.length,
+            truncatedAt: lastGoodEnd
+          });
+          try {
+            scheduleJson = JSON.parse(repairedJson);
+            log('Step 11: Repaired JSON parsed successfully (partial schedule)', {
+              daysInSchedule: scheduleJson.length,
+              totalItems: scheduleJson.reduce((sum: number, d: any) => sum + (d.items?.length || 0), 0),
+              wasRepaired: true
+            });
+          } catch (repairError) {
+            // Repair failed, throw original error
+            throw initialError;
+          }
+        } else {
+          // Couldn't find a good truncation point
+          throw initialError;
+        }
+      }
+
+      if (!scheduleJson || scheduleJson.length === 0) {
+        throw new Error('Parsed schedule is empty');
+      }
+
+      log('Step 11 JSON parsed successfully', {
+        daysInSchedule: scheduleJson.length,
+        totalItems: scheduleJson.reduce((sum, d) => sum + (d.items?.length || 0), 0)
+      });
     } catch (parseError) {
-      console.error('Failed to parse schedule JSON:', parseError);
+      const responseText = claudeData.content[0]?.text || '';
+      log('FAIL: JSON parse error', {
+        error: String(parseError),
+        responsePreview: responseText.substring(0, 1000)
+      });
       return res.status(500).json({
         success: false,
         error: 'Failed to parse AI-generated schedule',
+        details: String(parseError),
         timestamp: new Date().toISOString()
       });
     }
@@ -5333,6 +5731,37 @@ Return the complete schedule as a JSON array.`;
       (researchItems || []).map((r: any) => r.id)
     );
 
+    // Valid event types for the database
+    const validEventTypes = new Set(['activity', 'meal', 'transit', 'buffer', 'logistics']);
+
+    // Map common AI-generated types to valid types
+    const eventTypeMapping: Record<string, string> = {
+      'rest': 'buffer',
+      'break': 'buffer',
+      'free_time': 'buffer',
+      'free time': 'buffer',
+      'leisure': 'activity',
+      'sightseeing': 'activity',
+      'attraction': 'activity',
+      'tour': 'activity',
+      'travel': 'transit',
+      'transport': 'transit',
+      'driving': 'transit',
+      'walk': 'transit',
+      'flight': 'logistics',
+      'hotel': 'logistics',
+      'check_in': 'logistics',
+      'check-in': 'logistics',
+      'check_out': 'logistics',
+      'check-out': 'logistics',
+      'accommodation': 'logistics',
+      'breakfast': 'meal',
+      'lunch': 'meal',
+      'dinner': 'meal',
+      'snack': 'meal',
+      'food': 'meal'
+    };
+
     for (const daySchedule of scheduleJson) {
       const day = days.find((d: any) => d.id === daySchedule.day_id || d.date === daySchedule.date);
       if (!day) continue;
@@ -5345,13 +5774,19 @@ Return the complete schedule as a JSON array.`;
           ? item.research_item_id
           : null;
 
+        // Validate and map event_type
+        let eventType = item.event_type?.toLowerCase()?.trim() || 'activity';
+        if (!validEventTypes.has(eventType)) {
+          eventType = eventTypeMapping[eventType] || 'activity'; // Default to 'activity' if unknown
+        }
+
         scheduleItems.push({
           trip_id: tripId,
           day_id: day.id,
           segment_id: segment?.id || null,
           time_start: item.time_start,
           time_end: item.time_end,
-          event_type: item.event_type,
+          event_type: eventType,
           title: item.title,
           description: item.description || null,
           notes: item.notes || null,
@@ -5393,6 +5828,7 @@ Return the complete schedule as a JSON array.`;
     }
 
     // Batch insert schedule items
+    log('Step 12: Inserting schedule items', { itemsToInsert: scheduleItems.length });
     let insertedItemIds: string[] = [];
     if (scheduleItems.length > 0) {
       const { data: insertedItems, error: insertError } = await supabase
@@ -5401,7 +5837,7 @@ Return the complete schedule as a JSON array.`;
         .select('id, day_id, time_start, time_end, event_type, title, location_name, location_lat, location_lng, research_item_id');
 
       if (insertError) {
-        console.error('Error inserting schedule items:', insertError);
+        log('FAIL: Insert error', { error: insertError.message });
         return res.status(500).json({
           success: false,
           error: 'Failed to save schedule items',
@@ -5411,8 +5847,10 @@ Return the complete schedule as a JSON array.`;
       }
 
       insertedItemIds = (insertedItems || []).map((i: any) => i.id);
+      log('Step 12 complete', { insertedCount: insertedItemIds.length });
 
-      // 11. Post-assembly validation
+      // 13. Post-assembly validation
+      log('Step 13: Running post-assembly validation');
       // Fetch inserted items with day info for validation
       const { data: fetchedItemsForValidation } = await supabase
         .from('daily_schedule_items')
@@ -5445,6 +5883,16 @@ Return the complete schedule as a JSON array.`;
           await ScheduleValidationService.updateScheduleItemValidation(item.id, validation.issues);
         }
 
+        const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
+        log('SUCCESS: Schedule assembled and validated', {
+          totalDuration: `${totalDuration}s`,
+          daysScheduled: scheduleJson.length,
+          totalItems: scheduleItems.length,
+          activitiesEnriched,
+          validationErrors: validation.summary.errors,
+          validationWarnings: validation.summary.warnings
+        });
+
         return res.json({
           success: true,
           message: 'Schedule assembled and validated',
@@ -5459,6 +5907,14 @@ Return the complete schedule as a JSON array.`;
       }
     }
 
+    const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
+    log('SUCCESS: Schedule assembled (no validation)', {
+      totalDuration: `${totalDuration}s`,
+      daysScheduled: scheduleJson.length,
+      totalItems: scheduleItems.length,
+      activitiesEnriched
+    });
+
     res.json({
       success: true,
       message: 'Schedule assembled successfully',
@@ -5471,10 +5927,13 @@ Return the complete schedule as a JSON array.`;
     } as AssembleScheduleResponse);
 
   } catch (error) {
-    console.error('POST /travel/trips/:tripId/assemble-schedule error:', error);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[AssembleSchedule][${elapsed}s] UNCAUGHT ERROR:`, error);
+    console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
   }

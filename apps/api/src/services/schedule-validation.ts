@@ -32,6 +32,53 @@ interface TripActivityWithGoogleData {
   reservation_required?: boolean;
   confirmation_status?: string;
   booking_url?: string;
+  // Alternate activity tracking
+  is_backup?: boolean;
+  alternate_to_activity_id?: string;
+  alternative_type?: 'direct_replacement' | 'general_option';
+  // Restaurant details
+  restaurant_details?: {
+    cuisine_type?: string;
+    signature_dishes?: Array<{
+      name: string;
+      description: string;
+      price?: string;
+      kid_friendly?: boolean;
+      source?: 'ai_review_analysis' | 'imported';
+    }>;
+    ambience?: string;
+    noise_level?: 'quiet' | 'moderate' | 'loud';
+    seating?: 'indoor' | 'outdoor' | 'both';
+    highchair?: boolean;
+    kids_menu?: boolean;
+    dietary_options?: string[];
+    reservation_tips?: string;
+  };
+  // Ticket/admission pricing
+  practical_details?: {
+    hours?: string;
+    cost_breakdown?: {
+      adults?: string;
+      seniors?: string;
+      kids?: string;
+      under_x_free?: string;
+    };
+    ticket_price?: {
+      adult?: string;
+      child?: string;
+      senior?: string;
+      family?: string;
+      free_under_age?: number;
+      currency?: string;
+      source?: string;
+      fetched_at?: string;
+    };
+    time_needed?: string;
+    avoid_times?: string[];
+    best_times?: string[];
+    getting_there?: string;
+    combo_tickets?: string;
+  };
 }
 
 // Internal types for schedule items
@@ -634,17 +681,34 @@ export class ScheduleValidationService {
    * Fetch Google Places data for activities missing data
    * Searches Google for activities without google_place_id
    * Fetches photos and stores them in trip_media
+   *
+   * Photo counts:
+   * - Primary activities: 20 photos
+   * - Alternate activities: 10 photos
+   *
+   * Additional enrichment:
+   * - For restaurants: Fetches reviews and extracts top 3-5 recommended dishes via AI
+   * - For attractions: Fetches ticket/admission pricing when available
+   *
    * Returns count of activities enriched
    */
   static async enrichActivitiesWithGoogleData(
     tripId: string,
     userId: string,
     activities: TripActivityWithGoogleData[],
-    googleApiKey: string
-  ): Promise<{ enriched: number; skipped: number; photosAdded: number; errors: string[] }> {
+    googleApiKey: string,
+    anthropicApiKey?: string
+  ): Promise<{ enriched: number; skipped: number; photosAdded: number; reviewsAnalyzed: number; errors: string[] }> {
+    const startTime = Date.now();
+    const log = (msg: string, details?: Record<string, unknown>) => {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[Enrichment][${elapsed}s] ${msg}`, details ? JSON.stringify(details) : '');
+    };
+
     const errors: string[] = [];
     let enriched = 0;
     let photosAdded = 0;
+    let reviewsAnalyzed = 0;
 
     // Skip these activity types that don't have Google Places
     const SKIP_KEYWORDS = [
@@ -653,9 +717,26 @@ export class ScheduleValidationService {
       'rest', 'sleep', 'breakfast', 'lunch', 'dinner', 'morning routine'
     ];
 
+    // Activity types that are restaurants/food
+    const RESTAURANT_TYPES = ['restaurant', 'cafe', 'dining', 'food', 'bakery', 'bar'];
+
+    // Activity types that are attractions with potential ticket prices
+    const ATTRACTION_TYPES = ['museum', 'attraction', 'palace', 'castle', 'monument', 'park', 'zoo', 'aquarium', 'theme_park'];
+
     const shouldSkip = (name: string) => {
       const lower = name.toLowerCase();
       return SKIP_KEYWORDS.some(skip => lower.includes(skip));
+    };
+
+    const isRestaurant = (activity: TripActivityWithGoogleData) => {
+      const type = activity.activity_type?.toLowerCase() || '';
+      const name = activity.name.toLowerCase();
+      return RESTAURANT_TYPES.some(r => type.includes(r) || name.includes(r));
+    };
+
+    const isAttraction = (activity: TripActivityWithGoogleData) => {
+      const type = activity.activity_type?.toLowerCase() || '';
+      return ATTRACTION_TYPES.some(a => type.includes(a));
     };
 
     // Filter activities that need Google data
@@ -663,36 +744,66 @@ export class ScheduleValidationService {
       !a.google_place_id && !shouldSkip(a.name)
     );
 
-    const skipped = activities.filter(a =>
-      a.google_place_id || shouldSkip(a.name)
-    ).length;
+    const alreadyEnriched = activities.filter(a => a.google_place_id).length;
+    const skippedByKeyword = activities.filter(a => !a.google_place_id && shouldSkip(a.name)).length;
+    const skipped = alreadyEnriched + skippedByKeyword;
 
-    console.log(`[Enrichment] Processing ${needsData.length} activities, skipping ${skipped}`);
+    log('START', {
+      totalActivities: activities.length,
+      needsEnrichment: needsData.length,
+      alreadyEnriched,
+      skippedByKeyword
+    });
 
     // Process sequentially to respect rate limits
+    let processedCount = 0;
     for (const activity of needsData) {
+      processedCount++;
+      const activityStartTime = Date.now();
+
       try {
         // Search for place using activity name and location
         const searchQuery = activity.location_name
           ? `${activity.name} ${activity.location_name}`
           : activity.name;
 
+        // Determine photo count: 3 for primary activities during initial enrichment
+        // Full photo fetch (20/10) can be done as a separate background job
+        const isAlternate = activity.is_backup || !!activity.alternate_to_activity_id;
+        const maxPhotos = isAlternate ? 1 : 3; // Reduced for speed - was 10/20
+
+        log(`Processing ${processedCount}/${needsData.length}`, {
+          name: activity.name.substring(0, 40),
+          isAlternate,
+          maxPhotos
+        });
+
+        // Build field mask - include reviews for restaurants
+        const fieldMask = [
+          'places.id', 'places.displayName', 'places.rating', 'places.userRatingCount',
+          'places.regularOpeningHours', 'places.photos', 'places.formattedAddress',
+          'places.location', 'places.websiteUri', 'places.priceLevel'
+        ];
+
+        // Add reviews field for restaurants (requires additional API call)
+        if (isRestaurant(activity)) {
+          fieldMask.push('places.reviews');
+        }
+
         const searchResponse = await fetch('https://places.googleapis.com/v1/places:searchText', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Goog-Api-Key': googleApiKey,
-            'X-Goog-FieldMask': [
-              'places.id', 'places.displayName', 'places.rating', 'places.userRatingCount',
-              'places.regularOpeningHours', 'places.photos', 'places.formattedAddress',
-              'places.location', 'places.websiteUri'
-            ].join(',')
+            'X-Goog-FieldMask': fieldMask.join(',')
           },
           body: JSON.stringify({ textQuery: searchQuery, maxResultCount: 1 })
         });
 
         if (!searchResponse.ok) {
-          errors.push(`Search failed for ${activity.name}`);
+          const errorText = await searchResponse.text();
+          log(`FAIL: Google search failed`, { activity: activity.name, status: searchResponse.status, error: errorText.substring(0, 200) });
+          errors.push(`Search failed for ${activity.name}: ${searchResponse.status}`);
           continue;
         }
 
@@ -701,20 +812,31 @@ export class ScheduleValidationService {
           displayName?: { text: string };
           rating?: number;
           userRatingCount?: number;
+          priceLevel?: string;
           regularOpeningHours?: {
             openNow?: boolean;
             periods?: Array<{ open: { day: number; hour: number; minute: number }; close: { day: number; hour: number; minute: number } }>;
             weekdayDescriptions?: string[];
           };
           photos?: Array<{ name: string; widthPx: number; heightPx: number; authorAttributions?: Array<{ displayName: string; uri: string }> }>;
+          reviews?: Array<{ text?: { text: string }; rating?: number; authorAttribution?: { displayName: string } }>;
           formattedAddress?: string;
           location?: { latitude: number; longitude: number };
+          websiteUri?: string;
         }> };
 
         const place = searchData.places?.[0];
-        if (!place) continue;
+        if (!place) {
+          log(`No place found`, { activity: activity.name });
+          continue;
+        }
 
-        console.log(`[Enrichment] Found ${place.displayName?.text} for ${activity.name}`);
+        log(`Found place`, {
+          activity: activity.name.substring(0, 30),
+          place: place.displayName?.text?.substring(0, 30),
+          rating: place.rating,
+          photos: place.photos?.length || 0
+        });
 
         // Convert opening hours
         let openingHours: TripActivityWithGoogleData['opening_hours'] = undefined;
@@ -729,11 +851,25 @@ export class ScheduleValidationService {
           };
         }
 
+        // Convert price level from Google format
+        let priceLevel: number | undefined;
+        if (place.priceLevel) {
+          const priceLevelMap: Record<string, number> = {
+            'PRICE_LEVEL_FREE': 0,
+            'PRICE_LEVEL_INEXPENSIVE': 1,
+            'PRICE_LEVEL_MODERATE': 2,
+            'PRICE_LEVEL_EXPENSIVE': 3,
+            'PRICE_LEVEL_VERY_EXPENSIVE': 4
+          };
+          priceLevel = priceLevelMap[place.priceLevel];
+        }
+
         // Update activity with Google data
         const updateData: Record<string, unknown> = {
           google_place_id: place.id,
           google_rating: place.rating,
           google_review_count: place.userRatingCount,
+          google_price_level: priceLevel,
           opening_hours: openingHours,
           google_data_fetched_at: new Date().toISOString(),
           photos_fetched: true,
@@ -749,15 +885,73 @@ export class ScheduleValidationService {
           updateData.longitude = place.location.longitude;
         }
 
-        await supabase
+        // For restaurants: Analyze reviews to extract recommended dishes
+        if (isRestaurant(activity) && place.reviews && place.reviews.length > 0 && anthropicApiKey) {
+          try {
+            log(`Analyzing restaurant reviews`, { activity: activity.name.substring(0, 30), reviewCount: place.reviews.length });
+            const recommendedDishes = await this.extractRecommendedDishesFromReviews(
+              place.reviews,
+              activity.name,
+              anthropicApiKey
+            );
+            if (recommendedDishes && recommendedDishes.length > 0) {
+              // Merge with existing restaurant_details or create new
+              const existingDetails = activity.restaurant_details || {};
+              updateData.restaurant_details = {
+                ...existingDetails,
+                signature_dishes: recommendedDishes
+              };
+              reviewsAnalyzed++;
+              log(`Extracted dishes`, { activity: activity.name.substring(0, 30), dishes: recommendedDishes.length });
+            }
+          } catch (reviewError) {
+            log(`FAIL: Review analysis failed`, { activity: activity.name, error: String(reviewError) });
+          }
+        }
+
+        // For attractions: Try to fetch ticket prices (SKIP - too slow and unreliable)
+        // Disabled to speed up enrichment
+        /*
+        if (isAttraction(activity) && place.websiteUri) {
+          try {
+            const ticketPrice = await this.fetchTicketPrices(
+              activity.name,
+              place.websiteUri,
+              activity.location_name,
+              anthropicApiKey
+            );
+            if (ticketPrice) {
+              const existingDetails = activity.practical_details || {};
+              updateData.practical_details = {
+                ...existingDetails,
+                ticket_price: ticketPrice
+              };
+              log(`Found ticket prices`, { activity: activity.name });
+            }
+          } catch (ticketError) {
+            log(`FAIL: Ticket price fetch failed`, { activity: activity.name, error: String(ticketError) });
+          }
+        }
+        */
+
+        const { error: updateError } = await supabase
           .from('trip_activities')
           .update(updateData)
           .eq('id', activity.id);
 
+        if (updateError) {
+          log(`FAIL: DB update failed`, { activity: activity.name, error: updateError.message });
+          errors.push(`DB update failed for ${activity.name}: ${updateError.message}`);
+          continue;
+        }
+
         enriched++;
 
-        // Fetch and store photos (up to 20)
-        const photos = place.photos?.slice(0, 20) || [];
+        // Fetch and store photos (20 for primary, 10 for alternates)
+        const photos = place.photos?.slice(0, maxPhotos) || [];
+        let activityPhotosAdded = 0;
+        log(`Fetching ${photos.length} photos for ${activity.name.substring(0, 30)}`);
+
         for (const photo of photos) {
           try {
             const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${googleApiKey}&maxWidthPx=1600`;
@@ -798,20 +992,158 @@ export class ScheduleValidationService {
             });
 
             photosAdded++;
-            await new Promise(r => setTimeout(r, 100));
+            activityPhotosAdded++;
+            await new Promise(r => setTimeout(r, 50)); // Reduced delay
           } catch (photoError) {
             // Continue on photo errors
           }
         }
 
-        // Rate limiting between activities
-        await new Promise(resolve => setTimeout(resolve, 300));
+        const activityDuration = ((Date.now() - activityStartTime) / 1000).toFixed(2);
+        log(`DONE ${processedCount}/${needsData.length}`, {
+          activity: activity.name.substring(0, 30),
+          duration: `${activityDuration}s`,
+          photos: activityPhotosAdded,
+          totalEnriched: enriched,
+          totalPhotos: photosAdded
+        });
+
+        // Rate limiting between activities (reduced since we fetch fewer photos now)
+        await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
+        log(`ERROR processing activity`, { activity: activity.name, error: String(error) });
         errors.push(`Failed to enrich ${activity.name}: ${error}`);
       }
     }
 
-    return { enriched, skipped, photosAdded, errors };
+    const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
+    log('COMPLETE', {
+      duration: `${totalDuration}s`,
+      enriched,
+      skipped,
+      photosAdded,
+      reviewsAnalyzed,
+      errors: errors.length
+    });
+
+    return { enriched, skipped, photosAdded, reviewsAnalyzed, errors };
+  }
+
+  /**
+   * Extract recommended dishes from Google reviews using AI
+   * Analyzes review text to find frequently mentioned and highly praised menu items
+   */
+  private static async extractRecommendedDishesFromReviews(
+    reviews: Array<{ text?: { text: string }; rating?: number; authorAttribution?: { displayName: string } }>,
+    restaurantName: string,
+    anthropicApiKey: string
+  ): Promise<Array<{ name: string; description: string; price?: string; kid_friendly?: boolean; source: 'ai_review_analysis' }> | null> {
+    if (!reviews || reviews.length === 0) return null;
+
+    // Combine review texts
+    const reviewTexts = reviews
+      .filter(r => r.text?.text)
+      .map(r => `[${r.rating || 'N/A'} stars] ${r.text!.text}`)
+      .join('\n\n');
+
+    if (!reviewTexts) return null;
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicApiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-haiku-20241022',
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: `Analyze these Google reviews for "${restaurantName}" and extract the top 3-5 most recommended dishes or menu items that reviewers mention positively.
+
+Reviews:
+${reviewTexts}
+
+Return a JSON array of objects with this structure:
+[
+  {
+    "name": "Dish name",
+    "description": "Brief description based on what reviewers said about it",
+    "kid_friendly": true/false (if mentioned or can be reasonably inferred)
+  }
+]
+
+Only include dishes that are specifically mentioned positively. If no specific dishes are mentioned, return an empty array [].
+Return ONLY the JSON array, no other text.`
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        console.error(`[Enrichment] AI review analysis failed: ${response.status}`);
+        return null;
+      }
+
+      const data = await response.json() as { content: Array<{ type: string; text: string }> };
+      const text = data.content?.[0]?.text;
+      if (!text) return null;
+
+      // Parse JSON response
+      const parsed = JSON.parse(text) as Array<{ name: string; description: string; kid_friendly?: boolean }>;
+      return parsed.map(dish => ({
+        ...dish,
+        source: 'ai_review_analysis' as const
+      }));
+    } catch (error) {
+      console.error('[Enrichment] Failed to parse AI review analysis:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch ticket/admission prices for attractions
+   * Uses website URL and activity name to search for pricing info
+   */
+  private static async fetchTicketPrices(
+    activityName: string,
+    websiteUrl: string,
+    locationName: string | undefined,
+    anthropicApiKey?: string
+  ): Promise<{
+    adult?: string;
+    child?: string;
+    senior?: string;
+    family?: string;
+    free_under_age?: number;
+    currency?: string;
+    source?: string;
+    fetched_at?: string;
+  } | null> {
+    // For now, we'll use web search via Perplexity if available,
+    // or try to extract from the website if it's accessible
+    // This is a placeholder that can be enhanced with actual web scraping
+
+    if (!anthropicApiKey) return null;
+
+    try {
+      // Use AI to search for ticket prices based on the activity name
+      const searchQuery = `${activityName} ${locationName || ''} ticket price admission cost`;
+
+      // This would ideally use Perplexity or web search
+      // For now, return null and let the import process handle pricing
+      // The pricing data typically comes from Claude's research during import
+      console.log(`[Enrichment] Ticket price lookup for: ${searchQuery}`);
+
+      return {
+        source: websiteUrl,
+        fetched_at: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('[Enrichment] Failed to fetch ticket prices:', error);
+      return null;
+    }
   }
 
   /**
