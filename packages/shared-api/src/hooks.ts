@@ -3829,6 +3829,20 @@ export function useDeleteRVLocationMedia() {
   });
 }
 
+export function useToggleRVLocationMediaFavorite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ locationId, mediaId }: { locationId: string; mediaId: string }) => {
+      const response = await rvLocationsApi.media.toggleFavorite(locationId, mediaId);
+      return response.data.data as RVLocationMedia;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", variables.locationId] });
+    },
+  });
+}
+
 // RV Location Google Places Hooks
 export function useFetchRVLocationGooglePlaces() {
   const queryClient = useQueryClient();
@@ -3982,6 +3996,48 @@ export function useConvertRVLocationToTrip() {
   });
 }
 
+// RV Location Share Hooks
+export function useGenerateRVLocationShareLink() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (locationId: string) => {
+      const response = await rvLocationsApi.share.generate(locationId);
+      return response.data.data as { share_token: string };
+    },
+    onSuccess: (_, locationId) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", locationId] });
+    },
+  });
+}
+
+export function useRevokeRVLocationShareLink() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (locationId: string) => {
+      await rvLocationsApi.share.revoke(locationId);
+    },
+    onSuccess: (_, locationId) => {
+      queryClient.invalidateQueries({ queryKey: ["rv-locations", locationId] });
+    },
+  });
+}
+
+export function usePublicRVLocation(shareToken: string) {
+  return useQuery({
+    queryKey: ["rv-locations", "public", shareToken],
+    queryFn: async () => {
+      const response = await rvLocationsApi.share.getPublic(shareToken);
+      return response.data.data as RVLocation & {
+        activities: RVLocationActivity[];
+        media: RVLocationMedia[];
+      };
+    },
+    enabled: !!shareToken,
+  });
+}
+
 // RV Location Settings Hooks
 export function useRVResearchSettings() {
   return useQuery({
@@ -4095,6 +4151,76 @@ export function getRVLocationCategoryColor(category: string): string {
       return "#8B5CF6"; // violet
     case "couples_getaway":
       return "#EC4899"; // pink
+    case "other":
+      return "#6B7280"; // gray
+    default:
+      return "#9CA3AF";
+  }
+}
+
+export function getRVLandTypeLabel(landType: string): string {
+  switch (landType) {
+    case "national_park":
+      return "National Park";
+    case "state_park":
+      return "State Park";
+    case "national_monument":
+      return "National Monument";
+    case "national_forest":
+      return "National Forest";
+    case "blm":
+      return "BLM";
+    case "national_recreation_area":
+      return "Nat'l Rec Area";
+    case "national_wildlife_refuge":
+      return "Wildlife Refuge";
+    case "army_corps":
+      return "Army Corps";
+    case "county_park":
+      return "County Park";
+    case "city_park":
+      return "City Park";
+    case "private_rv_park":
+      return "Private RV Park";
+    case "private_campground":
+      return "Private Campground";
+    case "casino":
+      return "Casino";
+    case "other":
+      return "Other";
+    default:
+      return landType;
+  }
+}
+
+export function getRVLandTypeColor(landType: string): string {
+  switch (landType) {
+    case "national_park":
+      return "#166534"; // dark green (NPS)
+    case "state_park":
+      return "#15803D"; // green
+    case "national_monument":
+      return "#B45309"; // amber/brown
+    case "national_forest":
+      return "#14532D"; // forest green
+    case "blm":
+      return "#CA8A04"; // yellow/gold
+    case "national_recreation_area":
+      return "#0369A1"; // sky blue
+    case "national_wildlife_refuge":
+      return "#065F46"; // teal
+    case "army_corps":
+      return "#1E40AF"; // blue
+    case "county_park":
+      return "#7C3AED"; // purple
+    case "city_park":
+      return "#A855F7"; // light purple
+    case "private_rv_park":
+      return "#DC2626"; // red
+    case "private_campground":
+      return "#EA580C"; // orange
+    case "casino":
+      return "#BE185D"; // pink
     case "other":
       return "#6B7280"; // gray
     default:

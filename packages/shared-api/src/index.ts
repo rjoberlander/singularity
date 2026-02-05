@@ -892,6 +892,8 @@ export const rvLocationsApi = {
       getApi().post(`/rv-locations/${locationId}/media/bulk`, { media }),
     delete: (locationId: string, mediaId: string) =>
       getApi().delete(`/rv-locations/${locationId}/media/${mediaId}`),
+    toggleFavorite: (locationId: string, mediaId: string) =>
+      getApi().patch(`/rv-locations/${locationId}/media/${mediaId}/favorite`),
   },
 
   // Google Places
@@ -914,6 +916,13 @@ export const rvLocationsApi = {
   // Convert to Trip
   convertToTrip: (locationId: string, options?: { start_date?: string; end_date?: string; traveler_count?: number }) =>
     getApi().post(`/rv-locations/${locationId}/convert-to-trip`, options || {}),
+
+  // Sharing
+  share: {
+    generate: (locationId: string) => getApi().post(`/rv-locations/${locationId}/share`),
+    revoke: (locationId: string) => getApi().delete(`/rv-locations/${locationId}/share`),
+    getPublic: (shareToken: string) => getApi().get(`/rv-locations/share/${shareToken}`),
+  },
 
   // Settings
   settings: {

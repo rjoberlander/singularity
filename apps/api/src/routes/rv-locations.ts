@@ -428,6 +428,7 @@ router.post('/', authenticateUser, async (req: Request, res: Response): Promise<
         description: locationData.description,
         hook: locationData.hook,
         category: locationData.category,
+        land_type: locationData.land_type,
         location_name: locationData.location_name,
         address: locationData.address,
         city: locationData.city,
@@ -909,6 +910,7 @@ router.get('/:locationId/media', authenticateUser, async (req: Request, res: Res
       .from('rv_location_media')
       .select('*')
       .eq('location_id', locationId)
+      .order('is_favorite', { ascending: false, nullsFirst: false })
       .order('sort_order');
 
     if (error) {
@@ -1168,6 +1170,79 @@ router.delete('/:locationId/media/:mediaId', authenticateUser, async (req: Reque
   }
 });
 
+/**
+ * PATCH /api/v1/rv-locations/:locationId/media/:mediaId/favorite
+ * Toggle favorite status on a media item
+ */
+router.patch('/:locationId/media/:mediaId/favorite', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { locationId, mediaId } = req.params;
+
+    // Verify ownership
+    const { data: location, error: locError } = await supabase
+      .from('rv_locations')
+      .select('user_id')
+      .eq('id', locationId)
+      .single();
+
+    if (locError || !location || location.user_id !== userId) {
+      return res.status(404).json({
+        success: false,
+        error: 'RV location not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get current favorite status
+    const { data: media, error: getError } = await supabase
+      .from('rv_location_media')
+      .select('is_favorite')
+      .eq('id', mediaId)
+      .eq('location_id', locationId)
+      .single();
+
+    if (getError || !media) {
+      return res.status(404).json({
+        success: false,
+        error: 'Media not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Toggle the favorite status
+    const newFavoriteStatus = !media.is_favorite;
+    const { data: updated, error: updateError } = await supabase
+      .from('rv_location_media')
+      .update({ is_favorite: newFavoriteStatus })
+      .eq('id', mediaId)
+      .eq('location_id', locationId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(400).json({
+        success: false,
+        error: updateError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: updated,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('PATCH /rv-locations/:locationId/media/:mediaId/favorite error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // =============================================
 // GOOGLE PLACES INTEGRATION
 // =============================================
@@ -1256,7 +1331,7 @@ router.post('/:locationId/fetch-google', authenticateUser, async (req: Request, 
     // Fetch and store photos if requested
     let photosAdded = 0;
     if (fetch_photos && placeData.photos && placeData.photos.length > 0) {
-      for (const photo of placeData.photos.slice(0, 10)) {
+      for (const photo of placeData.photos.slice(0, 30)) {
         const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?maxHeightPx=1200&maxWidthPx=1600&key=${apiKey}`;
 
         // Check for duplicate
@@ -1741,6 +1816,7 @@ router.post('/import', authenticateUser, async (req: Request, res: Response): Pr
             description: locData.description,
             hook: locData.hook,
             category: locData.category,
+            land_type: locData.land_type,
             location_name: locData.location_name,
             address: locData.address,
             city: locData.city,
@@ -2063,5 +2139,181 @@ function mapActivityType(rvType: string | undefined): string {
   };
   return mapping[rvType || 'other'] || 'activity';
 }
+
+// =============================================
+// PUBLIC SHARING
+// =============================================
+
+/**
+ * POST /api/v1/rv-locations/:locationId/share
+ * Generate or get share token for public access
+ */
+router.post('/:locationId/share', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { locationId } = req.params;
+
+    // Verify ownership
+    const { data: location, error: locError } = await supabase
+      .from('rv_locations')
+      .select('user_id, share_token')
+      .eq('id', locationId)
+      .single();
+
+    if (locError || !location || location.user_id !== userId) {
+      return res.status(404).json({
+        success: false,
+        error: 'RV location not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // If already has share token, return it
+    if (location.share_token) {
+      return res.json({
+        success: true,
+        data: { share_token: location.share_token },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Generate new share token
+    const shareToken = crypto.randomUUID();
+    const { error: updateError } = await supabase
+      .from('rv_locations')
+      .update({ share_token: shareToken })
+      .eq('id', locationId);
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        error: updateError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { share_token: shareToken },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /rv-locations/:locationId/share error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * DELETE /api/v1/rv-locations/:locationId/share
+ * Remove share token (disable public access)
+ */
+router.delete('/:locationId/share', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { locationId } = req.params;
+
+    // Verify ownership
+    const { data: location, error: locError } = await supabase
+      .from('rv_locations')
+      .select('user_id')
+      .eq('id', locationId)
+      .single();
+
+    if (locError || !location || location.user_id !== userId) {
+      return res.status(404).json({
+        success: false,
+        error: 'RV location not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { error: updateError } = await supabase
+      .from('rv_locations')
+      .update({ share_token: null })
+      .eq('id', locationId);
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        error: updateError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Share link disabled',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('DELETE /rv-locations/:locationId/share error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/share/:shareToken
+ * Get public location by share token (no auth required)
+ */
+router.get('/share/:shareToken', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { shareToken } = req.params;
+
+    // Get location by share token
+    const { data: location, error: locError } = await supabase
+      .from('rv_locations')
+      .select('*')
+      .eq('share_token', shareToken)
+      .single();
+
+    if (locError || !location) {
+      return res.status(404).json({
+        success: false,
+        error: 'Shared location not found or link has expired',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get activities
+    const { data: activities } = await supabase
+      .from('rv_location_activities')
+      .select('*')
+      .eq('location_id', location.id)
+      .order('sort_order');
+
+    // Get media (sorted by favorites first)
+    const { data: media } = await supabase
+      .from('rv_location_media')
+      .select('*')
+      .eq('location_id', location.id)
+      .order('is_favorite', { ascending: false, nullsFirst: false })
+      .order('sort_order');
+
+    res.json({
+      success: true,
+      data: {
+        ...location,
+        activities: activities || [],
+        media: media || []
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/share/:shareToken error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 export default router;

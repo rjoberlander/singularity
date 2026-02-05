@@ -2944,6 +2944,23 @@ export type RVLocationCategory =
 // RV Location status options
 export type RVLocationStatus = 'researching' | 'want_to_visit' | 'visited' | 'not_interested';
 
+// RV Land type - land management/ownership classification
+export type RVLandType =
+  | 'national_park'          // NPS managed
+  | 'state_park'
+  | 'national_monument'      // Can be NPS, BLM, or USFS managed
+  | 'national_forest'        // US Forest Service
+  | 'blm'                    // Bureau of Land Management
+  | 'national_recreation_area'
+  | 'national_wildlife_refuge'
+  | 'army_corps'             // Army Corps of Engineers
+  | 'county_park'
+  | 'city_park'
+  | 'private_rv_park'
+  | 'private_campground'
+  | 'casino'
+  | 'other';
+
 // RV hookup types
 export type RVHookupType = 'full' | 'electric_only' | 'water_electric' | 'dry' | 'none';
 
@@ -3038,6 +3055,7 @@ export interface RVLocation {
   description?: string;
   hook?: string;
   category?: RVLocationCategory;
+  land_type?: RVLandType;
   location_name?: string;
   address?: string;
   city?: string;
@@ -3072,6 +3090,7 @@ export interface RVLocation {
   notes?: string;
   converted_to_trip_id?: string;
   enriched_at?: string;
+  share_token?: string;
   created_at: string;
   updated_at: string;
   // Populated via joins
@@ -3128,6 +3147,7 @@ export interface RVLocationMedia {
   google_attribution_name?: string;
   google_attribution_uri?: string;
   is_google_sourced?: boolean;
+  is_favorite?: boolean;
   sort_order?: number;
   created_at: string;
 }
@@ -3164,6 +3184,7 @@ export interface CreateRVLocationRequest {
   description?: string;
   hook?: string;
   category?: RVLocationCategory;
+  land_type?: RVLandType;
   location_name?: string;
   address?: string;
   city?: string;
@@ -3245,6 +3266,7 @@ export interface RVLocationImportPayload {
     hook?: string;
     description?: string;
     category?: RVLocationCategory;
+    land_type?: RVLandType;
     location_name?: string;
     address?: string;
     city?: string;
@@ -3327,6 +3349,7 @@ export interface RVResearchOutputTemplate {
     hook: string;
     description: string;
     category: RVLocationCategory;
+    land_type?: RVLandType;
     state: string;
     city: string;
     drive_time_from_la: string;

@@ -12,14 +12,19 @@ import {
   useDeleteRVLocationActivity,
   useCreateRVLocationMedia,
   useDeleteRVLocationMedia,
+  useToggleRVLocationMediaFavorite,
   useFetchRVLocationGooglePlaces,
   useEnrichRVLocation,
+  useGenerateRVLocationShareLink,
   getRVLocationStatusLabel,
   getRVLocationCategoryLabel,
   getRVLocationCategoryColor,
   getRVLocationStatusColor,
+  getRVLandTypeLabel,
+  getRVLandTypeColor,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -91,6 +96,16 @@ import {
   Lightbulb,
   Check,
   AlertCircle,
+  Bike,
+  Waves,
+  Fish,
+  Ship,
+  TreePine,
+  Camera,
+  Compass,
+  Tent,
+  LucideIcon,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -104,10 +119,12 @@ import { useDropzone } from "react-dropzone";
 import { createClient } from "@supabase/supabase-js";
 import { RVReviewsSection } from "@/components/rv-locations/RVReviewsSection";
 import { RVActivityDetailSheet } from "@/components/rv-locations/RVActivityDetailSheet";
+import { PhotoGallery } from "@/components/rv-locations/PhotoGallery";
 import {
   RVKidEngagement,
   RVChildEngagement,
   RVEducationalValue,
+  RVLandType,
 } from "@singularity/shared-types";
 
 // Supabase client for file uploads
@@ -134,10 +151,59 @@ const STATUS_OPTIONS: { value: RVLocationStatus; label: string }[] = [
   { value: "not_interested", label: "Not Interested" },
 ];
 
+const LAND_TYPE_OPTIONS: { value: RVLandType; label: string }[] = [
+  { value: "national_park", label: "National Park" },
+  { value: "state_park", label: "State Park" },
+  { value: "national_monument", label: "National Monument" },
+  { value: "national_forest", label: "National Forest" },
+  { value: "blm", label: "BLM" },
+  { value: "national_recreation_area", label: "Nat'l Rec Area" },
+  { value: "national_wildlife_refuge", label: "Wildlife Refuge" },
+  { value: "army_corps", label: "Army Corps" },
+  { value: "county_park", label: "County Park" },
+  { value: "city_park", label: "City Park" },
+  { value: "private_rv_park", label: "Private RV Park" },
+  { value: "private_campground", label: "Private Campground" },
+  { value: "casino", label: "Casino" },
+  { value: "other", label: "Other" },
+];
+
 const ACTIVITY_TYPES = [
   "hike", "bike", "swim", "fish", "kayak", "horseback", "wildlife_viewing",
   "stargazing", "photography", "rock_climbing", "camping", "other"
 ];
+
+// Map activity types to icons
+const ACTIVITY_ICONS: Record<string, LucideIcon> = {
+  hike: Mountain,
+  bike: Bike,
+  swim: Waves,
+  fish: Fish,
+  kayak: Ship,
+  horseback: Compass,
+  wildlife_viewing: TreePine,
+  stargazing: Sparkles,
+  photography: Camera,
+  rock_climbing: Mountain,
+  camping: Tent,
+  other: MapPin,
+};
+
+// Map activity types to colors (icon color, bg color)
+const ACTIVITY_COLORS: Record<string, { icon: string; bg: string }> = {
+  hike: { icon: "text-emerald-500", bg: "bg-emerald-500/10" },
+  bike: { icon: "text-orange-500", bg: "bg-orange-500/10" },
+  swim: { icon: "text-blue-500", bg: "bg-blue-500/10" },
+  fish: { icon: "text-cyan-500", bg: "bg-cyan-500/10" },
+  kayak: { icon: "text-sky-500", bg: "bg-sky-500/10" },
+  horseback: { icon: "text-amber-600", bg: "bg-amber-600/10" },
+  wildlife_viewing: { icon: "text-green-600", bg: "bg-green-600/10" },
+  stargazing: { icon: "text-purple-500", bg: "bg-purple-500/10" },
+  photography: { icon: "text-pink-500", bg: "bg-pink-500/10" },
+  rock_climbing: { icon: "text-stone-500", bg: "bg-stone-500/10" },
+  camping: { icon: "text-teal-500", bg: "bg-teal-500/10" },
+  other: { icon: "text-gray-500", bg: "bg-gray-500/10" },
+};
 
 function VibeStars({ rating }: { rating?: number }) {
   if (!rating) return <span className="text-muted-foreground text-sm">-</span>;
@@ -259,8 +325,10 @@ export default function RVLocationPage() {
   const deleteActivity = useDeleteRVLocationActivity();
   const createMedia = useCreateRVLocationMedia();
   const deleteMedia = useDeleteRVLocationMedia();
+  const toggleMediaFavorite = useToggleRVLocationMediaFavorite();
   const fetchGooglePlaces = useFetchRVLocationGooglePlaces();
   const enrichLocation = useEnrichRVLocation();
+  const generateShareLink = useGenerateRVLocationShareLink();
 
   // UI State
   const [isEditing, setIsEditing] = useState(false);
@@ -270,15 +338,45 @@ export default function RVLocationPage() {
   const [editingActivity, setEditingActivity] = useState<RVLocationActivity | null>(null);
   const [activityFormData, setActivityFormData] = useState<Partial<RVLocationActivity>>({});
   const [deleteActivityId, setDeleteActivityId] = useState<string | null>(null);
-  const [viewMedia, setViewMedia] = useState<RVLocationMedia | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryInitialIndex, setGalleryInitialIndex] = useState(0);
   const [deleteMediaId, setDeleteMediaId] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [showAddMediaDialog, setShowAddMediaDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [viewingActivity, setViewingActivity] = useState<RVLocationActivity | null>(null);
+  const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
+  const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
 
   // Handlers
+  const handleShare = async () => {
+    try {
+      // Get or generate share token
+      let shareToken = location?.share_token;
+      if (!shareToken) {
+        const result = await generateShareLink.mutateAsync(locationId);
+        shareToken = result.share_token;
+        refetch(); // Refresh to get the share_token
+      }
+
+      // Build the share URL
+      const shareUrl = `${window.location.origin}/rv-locations/share/${shareToken}`;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+      setShareLinkCopied(true);
+      toast.success("Share link copied to clipboard!");
+
+      // Reset the copied state after 2 seconds
+      setTimeout(() => setShareLinkCopied(false), 2000);
+    } catch (error) {
+      toast.error("Failed to generate share link");
+    }
+  };
+
   const handleEdit = () => {
     if (location) {
       setEditData({
@@ -286,6 +384,7 @@ export default function RVLocationPage() {
         description: location.description,
         hook: location.hook,
         category: location.category,
+        land_type: location.land_type,
         status: location.status,
         city: location.city,
         state: location.state,
@@ -452,6 +551,38 @@ export default function RVLocationPage() {
     }
   };
 
+  const handleBatchDeleteMedia = async () => {
+    if (selectedPhotos.size === 0) return;
+    setBatchDeleting(true);
+    try {
+      let deleted = 0;
+      for (const mediaId of selectedPhotos) {
+        await deleteMedia.mutateAsync({ locationId, mediaId });
+        deleted++;
+      }
+      toast.success(`Deleted ${deleted} photo${deleted !== 1 ? 's' : ''}`);
+      setSelectedPhotos(new Set());
+      setShowBatchDeleteDialog(false);
+      refetch();
+    } catch {
+      toast.error("Failed to delete some photos");
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
+  const togglePhotoSelection = (photoId: string) => {
+    setSelectedPhotos(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(photoId)) {
+        newSet.delete(photoId);
+      } else {
+        newSet.add(photoId);
+      }
+      return newSet;
+    });
+  };
+
   const handleFetchGooglePhotos = async () => {
     if (!location?.google_place_id) {
       toast.error("No Google Place ID found");
@@ -548,38 +679,14 @@ export default function RVLocationPage() {
           </Button>
         </Link>
         <div className="flex-1 min-w-0">
+          {/* Title line: Name + Link + Rating + Badges */}
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold">{location.name}</h1>
-            {location.category && (
-              <Badge style={{ backgroundColor: getRVLocationCategoryColor(location.category) }}>
-                {getRVLocationCategoryLabel(location.category)}
-              </Badge>
+            {location.website && (
+              <a href={location.website} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                <ExternalLink className="h-4 w-4" />
+              </a>
             )}
-            {location.status && (
-              <Badge variant="outline" style={{ borderColor: getRVLocationStatusColor(location.status), color: getRVLocationStatusColor(location.status) }}>
-                {getRVLocationStatusLabel(location.status)}
-              </Badge>
-            )}
-          </div>
-
-          {/* Address line */}
-          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground flex-wrap">
-            {(location.address || location.city || location.state) && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-4 w-4" />
-                {location.address || [location.city, location.state].filter(Boolean).join(", ")}
-              </span>
-            )}
-            {location.drive_time_from_la && (
-              <span className="flex items-center gap-1">
-                <Clock className="h-4 w-4" />
-                {location.drive_time_from_la} from LA
-              </span>
-            )}
-          </div>
-
-          {/* Contact & Rating line */}
-          <div className="flex items-center gap-4 mt-2 text-sm flex-wrap">
             {location.google_rating && (
               googleMapsUrl ? (
                 <a
@@ -591,7 +698,7 @@ export default function RVLocationPage() {
                   <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                   <span className="text-foreground font-medium">{location.google_rating}</span>
                   {location.google_review_count && (
-                    <span className="text-muted-foreground">({location.google_review_count} reviews)</span>
+                    <span className="text-muted-foreground text-sm">({location.google_review_count})</span>
                   )}
                 </a>
               ) : (
@@ -599,40 +706,87 @@ export default function RVLocationPage() {
                   <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                   <span className="text-foreground font-medium">{location.google_rating}</span>
                   {location.google_review_count && (
-                    <span className="text-muted-foreground">({location.google_review_count})</span>
+                    <span className="text-muted-foreground text-sm">({location.google_review_count})</span>
                   )}
                 </span>
               )
             )}
+            {location.category && (
+              <Badge style={{ backgroundColor: getRVLocationCategoryColor(location.category) }}>
+                {getRVLocationCategoryLabel(location.category)}
+              </Badge>
+            )}
+            {location.land_type && (
+              <Badge style={{ backgroundColor: getRVLandTypeColor(location.land_type) }}>
+                {getRVLandTypeLabel(location.land_type)}
+              </Badge>
+            )}
+            {(location.cost_per_night !== undefined && location.cost_per_night !== null) && (
+              <Badge variant="outline" className="border-green-500/50 text-green-600">
+                {location.cost_per_night === 0 ? "Free" : `$${location.cost_per_night}/night`}
+              </Badge>
+            )}
+          </div>
+
+          {/* Address line: Address + Phone + Drive time + Reservation */}
+          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground flex-wrap">
+            {(location.address || location.city || location.state) && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-4 w-4" />
+                {location.address || [location.city, location.state].filter(Boolean).join(", ")}
+              </span>
+            )}
             {location.phone && (
-              <a href={`tel:${location.phone}`} className="flex items-center gap-1 text-muted-foreground hover:text-primary">
+              <a href={`tel:${location.phone}`} className="flex items-center gap-1 hover:text-primary">
                 <Phone className="h-4 w-4" />
                 {location.phone}
               </a>
             )}
-            {location.website && (
-              <a href={location.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-muted-foreground hover:text-primary">
-                <Globe className="h-4 w-4" />
-                Website
-              </a>
+            {location.drive_time_from_la && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                {location.drive_time_from_la} from LA
+              </span>
+            )}
+            {location.reservation_required && (
+              <Badge variant="outline" className="border-orange-500/50 text-orange-500 text-xs">
+                Reservation Required
+              </Badge>
             )}
           </div>
         </div>
 
-        <Button onClick={handleEdit} className="shrink-0">
-          <Pencil className="h-4 w-4 mr-2" />
-          Edit
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="icon" onClick={handleEdit} aria-label="Edit location">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleShare}
+            disabled={generateShareLink.isPending}
+            aria-label="Share location"
+            data-testid="share-button"
+          >
+            {shareLinkCopied ? (
+              <Check className="h-4 w-4 text-green-500" />
+            ) : generateShareLink.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Share2 className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Cover Image / Media Preview */}
       {media.length > 0 && (
         <div className="grid grid-cols-4 gap-2 h-64">
-          <div className="col-span-2 row-span-2 relative rounded-lg overflow-hidden bg-muted cursor-pointer" onClick={() => setViewMedia(media[0])}>
+          <div className="col-span-2 row-span-2 relative rounded-lg overflow-hidden bg-muted cursor-pointer" onClick={() => { setGalleryInitialIndex(0); setGalleryOpen(true); }}>
             <img src={media[0].thumbnail_url || media[0].file_url} alt="" className="w-full h-full object-cover" />
           </div>
           {media.slice(1, 5).map((item, i) => (
-            <div key={item.id} className="relative rounded-lg overflow-hidden bg-muted cursor-pointer" onClick={() => setViewMedia(item)}>
+            <div key={item.id} className="relative rounded-lg overflow-hidden bg-muted cursor-pointer" onClick={() => { setGalleryInitialIndex(i + 1); setGalleryOpen(true); }}>
               <img src={item.thumbnail_url || item.file_url} alt="" className="w-full h-full object-cover" />
               {i === 3 && media.length > 5 && (
                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-medium">
@@ -761,204 +915,6 @@ export default function RVLocationPage() {
                 </div>
               ) : (
                 <EmptyDataIndicator label="Kid engagement not researched" />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Activities */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Activities ({activities.length})</CardTitle>
-                <Button size="sm" onClick={handleAddActivity}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {activities.length === 0 ? (
-                <EmptyDataIndicator label="No activities added yet" />
-              ) : (
-                <div className="space-y-3">
-                  {activities.map((activity) => (
-                    <div
-                      key={activity.id}
-                      className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors group cursor-pointer"
-                      onClick={() => setViewingActivity(activity)}
-                    >
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Mountain className="h-5 w-5 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{activity.name}</span>
-                          {activity.activity_type && (
-                            <Badge variant="secondary" className="text-xs capitalize">
-                              {activity.activity_type.replace("_", " ")}
-                            </Badge>
-                          )}
-                          {activity.time_of_day && activity.time_of_day !== "any" && (
-                            <Badge variant="outline" className="text-xs capitalize">
-                              {activity.time_of_day}
-                            </Badge>
-                          )}
-                        </div>
-                        {activity.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{activity.description}</p>
-                        )}
-                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-                          {activity.duration_text && (
-                            <span className="flex items-center gap-1">
-                              <Timer className="h-3 w-3" />
-                              {activity.duration_text}
-                            </span>
-                          )}
-                          {activity.distance_miles && (
-                            <span className="flex items-center gap-1">
-                              <Navigation className="h-3 w-3" />
-                              {activity.distance_miles} mi
-                            </span>
-                          )}
-                          {activity.elevation_gain_ft && (
-                            <span className="flex items-center gap-1">
-                              <TrendingUp className="h-3 w-3" />
-                              {activity.elevation_gain_ft} ft
-                            </span>
-                          )}
-                          {activity.difficulty && (
-                            <Badge variant="outline" className="text-xs capitalize">
-                              {activity.difficulty}
-                            </Badge>
-                          )}
-                          {activity.cost_estimate !== undefined && activity.cost_estimate !== null && (
-                            <span className="flex items-center gap-1">
-                              <DollarSign className="h-3 w-3" />
-                              {activity.cost_estimate === 0 ? "Free" : `$${activity.cost_estimate}`}
-                            </span>
-                          )}
-                          {activity.google_rating && (
-                            <span className="flex items-center gap-1">
-                              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                              {activity.google_rating}
-                            </span>
-                          )}
-                        </div>
-                        {/* Tips preview */}
-                        {activity.tips && (
-                          <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
-                            <Lightbulb className="h-3 w-3 shrink-0 mt-0.5 text-amber-500" />
-                            <span className="line-clamp-1">{activity.tips}</span>
-                          </p>
-                        )}
-                        {/* External links */}
-                        {activity.alltrails_url && (
-                          <a
-                            href={activity.alltrails_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 mt-2"
-                          >
-                            <Mountain className="h-3 w-3" />
-                            AllTrails
-                            <ExternalLink className="h-2.5 w-2.5" />
-                          </a>
-                        )}
-                      </div>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditActivity(activity);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteActivityId(activity.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Media Gallery */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Photos ({media.length})</CardTitle>
-                <div className="flex gap-2">
-                  {location.google_place_id && (
-                    <Button size="sm" variant="outline" onClick={handleFetchGooglePhotos} disabled={fetchGooglePlaces.isPending}>
-                      {fetchGooglePlaces.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
-                      Google
-                    </Button>
-                  )}
-                  <Button size="sm" variant="outline" onClick={() => setShowAddMediaDialog(true)}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    URL
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* Upload Area */}
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer mb-4 ${
-                  isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary"
-                } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
-              >
-                <input {...getInputProps()} />
-                {uploading ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Uploading... {Math.round(uploadProgress)}%</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <ImageIcon className="h-4 w-4" />
-                    <span>Drop images here or click to upload</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Media Grid */}
-              {media.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  {media.map((item) => (
-                    <div
-                      key={item.id}
-                      className="group relative aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer"
-                      onClick={() => setViewMedia(item)}
-                    >
-                      <img src={item.thumbnail_url || item.file_url} alt="" className="w-full h-full object-cover" />
-                      {item.is_google_sourced && (
-                        <Badge className="absolute top-1 left-1 text-xs" variant="secondary">G</Badge>
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <Button size="icon" variant="destructive" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); setDeleteMediaId(item.id); }}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               )}
             </CardContent>
           </Card>
@@ -1267,8 +1223,269 @@ export default function RVLocationPage() {
             </Card>
           )}
 
+          {/* Quick Upload Photo */}
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors cursor-pointer ${
+              isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary"
+            } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <input {...getInputProps()} />
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <ImageIcon className="h-3.5 w-3.5" />
+              <span>Upload Photos</span>
+            </div>
+          </div>
+
         </div>
       </div>
+
+      {/* Activities Section - Full Width */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Activities ({activities.length})</CardTitle>
+            <div className="flex items-center gap-2">
+              {selectedPhotos.size > 0 && (
+                <>
+                  <span className="text-sm text-muted-foreground">{selectedPhotos.size} selected</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSelectedPhotos(new Set())}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setShowBatchDeleteDialog(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
+                </>
+              )}
+              <Button size="sm" onClick={handleAddActivity}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {activities.length === 0 ? (
+            <EmptyDataIndicator label="No activities added yet" />
+          ) : (
+            <div className="space-y-4">
+              {activities.map((activity) => {
+                // Get photos for this activity
+                const activityPhotos = media.filter(m => m.activity_id === activity.id);
+                const ActivityIcon = (activity.activity_type && ACTIVITY_ICONS[activity.activity_type]) || MapPin;
+                const activityColors = (activity.activity_type && ACTIVITY_COLORS[activity.activity_type]) || { icon: "text-gray-500", bg: "bg-gray-500/10" };
+                return (
+                  <div
+                    key={activity.id}
+                    className="p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
+                  >
+                    <div className="flex items-start gap-3 cursor-pointer" onClick={() => setViewingActivity(activity)}>
+                      {/* Left column: Icon + Type + Difficulty */}
+                      <div className="flex flex-col items-center shrink-0 w-14 px-[1px]">
+                        <div className={`h-12 w-12 rounded-lg ${activityColors.bg} flex items-center justify-center`}>
+                          <ActivityIcon className={`h-7 w-7 ${activityColors.icon}`} />
+                        </div>
+                        {activity.activity_type && (
+                          <span className="text-[10px] text-muted-foreground capitalize mt-1 text-center">
+                            {activity.activity_type.replace("_", " ")}
+                          </span>
+                        )}
+                        {activity.difficulty && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 mt-1 capitalize ${
+                              activity.difficulty === 'easy' ? 'border-green-500/50 text-green-600' :
+                              activity.difficulty === 'moderate' ? 'border-yellow-500/50 text-yellow-600' :
+                              activity.difficulty === 'strenuous' || activity.difficulty === 'hard' ? 'border-red-500/50 text-red-600' :
+                              ''
+                            }`}
+                          >
+                            {activity.difficulty}
+                          </Badge>
+                        )}
+                      </div>
+                      {/* Main content */}
+                      <div className="flex-1 min-w-0">
+                        {/* Title line: Name + Links + Rating */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium">{activity.name}</span>
+                          {activity.google_place_id && (
+                            <a
+                              href={`https://www.google.com/maps/place/?q=place_id:${activity.google_place_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {activity.alltrails_url && (
+                            <a
+                              href={activity.alltrails_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-green-600 hover:text-green-700"
+                            >
+                              <Mountain className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {activity.google_rating && (
+                            <span className="flex items-center gap-0.5 text-sm">
+                              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                              <span className="text-muted-foreground">{activity.google_rating}</span>
+                            </span>
+                          )}
+                          {activity.time_of_day && activity.time_of_day !== "any" && (
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {activity.time_of_day}
+                            </Badge>
+                          )}
+                        </div>
+                        {activity.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{activity.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                          {activity.duration_text && (
+                            <span className="flex items-center gap-1">
+                              <Timer className="h-3 w-3" />
+                              {activity.duration_text}
+                            </span>
+                          )}
+                          {activity.distance_miles && (
+                            <span className="flex items-center gap-1">
+                              <Navigation className="h-3 w-3" />
+                              {activity.distance_miles} mi
+                            </span>
+                          )}
+                          {activity.elevation_gain_ft && (
+                            <span className="flex items-center gap-1">
+                              <TrendingUp className="h-3 w-3" />
+                              {activity.elevation_gain_ft} ft
+                            </span>
+                          )}
+                          {activity.cost_estimate !== undefined && activity.cost_estimate !== null && (
+                            <span className="flex items-center gap-1">
+                              <DollarSign className="h-3 w-3" />
+                              {activity.cost_estimate === 0 ? "Free" : `$${activity.cost_estimate}`}
+                            </span>
+                          )}
+                        </div>
+                        {/* Tips preview */}
+                        {activity.tips && (
+                          <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
+                            <Lightbulb className="h-3 w-3 shrink-0 mt-0.5 text-amber-500" />
+                            <span className="line-clamp-2">{activity.tips}</span>
+                          </p>
+                        )}
+                        {/* Kid engagement preview */}
+                        {activity.kid_engagement && (activity.kid_engagement.parker || activity.kid_engagement.charlotte || activity.kid_engagement.xander) && (
+                          <div className="mt-2 flex items-start gap-1">
+                            <Users className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                              {activity.kid_engagement.parker?.suitable && (
+                                <span className="text-blue-500">Parker</span>
+                              )}
+                              {activity.kid_engagement.charlotte?.suitable && (
+                                <span className="text-pink-500">Charlotte</span>
+                              )}
+                              {activity.kid_engagement.xander?.suitable && (
+                                <span className="text-green-500">Xander</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditActivity(activity);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteActivityId(activity.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Activity Photos */}
+                    {activityPhotos.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-muted-foreground/10">
+                        <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2">
+                          {activityPhotos.map((photo) => {
+                            const isSelected = selectedPhotos.has(photo.id);
+                            return (
+                              <div
+                                key={photo.id}
+                                className={`relative aspect-square rounded-md overflow-hidden cursor-pointer transition-all ${
+                                  isSelected ? 'ring-2 ring-primary ring-offset-2' : 'hover:ring-2 hover:ring-muted-foreground/50'
+                                }`}
+                              >
+                                <img
+                                  src={photo.thumbnail_url || photo.file_url}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                  onClick={() => {
+                                    // Find the global index for this photo in the media array
+                                    const globalIndex = media.findIndex(m => m.id === photo.id);
+                                    setGalleryInitialIndex(globalIndex >= 0 ? globalIndex : 0);
+                                    setGalleryOpen(true);
+                                    // Scroll to activity section after gallery opens
+                                    setTimeout(() => {
+                                      const element = document.getElementById(`gallery-section-${activity.id}`);
+                                      element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }, 100);
+                                  }}
+                                />
+                                {/* Checkbox overlay - top right corner */}
+                                <div
+                                  className="absolute top-0 right-0 z-10 p-0.5"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    togglePhotoSelection(photo.id);
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={isSelected}
+                                    className="h-4 w-4 bg-white/90 border-muted-foreground/50 rounded-sm"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Edit Dialog */}
       <Dialog open={isEditing} onOpenChange={setIsEditing}>
@@ -1294,13 +1511,24 @@ export default function RVLocationPage() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select value={editData.status || ""} onValueChange={(v) => setEditData({ ...editData, status: v as RVLocationStatus })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Land Type</Label>
+                <Select value={editData.land_type || ""} onValueChange={(v) => setEditData({ ...editData, land_type: v as RVLandType })}>
+                  <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                  <SelectContent>
+                    {LAND_TYPE_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -1459,17 +1687,30 @@ export default function RVLocationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* View Media Dialog */}
-      <Dialog open={!!viewMedia} onOpenChange={() => setViewMedia(null)}>
-        <DialogContent className="max-w-4xl p-0">
-          <button onClick={() => setViewMedia(null)} className="absolute right-4 top-4 z-10 rounded-full bg-black/50 p-2 text-white hover:bg-black/70">
-            <X className="h-4 w-4" />
-          </button>
-          {viewMedia && (
-            <img src={viewMedia.file_url} alt="" className="w-full max-h-[80vh] object-contain" />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Photo Gallery */}
+      <PhotoGallery
+        media={media}
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        initialIndex={galleryInitialIndex}
+        onToggleFavorite={(mediaId) => {
+          toggleMediaFavorite.mutate({ locationId, mediaId });
+        }}
+        activities={activities.map(a => ({
+          id: a.id,
+          name: a.name,
+          activity_type: a.activity_type,
+          google_rating: a.google_rating,
+          cost_estimate: a.cost_estimate,
+          cost_notes: a.cost_notes,
+        }))}
+        location={{
+          name: location.name,
+          google_rating: location.google_rating,
+          reservation_required: location.reservation_required,
+          cost_per_night: location.cost_per_night,
+        }}
+      />
 
       {/* Delete Media Confirmation */}
       <AlertDialog open={!!deleteMediaId} onOpenChange={() => setDeleteMediaId(null)}>
@@ -1481,6 +1722,35 @@ export default function RVLocationPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteMedia} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Photos Confirmation */}
+      <AlertDialog open={showBatchDeleteDialog} onOpenChange={setShowBatchDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedPhotos.size} Photo{selectedPhotos.size !== 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedPhotos.size} selected photo{selectedPhotos.size !== 1 ? 's' : ''}? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchDeleteMedia}
+              disabled={batchDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {batchDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

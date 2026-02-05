@@ -170,7 +170,7 @@ export async function processGooglePhotos(
   options: PhotoProcessingOptions = {}
 ): Promise<PhotoProcessingResult> {
   const {
-    maxPhotos = 10,
+    maxPhotos = 30,
     maxWidthPx = 1600,
     maxHeightPx = 1200,
   } = options;
@@ -267,9 +267,12 @@ export async function insertRVLocationPhotos(
   locationId: string,
   userId: string,
   photos: ProcessedPhoto[],
-  activityId?: string
+  activityId?: string,
+  caption?: string
 ): Promise<{ inserted: number; errors: string[] }> {
   const result = { inserted: 0, errors: [] as string[] };
+
+  console.log(`[Photo Insert] Inserting ${photos.length} photos for location ${locationId}, activity ${activityId || 'main'}, caption: "${caption}"`);
 
   for (const photo of photos) {
     try {
@@ -284,6 +287,7 @@ export async function insertRVLocationPhotos(
           media_type: 'image',
           width: photo.width,
           height: photo.height,
+          caption: caption,
           google_attribution_name: photo.attributionName,
           google_attribution_uri: photo.attributionUri,
           google_photo_reference: photo.googlePhotoReference,
@@ -296,18 +300,22 @@ export async function insertRVLocationPhotos(
       if (error) {
         // Duplicate constraint violation - skip silently (dedup working as expected)
         if (error.code === '23505') {
+          console.log(`[Photo Insert] Duplicate constraint hit for photo (code 23505)`);
           continue;
         }
+        console.error(`[Photo Insert] Insert error:`, error);
         result.errors.push(`Insert error: ${error.message}`);
         continue;
       }
 
       result.inserted++;
     } catch (error: any) {
+      console.error(`[Photo Insert] Exception:`, error);
       result.errors.push(`Insert exception: ${error.message}`);
     }
   }
 
+  console.log(`[Photo Insert] Completed: ${result.inserted} inserted, ${result.errors.length} errors`);
   return result;
 }
 
@@ -375,21 +383,35 @@ export async function fetchAndStoreRVLocationPhotos(
   locationId: string,
   userId: string,
   photos: GooglePhoto[],
-  options: PhotoProcessingOptions = {}
+  options: PhotoProcessingOptions = {},
+  activityId?: string,
+  caption?: string
 ): Promise<PhotoProcessingResult> {
-  // Get existing photos for deduplication
-  const { data: existingPhotos } = await supabase
+  // Get existing photos for deduplication - only within the same activity
+  // This allows the same photo to exist for campground AND activities
+  let existingPhotosQuery = supabase
     .from('rv_location_media')
     .select('google_photo_reference, content_hash, file_url')
     .eq('location_id', locationId);
 
+  // Only dedupe within same activity (or campground if no activityId)
+  if (activityId) {
+    existingPhotosQuery = existingPhotosQuery.eq('activity_id', activityId);
+  } else {
+    existingPhotosQuery = existingPhotosQuery.is('activity_id', null);
+  }
+
+  const { data: existingPhotos } = await existingPhotosQuery;
+
   // Process photos
-  const storagePath = `rv-locations/${locationId}`;
+  const storagePath = activityId
+    ? `rv-locations/${locationId}/activities/${activityId}`
+    : `rv-locations/${locationId}`;
   const processResult = await processGooglePhotos(photos, storagePath, existingPhotos, options);
 
   // Insert into database
   if (processResult.photos.length > 0) {
-    const insertResult = await insertRVLocationPhotos(locationId, userId, processResult.photos);
+    const insertResult = await insertRVLocationPhotos(locationId, userId, processResult.photos, activityId, caption);
     processResult.errors.push(...insertResult.errors);
   }
 

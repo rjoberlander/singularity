@@ -23,6 +23,7 @@ import {
   RVReviewHighlights,
   RVActivitySuggestion,
   RVActivityType,
+  RVLandType,
 } from '@singularity/shared-types';
 
 const supabase = createClient(
@@ -101,6 +102,241 @@ function priceLevelToNumber(priceLevel: string): number {
     'PRICE_LEVEL_VERY_EXPENSIVE': 4,
   };
   return levels[priceLevel] ?? 2;
+}
+
+/**
+ * Detect land type based on location name, address, and website
+ * Uses keyword matching for common patterns
+ */
+function detectLandType(
+  name: string,
+  address?: string,
+  website?: string
+): RVLandType | null {
+  const searchText = `${name} ${address || ''} ${website || ''}`.toLowerCase();
+
+  // Order matters - more specific patterns first
+
+  // National Park Service
+  if (
+    searchText.includes('national park') ||
+    searchText.includes('nps.gov') ||
+    /\bnp\b/.test(searchText)
+  ) {
+    // Check if it's a monument within NPS
+    if (searchText.includes('national monument')) {
+      return 'national_monument';
+    }
+    // Check if it's a recreation area
+    if (searchText.includes('national recreation area') || searchText.includes('nra')) {
+      return 'national_recreation_area';
+    }
+    return 'national_park';
+  }
+
+  // National Monument (can be NPS, BLM, or USFS)
+  if (searchText.includes('national monument')) {
+    return 'national_monument';
+  }
+
+  // National Forest / USFS
+  if (
+    searchText.includes('national forest') ||
+    searchText.includes('usfs') ||
+    searchText.includes('fs.usda.gov') ||
+    searchText.includes('forest service') ||
+    searchText.includes('usda forest')
+  ) {
+    return 'national_forest';
+  }
+
+  // BLM
+  if (
+    searchText.includes('blm') ||
+    searchText.includes('bureau of land management') ||
+    searchText.includes('blm.gov')
+  ) {
+    return 'blm';
+  }
+
+  // National Recreation Area
+  if (searchText.includes('national recreation area') || searchText.includes('nra')) {
+    return 'national_recreation_area';
+  }
+
+  // National Wildlife Refuge
+  if (
+    searchText.includes('wildlife refuge') ||
+    searchText.includes('nwr') ||
+    searchText.includes('fws.gov')
+  ) {
+    return 'national_wildlife_refuge';
+  }
+
+  // Army Corps of Engineers
+  if (
+    searchText.includes('army corps') ||
+    searchText.includes('corps of engineers') ||
+    searchText.includes('usace')
+  ) {
+    return 'army_corps';
+  }
+
+  // State Park
+  if (
+    searchText.includes('state park') ||
+    searchText.includes('state beach') ||
+    searchText.includes('state recreation area') ||
+    /state\s+(campground|camping)/.test(searchText)
+  ) {
+    return 'state_park';
+  }
+
+  // County Park
+  if (
+    searchText.includes('county park') ||
+    searchText.includes('regional park') ||
+    searchText.includes('county campground')
+  ) {
+    return 'county_park';
+  }
+
+  // City Park
+  if (
+    searchText.includes('city park') ||
+    searchText.includes('municipal park') ||
+    searchText.includes('city campground')
+  ) {
+    return 'city_park';
+  }
+
+  // Casino
+  if (searchText.includes('casino')) {
+    return 'casino';
+  }
+
+  // Private RV Park (common patterns)
+  if (
+    searchText.includes('rv park') ||
+    searchText.includes('rv resort') ||
+    searchText.includes('r.v. park') ||
+    searchText.includes('trailer park') ||
+    searchText.includes('mobile home park')
+  ) {
+    return 'private_rv_park';
+  }
+
+  // Private Campground (KOA, Good Sam, etc.)
+  // BUT NOT if website is recreation.gov (federal) or reserveamerica/reservecalifornia (state)
+  const isFederalSite = searchText.includes('recreation.gov');
+  const isStateSite = searchText.includes('reserveamerica') || searchText.includes('reservecalifornia');
+
+  if (!isFederalSite && !isStateSite) {
+    if (
+      searchText.includes('koa') ||
+      searchText.includes('kampground') ||
+      searchText.includes('good sam') ||
+      searchText.includes('thousand trails')
+    ) {
+      return 'private_campground';
+    }
+
+    // Generic "campground" without federal/state indicators - might be private
+    // But we'll let AI decide for ambiguous cases
+  }
+
+  return null;
+}
+
+/**
+ * Use AI to detect land type when keyword matching fails
+ */
+async function detectLandTypeWithAI(
+  name: string,
+  address?: string,
+  city?: string,
+  state?: string,
+  website?: string,
+  userId?: string
+): Promise<RVLandType | null> {
+  try {
+    // Get user's API key
+    if (!userId) {
+      console.log('[RV Enrichment] No user ID for AI land type detection');
+      return null;
+    }
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!keyData) {
+      console.log('[RV Enrichment] No API key available for AI land type detection');
+      return null;
+    }
+
+    const anthropic = new Anthropic({ apiKey: keyData.api_key });
+
+    // Check for recreation.gov which indicates federal land
+    const isRecreationGov = website?.toLowerCase().includes('recreation.gov');
+    const federalHint = isRecreationGov
+      ? '\n\nIMPORTANT: The website is recreation.gov, which is the federal reservation system. This strongly indicates federal land (National Forest/USFS, National Park/NPS, BLM, or Army Corps). It is NOT a private campground.'
+      : '';
+
+    const prompt = `You are an expert on US public lands and campgrounds. Based on your knowledge and the following information, determine what type of land this campground/RV location is on.
+
+Location: ${name}
+Address: ${address || 'Unknown'}
+City/State: ${[city, state].filter(Boolean).join(', ') || 'Unknown'}
+Website: ${website || 'Unknown'}${federalHint}
+
+Use your knowledge of this specific campground if you know it. Many campgrounds in mountain areas of California, Arizona, Colorado, etc. are on National Forest (USFS) land even if the name doesn't explicitly say "National Forest".
+
+For example:
+- Serrano Campground at Big Bear Lake is in San Bernardino National Forest (USFS)
+- Buckhorn Campground in the Angeles Crest is in Angeles National Forest (USFS)
+- Campgrounds in Yosemite, Yellowstone, Grand Canyon are National Park (NPS)
+
+Classify this location into ONE of these categories:
+- national_park (National Park Service managed - includes national parks, some monuments)
+- state_park (State park, state beach, state recreation area)
+- national_monument (National Monument - can be NPS, BLM, or USFS managed)
+- national_forest (US Forest Service / USFS - includes ranger districts, wilderness areas)
+- blm (Bureau of Land Management - often desert/remote areas)
+- national_recreation_area (National Recreation Area - often around lakes/rivers)
+- national_wildlife_refuge (Fish & Wildlife Service)
+- army_corps (Army Corps of Engineers - usually near dams/reservoirs)
+- county_park (County or regional park)
+- city_park (City or municipal park)
+- private_rv_park (Private RV park or resort - usually has "RV Park" or "Resort" in name)
+- private_campground (Private campground like KOA, Good Sam, Thousand Trails)
+- casino (Casino camping)
+- other (Only if truly unknown)
+
+Think about what you know about this specific location, then respond with ONLY the category code (e.g., "national_forest"), nothing else.`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 50,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const result = (response.content[0] as { type: string; text: string }).text.trim().toLowerCase();
+
+    // Validate the response is a valid land type
+    const validTypes: RVLandType[] = [
+      'national_park', 'state_park', 'national_monument', 'national_forest',
+      'blm', 'national_recreation_area', 'national_wildlife_refuge', 'army_corps',
+      'county_park', 'city_park', 'private_rv_park', 'private_campground', 'casino', 'other'
+    ];
+
+    if (validTypes.includes(result as RVLandType)) {
+      console.log(`[RV Enrichment] AI detected land type: ${result} for ${name}`);
+      return result as RVLandType;
+    }
+
+    console.log(`[RV Enrichment] AI returned invalid land type: ${result}`);
+    return null;
+  } catch (error) {
+    console.error('[RV Enrichment] Error detecting land type with AI:', error);
+    return null;
+  }
 }
 
 /**
@@ -369,7 +605,7 @@ export async function enrichLocation(
     fetch_photos = true,
     fetch_hours = true,
     enrich_activities = true,
-    max_photos = 10,
+    max_photos = 20, // 20 photos per source (main location + each activity)
   } = options;
 
   const result: RVEnrichmentResult = {
@@ -426,6 +662,43 @@ export async function enrichLocation(
       enriched_at: new Date().toISOString(),
     };
 
+    // 4.5. Detect land type if not already set or if it seems incorrect
+    const currentWebsite = (placeDetails.websiteUri || location.website || '').toLowerCase();
+    const isRecreationGov = currentWebsite.includes('recreation.gov');
+    const needsRedetection =
+      !location.land_type ||
+      location.land_type === 'other' ||
+      // Re-detect if marked as private but has federal website
+      (isRecreationGov && (location.land_type === 'private_campground' || location.land_type === 'private_rv_park'));
+
+    console.log(`[RV Enrichment] Current land_type: "${location.land_type}", website: "${currentWebsite}", needsRedetection: ${needsRedetection}`);
+    if (needsRedetection) {
+      console.log(`[RV Enrichment] Running land type detection for ${location.name}`);
+      // First try keyword detection (fast, no API call)
+      let detectedLandType = detectLandType(
+        location.name,
+        placeDetails.formattedAddress || location.address,
+        placeDetails.websiteUri || location.website
+      );
+
+      // If keyword detection failed, use AI to determine land type
+      if (!detectedLandType) {
+        detectedLandType = await detectLandTypeWithAI(
+          location.name,
+          placeDetails.formattedAddress || location.address,
+          location.city,
+          location.state,
+          placeDetails.websiteUri || location.website,
+          userId
+        );
+      }
+
+      if (detectedLandType) {
+        updateData.land_type = detectedLandType;
+        console.log(`[RV Enrichment] Detected land type: ${detectedLandType} for ${location.name}`);
+      }
+    }
+
     // 5. Analyze reviews if available
     if (fetch_reviews && placeDetails.reviews && placeDetails.reviews.length > 0) {
       result.reviews_fetched = placeDetails.reviews.length;
@@ -459,12 +732,15 @@ export async function enrichLocation(
     result.location_updated = true;
 
     // 7. Fetch and store photos using shared service (with content-hash deduplication)
+    // Photos are grouped by source: main location gets "Campground" caption
     if (fetch_photos && placeDetails.photos && placeDetails.photos.length > 0) {
       const photoResult = await fetchAndStoreRVLocationPhotos(
         locationId,
         userId,
         placeDetails.photos as GooglePhoto[],
-        { maxPhotos: max_photos }
+        { maxPhotos: max_photos },
+        undefined, // no activity_id for main location
+        'Campground' // caption for main location photos
       );
       result.photos_added = photoResult.photosAdded;
       if (photoResult.photosSkipped > 0) {
@@ -475,46 +751,92 @@ export async function enrichLocation(
       }
     }
 
-    // 8. Enrich activities
+    // 8. Enrich activities and fetch their photos
+    // Each activity gets its own max_photos limit (20 photos per source)
     if (enrich_activities) {
-      const { data: activities } = await supabase
+      // Get ALL activities for this location
+      const { data: allActivities } = await supabase
         .from('rv_location_activities')
         .select('*')
-        .eq('location_id', locationId)
-        .is('google_place_id', null);
+        .eq('location_id', locationId);
 
-      if (activities && activities.length > 0) {
-        for (const activity of activities) {
-          // Try to find a Google Place for this activity
-          const activityPlaceId = await searchGooglePlace(
-            activity.name,
-            location.city,
-            location.state
-          );
+      if (allActivities && allActivities.length > 0) {
+        console.log(`[RV Enrichment] Found ${allActivities.length} activities total`);
 
-          if (activityPlaceId) {
-            const activityDetails = await fetchPlaceDetails(activityPlaceId);
+        // Check which activities already have photos
+        const { data: existingActivityPhotos } = await supabase
+          .from('rv_location_media')
+          .select('activity_id')
+          .eq('location_id', locationId)
+          .not('activity_id', 'is', null);
 
-            if (activityDetails) {
-              const activityUpdate: Record<string, any> = {
-                google_place_id: activityPlaceId,
-                google_rating: activityDetails.rating,
-                google_review_count: activityDetails.userRatingCount,
-                google_maps_url: activityDetails.googleMapsUri,
-                enriched_at: new Date().toISOString(),
-              };
+        const activitiesWithPhotos = new Set(existingActivityPhotos?.map(p => p.activity_id) || []);
 
-              if (fetch_hours && activityDetails.regularOpeningHours) {
-                activityUpdate.opening_hours = activityDetails.regularOpeningHours;
+        for (const activity of allActivities) {
+          let placeId = activity.google_place_id;
+
+          // If activity doesn't have a place ID yet, search for it
+          if (!placeId) {
+            console.log(`[RV Enrichment] Searching for activity: "${activity.name}" in ${location.city}, ${location.state}`);
+            placeId = await searchGooglePlace(
+              activity.name,
+              location.city,
+              location.state
+            );
+
+            if (placeId) {
+              console.log(`[RV Enrichment] Found Google Place for ${activity.name}: ${placeId}`);
+              // Update activity with place ID and rating
+              const activityDetails = await fetchPlaceDetails(placeId);
+              if (activityDetails) {
+                const activityUpdate: Record<string, any> = {
+                  google_place_id: placeId,
+                  google_rating: activityDetails.rating,
+                };
+
+                const { error: activityUpdateError } = await supabase
+                  .from('rv_location_activities')
+                  .update(activityUpdate)
+                  .eq('id', activity.id);
+
+                if (activityUpdateError) {
+                  console.error(`[RV Enrichment] Failed to update activity ${activity.name}:`, activityUpdateError);
+                  result.errors?.push(`Failed to update activity ${activity.name}: ${activityUpdateError.message}`);
+                } else {
+                  console.log(`[RV Enrichment] Updated activity ${activity.name} with Google Place data`);
+                  result.activities_enriched++;
+                }
               }
-
-              await supabase
-                .from('rv_location_activities')
-                .update(activityUpdate)
-                .eq('id', activity.id);
-
-              result.activities_enriched++;
+            } else {
+              console.log(`[RV Enrichment] No Google Place found for activity: "${activity.name}"`);
+              continue; // Can't fetch photos without a place ID
             }
+          }
+
+          // Fetch photos for this activity if we don't have any yet
+          if (fetch_photos && placeId && !activitiesWithPhotos.has(activity.id)) {
+            console.log(`[RV Enrichment] Fetching photos for activity: ${activity.name}`);
+            const activityDetails = await fetchPlaceDetails(placeId);
+
+            if (activityDetails?.photos && activityDetails.photos.length > 0) {
+              const activityPhotoResult = await fetchAndStoreRVLocationPhotos(
+                locationId,
+                userId,
+                activityDetails.photos as GooglePhoto[],
+                { maxPhotos: max_photos },
+                activity.id, // Link photo to this activity
+                `Activity: ${activity.name}` // Caption showing activity name
+              );
+              result.photos_added += activityPhotoResult.photosAdded;
+              if (activityPhotoResult.photosSkipped > 0) {
+                console.log(`[RV Enrichment] ${activityPhotoResult.photosSkipped} duplicate activity photos skipped for ${activity.name}`);
+              }
+              if (activityPhotoResult.errors.length > 0) {
+                result.errors?.push(...activityPhotoResult.errors);
+              }
+            }
+          } else if (activitiesWithPhotos.has(activity.id)) {
+            console.log(`[RV Enrichment] Activity ${activity.name} already has photos, skipping`);
           }
         }
       }
