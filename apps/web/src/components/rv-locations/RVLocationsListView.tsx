@@ -283,7 +283,9 @@ export function RVLocationsListView({
                 {uniqueIcons.length > 0 && (
                   <span className="inline-flex items-center gap-1 ml-1">
                     {uniqueIcons.map(({ icon: Icon, type }) => (
-                      <Icon key={type} className={`h-3.5 w-3.5 ${ACTIVITY_COLORS[type] || 'text-gray-500'}`} title={type.replace('_', ' ')} />
+                      <span key={type} title={type.replace('_', ' ')}>
+                        <Icon className={`h-3.5 w-3.5 ${ACTIVITY_COLORS[type] || 'text-gray-500'}`} />
+                      </span>
                     ))}
                   </span>
                 )}
