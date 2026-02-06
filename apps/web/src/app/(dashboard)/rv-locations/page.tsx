@@ -34,6 +34,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Plus,
   Search,
   MapPin,
@@ -50,6 +57,9 @@ import {
   Settings,
   Sparkles,
   Loader2,
+  DollarSign,
+  Activity,
+  Baby,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -86,6 +96,7 @@ export default function RVLocationsPage() {
   const [deleteLocationId, setDeleteLocationId] = useState<string | null>(null);
   const [showImportSheet, setShowImportSheet] = useState(false);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
+  const [showCostModal, setShowCostModal] = useState(false);
   const [isBulkEnriching, setIsBulkEnriching] = useState(false);
   const [bulkEnrichProgress, setBulkEnrichProgress] = useState({ current: 0, total: 0 });
 
@@ -141,6 +152,28 @@ export default function RVLocationsPage() {
     if (!locations) return [];
     return locations.filter((loc) => !loc.enriched_at);
   }, [locations]);
+
+  // Estimate enrichment cost based on actual activity counts
+  const estimatedCost = useMemo(() => {
+    const costPerLocation = 0.20;
+    const costPerActivity = 0.19;
+
+    let total = 0;
+    let totalActivities = 0;
+
+    for (const loc of unenrichedLocations) {
+      const extLoc = loc as RVLocation & { activity_count?: number };
+      const activityCount = extLoc.activity_count || 0;
+      total += costPerLocation + (activityCount * costPerActivity);
+      totalActivities += activityCount;
+    }
+
+    return {
+      total: total.toFixed(2),
+      locations: unenrichedLocations.length,
+      activities: totalActivities
+    };
+  }, [unenrichedLocations]);
 
   const handleBulkEnrich = async () => {
     if (unenrichedLocations.length === 0) {
@@ -299,6 +332,44 @@ export default function RVLocationsPage() {
           <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{location.hook}</p>
         )}
 
+        {/* Activities */}
+        {(() => {
+          const extLoc = location as RVLocation & {
+            activities?: Array<{ id: string; name: string; activity_type?: string }>;
+            activity_count?: number;
+            avg_kid_engagement?: number;
+          };
+          if (!extLoc.activities || extLoc.activities.length === 0) return null;
+          return (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                <Activity className="h-3 w-3" />
+                <span>{extLoc.activity_count} {extLoc.activity_count === 1 ? 'activity' : 'activities'}</span>
+                {/* Kid engagement - hide for couples getaway */}
+                {location.category !== 'couples_getaway' && extLoc.avg_kid_engagement != null && (
+                  <>
+                    <span className="mx-1">•</span>
+                    <Baby className="h-3 w-3" />
+                    <span>Kids: {extLoc.avg_kid_engagement}/5</span>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {extLoc.activities.slice(0, 3).map((act) => (
+                  <Badge key={act.id} variant="secondary" className="text-xs py-0">
+                    {act.name}
+                  </Badge>
+                ))}
+                {extLoc.activities.length > 3 && (
+                  <Badge variant="secondary" className="text-xs py-0">
+                    +{extLoc.activities.length - 3}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Drive Time and Rating */}
         <div className="flex items-center gap-4 mt-3 text-sm">
           {location.drive_time_from_la && (
@@ -392,8 +463,17 @@ export default function RVLocationsPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setShowCostModal(true)}
+          >
+            <DollarSign className="h-4 w-4 mr-2" />
+            Costs
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleBulkEnrich}
             disabled={isBulkEnriching || unenrichedLocations.length === 0}
+            title={unenrichedLocations.length > 0 ? `Estimated cost: ~$${estimatedCost.total} for ${estimatedCost.locations} locations + ${estimatedCost.activities} activities` : undefined}
           >
             {isBulkEnriching ? (
               <>
@@ -403,7 +483,7 @@ export default function RVLocationsPage() {
             ) : (
               <>
                 <Sparkles className="h-4 w-4 mr-2" />
-                Enrich{unenrichedLocations.length > 0 && ` (${unenrichedLocations.length})`}
+                Enrich{unenrichedLocations.length > 0 && ` (${unenrichedLocations.length}) ~$${estimatedCost.total}`}
               </>
             )}
           </Button>
@@ -561,6 +641,89 @@ export default function RVLocationsPage() {
 
       {/* Settings Sheet */}
       <RVResearchSettingsSheet open={showSettingsSheet} onOpenChange={setShowSettingsSheet} />
+
+      {/* Enrichment Cost Modal */}
+      <Dialog open={showCostModal} onOpenChange={setShowCostModal}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Enrichment Costs
+            </DialogTitle>
+            <DialogDescription>
+              Estimated API costs when enriching locations with Google data and AI analysis.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Current batch estimate */}
+            {unenrichedLocations.length > 0 && (
+              <div className="bg-primary/10 rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Ready to enrich</span>
+                  <span className="text-lg font-bold">~${estimatedCost.total}</span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {estimatedCost.locations} locations + {estimatedCost.activities} activities
+                </p>
+              </div>
+            )}
+
+            {/* What does enrichment do */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-2">What does &quot;Enrich&quot; do?</h4>
+              <div className="text-sm text-muted-foreground space-y-1 pl-4">
+                <p>• Searches Google Places to find the location</p>
+                <p>• Fetches rating, reviews, hours, and address</p>
+                <p>• Downloads up to 20 photos from Google</p>
+                <p>• Uses Claude AI to analyze reviews</p>
+                <p>• Enriches each activity with Google data + photos</p>
+              </div>
+            </div>
+
+            {/* When is something "enriched" */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-2">What counts as &quot;enriched&quot;?</h4>
+              <p className="text-sm text-muted-foreground">
+                A location is marked enriched once we successfully fetch Google Place data.
+                The <strong>Enrich ({unenrichedLocations.length})</strong> button only processes
+                locations that haven&apos;t been enriched yet &mdash; it won&apos;t re-enrich or duplicate costs
+                for already-enriched locations.
+              </p>
+            </div>
+
+            {/* Cost breakdown */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-2">Cost Breakdown</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="font-medium">Main Location (~$0.20)</p>
+                  <div className="text-muted-foreground space-y-0.5 pl-2 mt-1">
+                    <p>Text Search: $0.03</p>
+                    <p>Place Details: $0.02</p>
+                    <p>Photos (20): $0.14</p>
+                    <p>Claude AI: $0.01</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="font-medium">Per Activity (~$0.19)</p>
+                  <div className="text-muted-foreground space-y-0.5 pl-2 mt-1">
+                    <p>Text Search: $0.03</p>
+                    <p>Place Details: $0.02</p>
+                    <p>Photos (20): $0.14</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-3 text-sm">
+              <p className="text-muted-foreground">
+                <strong>Note:</strong> Photos are ~70% of the cost. Charges apply to your Google Cloud
+                and Anthropic accounts.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

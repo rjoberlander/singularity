@@ -3090,7 +3090,7 @@ export interface RVLocation {
   notes?: string;
   converted_to_trip_id?: string;
   enriched_at?: string;
-  share_token?: string;
+  share_slug?: string;
   created_at: string;
   updated_at: string;
   // Populated via joins

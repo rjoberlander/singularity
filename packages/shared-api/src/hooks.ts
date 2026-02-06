@@ -4003,7 +4003,7 @@ export function useGenerateRVLocationShareLink() {
   return useMutation({
     mutationFn: async (locationId: string) => {
       const response = await rvLocationsApi.share.generate(locationId);
-      return response.data.data as { share_token: string };
+      return response.data.data as { share_slug: string };
     },
     onSuccess: (_, locationId) => {
       queryClient.invalidateQueries({ queryKey: ["rv-locations", locationId] });
@@ -4024,17 +4024,17 @@ export function useRevokeRVLocationShareLink() {
   });
 }
 
-export function usePublicRVLocation(shareToken: string) {
+export function usePublicRVLocation(slug: string) {
   return useQuery({
-    queryKey: ["rv-locations", "public", shareToken],
+    queryKey: ["rv-locations", "public", slug],
     queryFn: async () => {
-      const response = await rvLocationsApi.share.getPublic(shareToken);
+      const response = await rvLocationsApi.share.getPublic(slug);
       return response.data.data as RVLocation & {
         activities: RVLocationActivity[];
         media: RVLocationMedia[];
       };
     },
-    enabled: !!shareToken,
+    enabled: !!slug,
   });
 }
 

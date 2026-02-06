@@ -43,6 +43,11 @@ test.describe("RV Location Share", () => {
     const clipboardContent = await page.evaluate(() => navigator.clipboard.readText());
     expect(clipboardContent).toContain("/rv-locations/share/");
 
+    // Verify the slug format (lowercase, hyphens, no special chars)
+    const slugMatch = clipboardContent.match(/\/rv-locations\/share\/([a-z0-9-]+)$/);
+    expect(slugMatch).toBeTruthy();
+    expect(slugMatch![1]).toMatch(/^[a-z0-9-]+$/);
+
     // Open a new page without authentication to verify public access
     const publicPage = await context.newPage();
     await publicPage.goto(clipboardContent);

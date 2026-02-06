@@ -118,7 +118,6 @@ import {
 import { useDropzone } from "react-dropzone";
 import { createClient } from "@supabase/supabase-js";
 import { RVReviewsSection } from "@/components/rv-locations/RVReviewsSection";
-import { RVActivityDetailSheet } from "@/components/rv-locations/RVActivityDetailSheet";
 import { PhotoGallery } from "@/components/rv-locations/PhotoGallery";
 import {
   RVKidEngagement,
@@ -266,42 +265,43 @@ function KidEngagementCard({
               <span>{engagement.suitable ? "Suitable" : "Not suitable"}</span>
             </div>
           )}
-          {engagement.engagement_level && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Engagement:</span>
-              <Badge
-                variant="secondary"
-                className={`text-xs capitalize ${
-                  engagement.engagement_level === "high"
-                    ? "bg-green-500/20 text-green-600"
-                    : engagement.engagement_level === "medium"
-                    ? "bg-yellow-500/20 text-yellow-600"
-                    : "bg-gray-500/20 text-gray-600"
-                }`}
-              >
-                {engagement.engagement_level}
-              </Badge>
-            </div>
-          )}
+          {engagement.engagement_level && (() => {
+            const level = typeof engagement.engagement_level === 'number'
+              ? engagement.engagement_level
+              : engagement.engagement_level === 'high' ? 5
+              : engagement.engagement_level === 'medium' ? 3
+              : 1;
+            const barColor = level >= 5 ? 'bg-green-500'
+              : level >= 4 ? 'bg-blue-500'
+              : level >= 3 ? 'bg-yellow-500'
+              : level >= 2 ? 'bg-orange-500'
+              : 'bg-red-500';
+            return (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Engagement:</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} rounded-full`} style={{ width: `${(level / 5) * 100}%` }} />
+                  </div>
+                  <span className="text-xs text-muted-foreground">{level}</span>
+                </div>
+              </div>
+            );
+          })()}
           {engagement.activities && engagement.activities.length > 0 && (
             <div className="mt-2">
               <p className="text-xs text-muted-foreground mb-1">Activities:</p>
               <ul className="text-sm space-y-0.5">
-                {engagement.activities.slice(0, 3).map((activity, i) => (
-                  <li key={i} className="text-muted-foreground truncate">
+                {engagement.activities.map((activity, i) => (
+                  <li key={i} className="text-muted-foreground">
                     • {activity}
                   </li>
                 ))}
-                {engagement.activities.length > 3 && (
-                  <li className="text-xs text-muted-foreground/70">
-                    +{engagement.activities.length - 3} more
-                  </li>
-                )}
               </ul>
             </div>
           )}
           {engagement.notes && (
-            <p className="text-xs text-muted-foreground mt-2 italic line-clamp-2">
+            <p className="text-xs text-muted-foreground mt-2 italic">
               {engagement.notes}
             </p>
           )}
@@ -345,7 +345,6 @@ export default function RVLocationPage() {
   const [showAddMediaDialog, setShowAddMediaDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [viewingActivity, setViewingActivity] = useState<RVLocationActivity | null>(null);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -354,16 +353,16 @@ export default function RVLocationPage() {
   // Handlers
   const handleShare = async () => {
     try {
-      // Get or generate share token
-      let shareToken = location?.share_token;
-      if (!shareToken) {
+      // Get or generate share slug
+      let shareSlug = location?.share_slug;
+      if (!shareSlug) {
         const result = await generateShareLink.mutateAsync(locationId);
-        shareToken = result.share_token;
-        refetch(); // Refresh to get the share_token
+        shareSlug = result.share_slug;
+        refetch(); // Refresh to get the share_slug
       }
 
-      // Build the share URL
-      const shareUrl = `${window.location.origin}/rv-locations/share/${shareToken}`;
+      // Build the share URL - always use production domain for sharing
+      const shareUrl = `https://singularity.boo/rv-locations/share/${shareSlug}`;
 
       // Copy to clipboard
       await navigator.clipboard.writeText(shareUrl);
@@ -934,24 +933,6 @@ export default function RVLocationPage() {
 
         {/* Right Column - Sidebar */}
         <div className="space-y-4">
-          {/* Actions */}
-          <Card>
-            <CardContent className="pt-4 space-y-2">
-              <Button variant="outline" className="w-full" onClick={handleEnrich} disabled={enrichLocation.isPending}>
-                {enrichLocation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4 mr-2" />
-                )}
-                Enrich with Google Data
-              </Button>
-              <Button variant="outline" className="w-full" onClick={() => setShowConvertDialog(true)}>
-                <ArrowUpRight className="h-4 w-4 mr-2" />
-                Convert to Trip
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* RV Logistics */}
           <Card>
             <CardHeader className="pb-3">
@@ -1223,19 +1204,35 @@ export default function RVLocationPage() {
             </Card>
           )}
 
-          {/* Quick Upload Photo */}
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors cursor-pointer ${
-              isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary"
-            } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
-          >
-            <input {...getInputProps()} />
-            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <ImageIcon className="h-3.5 w-3.5" />
-              <span>Upload Photos</span>
-            </div>
-          </div>
+          {/* Actions */}
+          <Card className="p-[1px]">
+            <CardContent className="p-2 space-y-1.5">
+              <div
+                {...getRootProps()}
+                className={`border border-dashed rounded p-2 text-center transition-colors cursor-pointer ${
+                  isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary"
+                } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <input {...getInputProps()} />
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Upload Photos</span>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={handleEnrich} disabled={enrichLocation.isPending}>
+                {enrichLocation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Enrich with Google
+              </Button>
+              <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={() => setShowConvertDialog(true)}>
+                <ArrowUpRight className="h-3.5 w-3.5 mr-1.5" />
+                Convert to Trip
+              </Button>
+            </CardContent>
+          </Card>
 
         </div>
       </div>
@@ -1288,7 +1285,7 @@ export default function RVLocationPage() {
                     key={activity.id}
                     className="p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
                   >
-                    <div className="flex items-start gap-3 cursor-pointer" onClick={() => setViewingActivity(activity)}>
+                    <div className="flex items-start gap-3">
                       {/* Left column: Icon + Type + Difficulty */}
                       <div className="flex flex-col items-center shrink-0 w-14 px-[1px]">
                         <div className={`h-12 w-12 rounded-lg ${activityColors.bg} flex items-center justify-center`}>
@@ -1388,21 +1385,48 @@ export default function RVLocationPage() {
                             <span className="line-clamp-2">{activity.tips}</span>
                           </p>
                         )}
-                        {/* Kid engagement preview */}
+                        {/* Kid engagement details */}
                         {activity.kid_engagement && (activity.kid_engagement.parker || activity.kid_engagement.charlotte || activity.kid_engagement.xander) && (
-                          <div className="mt-2 flex items-start gap-1">
-                            <Users className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground" />
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                              {activity.kid_engagement.parker?.suitable && (
-                                <span className="text-blue-500">Parker</span>
-                              )}
-                              {activity.kid_engagement.charlotte?.suitable && (
-                                <span className="text-pink-500">Charlotte</span>
-                              )}
-                              {activity.kid_engagement.xander?.suitable && (
-                                <span className="text-green-500">Xander</span>
-                              )}
-                            </div>
+                          <div className="mt-2 space-y-1">
+                            {[
+                              { name: 'Parker', age: 8, data: activity.kid_engagement.parker, textColor: 'text-blue-500' },
+                              { name: 'Charlotte', age: 5, data: activity.kid_engagement.charlotte, textColor: 'text-pink-500' },
+                              { name: 'Xander', age: 3, data: activity.kid_engagement.xander, textColor: 'text-green-500' },
+                            ].filter(k => k.data).map(kid => {
+                              const engagement = kid.data;
+                              const level = typeof (engagement as any)?.engagement_level === 'number'
+                                ? (engagement as any).engagement_level
+                                : engagement?.engagement_level === 'high' ? 5
+                                : engagement?.engagement_level === 'medium' ? 3
+                                : engagement?.engagement_level === 'low' ? 1 : 0;
+                              // Color based on engagement level
+                              const barColor = level >= 5 ? 'bg-green-500'
+                                : level >= 4 ? 'bg-blue-500'
+                                : level >= 3 ? 'bg-yellow-500'
+                                : level >= 2 ? 'bg-orange-500'
+                                : 'bg-red-500';
+                              return (
+                                <div key={kid.name} className="flex items-center gap-2 text-xs">
+                                  <span className={`font-medium ${kid.textColor} w-16 shrink-0`}>{kid.name}</span>
+                                  {level > 0 && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden">
+                                        <div className={`h-full ${barColor} rounded-full`} style={{ width: `${(level / 5) * 100}%` }} />
+                                      </div>
+                                      <span className="text-muted-foreground w-3">{level}</span>
+                                    </div>
+                                  )}
+                                  {!engagement?.suitable && (
+                                    <span className="text-red-500/70 text-[10px]">✗</span>
+                                  )}
+                                  {engagement?.activities && engagement.activities.length > 0 && (
+                                    <span className="text-muted-foreground truncate">
+                                      {engagement.activities.slice(0, 3).join(' • ')}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1755,16 +1779,6 @@ export default function RVLocationPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Activity Detail Sheet */}
-      <RVActivityDetailSheet
-        activity={viewingActivity}
-        open={!!viewingActivity}
-        onOpenChange={(open) => !open && setViewingActivity(null)}
-        onEdit={(activity) => {
-          setViewingActivity(null);
-          handleEditActivity(activity);
-        }}
-      />
     </div>
   );
 }

@@ -68,8 +68,8 @@ const ACTIVITY_COLORS: Record<string, { icon: string; bg: string }> = {
 
 export default function PublicRVLocationPage() {
   const params = useParams();
-  const token = params.token as string;
-  const { data: location, isLoading, error } = usePublicRVLocation(token);
+  const slug = params.slug as string;
+  const { data: location, isLoading, error } = usePublicRVLocation(slug);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryInitialIndex, setGalleryInitialIndex] = useState(0);
 

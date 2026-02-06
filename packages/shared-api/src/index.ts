@@ -921,7 +921,7 @@ export const rvLocationsApi = {
   share: {
     generate: (locationId: string) => getApi().post(`/rv-locations/${locationId}/share`),
     revoke: (locationId: string) => getApi().delete(`/rv-locations/${locationId}/share`),
-    getPublic: (shareToken: string) => getApi().get(`/rv-locations/share/${shareToken}`),
+    getPublic: (slug: string) => getApi().get(`/rv-locations/share/${slug}`),
   },
 
   // Settings

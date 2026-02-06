@@ -279,26 +279,49 @@ router.get('/', authenticateUser, async (req: Request, res: Response): Promise<a
       });
     }
 
-    // Fetch preview photos for each location (4 photos per location)
-    const locationsWithPhotos = await Promise.all(
+    // Fetch preview photos and activities for each location
+    const locationsWithExtras = await Promise.all(
       (data || []).map(async (location) => {
-        const { data: photos } = await supabase
-          .from('rv_location_media')
-          .select('file_url')
-          .eq('location_id', location.id)
-          .order('sort_order')
-          .limit(4);
+        const [{ data: photos }, { data: activities }] = await Promise.all([
+          supabase
+            .from('rv_location_media')
+            .select('file_url')
+            .eq('location_id', location.id)
+            .order('sort_order')
+            .limit(4),
+          supabase
+            .from('rv_location_activities')
+            .select('id, name, activity_type, kid_engagement')
+            .eq('location_id', location.id)
+            .order('sort_order')
+        ]);
+
+        // Calculate average kid engagement from activities
+        let avgKidEngagement: number | null = null;
+        if (activities && activities.length > 0) {
+          const engagementScores = activities
+            .filter((a: any) => a.kid_engagement?.overall != null)
+            .map((a: any) => a.kid_engagement.overall);
+          if (engagementScores.length > 0) {
+            avgKidEngagement = Math.round(
+              engagementScores.reduce((sum: number, score: number) => sum + score, 0) / engagementScores.length * 10
+            ) / 10;
+          }
+        }
 
         return {
           ...location,
-          preview_photos: photos?.map(p => p.file_url) || []
+          preview_photos: photos?.map(p => p.file_url) || [],
+          activities: activities || [],
+          activity_count: activities?.length || 0,
+          avg_kid_engagement: avgKidEngagement
         };
       })
     );
 
     res.json({
       success: true,
-      data: locationsWithPhotos,
+      data: locationsWithExtras,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -2145,18 +2168,64 @@ function mapActivityType(rvType: string | undefined): string {
 // =============================================
 
 /**
+ * Generate a URL-friendly slug from a location name
+ * e.g., "Serrano Campground" -> "serrano-campground"
+ */
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
+    .replace(/\s+/g, '-')          // Replace spaces with hyphens
+    .replace(/-+/g, '-')           // Remove consecutive hyphens
+    .replace(/^-|-$/g, '');        // Remove leading/trailing hyphens
+}
+
+/**
+ * Generate a unique slug, appending a number if necessary
+ */
+async function generateUniqueSlug(name: string, excludeLocationId?: string): Promise<string> {
+  const baseSlug = generateSlug(name);
+  let slug = baseSlug;
+  let counter = 1;
+
+  while (true) {
+    // Check if slug exists
+    let query = supabase
+      .from('rv_locations')
+      .select('id')
+      .eq('share_slug', slug);
+
+    if (excludeLocationId) {
+      query = query.neq('id', excludeLocationId);
+    }
+
+    const { data } = await query.single();
+
+    if (!data) {
+      // Slug is available
+      return slug;
+    }
+
+    // Try next number
+    counter++;
+    slug = `${baseSlug}-${counter}`;
+  }
+}
+
+/**
  * POST /api/v1/rv-locations/:locationId/share
- * Generate or get share token for public access
+ * Generate or get share slug for public access
  */
 router.post('/:locationId/share', authenticateUser, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
     const { locationId } = req.params;
 
-    // Verify ownership
+    // Verify ownership and get location name
     const { data: location, error: locError } = await supabase
       .from('rv_locations')
-      .select('user_id, share_token')
+      .select('user_id, name, share_slug')
       .eq('id', locationId)
       .single();
 
@@ -2168,20 +2237,20 @@ router.post('/:locationId/share', authenticateUser, async (req: Request, res: Re
       });
     }
 
-    // If already has share token, return it
-    if (location.share_token) {
+    // If already has share slug, return it
+    if (location.share_slug) {
       return res.json({
         success: true,
-        data: { share_token: location.share_token },
+        data: { share_slug: location.share_slug },
         timestamp: new Date().toISOString()
       });
     }
 
-    // Generate new share token
-    const shareToken = crypto.randomUUID();
+    // Generate unique slug from location name
+    const shareSlug = await generateUniqueSlug(location.name, locationId);
     const { error: updateError } = await supabase
       .from('rv_locations')
-      .update({ share_token: shareToken })
+      .update({ share_slug: shareSlug })
       .eq('id', locationId);
 
     if (updateError) {
@@ -2194,7 +2263,7 @@ router.post('/:locationId/share', authenticateUser, async (req: Request, res: Re
 
     res.json({
       success: true,
-      data: { share_token: shareToken },
+      data: { share_slug: shareSlug },
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -2209,7 +2278,7 @@ router.post('/:locationId/share', authenticateUser, async (req: Request, res: Re
 
 /**
  * DELETE /api/v1/rv-locations/:locationId/share
- * Remove share token (disable public access)
+ * Remove share slug (disable public access)
  */
 router.delete('/:locationId/share', authenticateUser, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -2233,7 +2302,7 @@ router.delete('/:locationId/share', authenticateUser, async (req: Request, res: 
 
     const { error: updateError } = await supabase
       .from('rv_locations')
-      .update({ share_token: null })
+      .update({ share_slug: null })
       .eq('id', locationId);
 
     if (updateError) {
@@ -2260,18 +2329,18 @@ router.delete('/:locationId/share', authenticateUser, async (req: Request, res: 
 });
 
 /**
- * GET /api/v1/rv-locations/share/:shareToken
- * Get public location by share token (no auth required)
+ * GET /api/v1/rv-locations/share/:slug
+ * Get public location by share slug (no auth required)
  */
-router.get('/share/:shareToken', async (req: Request, res: Response): Promise<any> => {
+router.get('/share/:slug', async (req: Request, res: Response): Promise<any> => {
   try {
-    const { shareToken } = req.params;
+    const { slug } = req.params;
 
-    // Get location by share token
+    // Get location by share slug
     const { data: location, error: locError } = await supabase
       .from('rv_locations')
       .select('*')
-      .eq('share_token', shareToken)
+      .eq('share_slug', slug)
       .single();
 
     if (locError || !location) {
@@ -2307,7 +2376,7 @@ router.get('/share/:shareToken', async (req: Request, res: Response): Promise<an
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('GET /rv-locations/share/:shareToken error:', error);
+    console.error('GET /rv-locations/share/:slug error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

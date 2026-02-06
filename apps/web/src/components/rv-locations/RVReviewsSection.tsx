@@ -1,21 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Star,
   ThumbsUp,
   ThumbsDown,
-  RefreshCw,
   Quote,
   MessageSquare,
   Clock,
 } from "lucide-react";
 import { RVReviewHighlights } from "@singularity/shared-types";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 
 interface RVReviewsSectionProps {
   locationId: string;
@@ -25,19 +21,15 @@ interface RVReviewsSectionProps {
   reviewsSummary?: string;
   reviewsHighlights?: RVReviewHighlights;
   enrichedAt?: string;
-  onEnrich?: () => void;
   isEnriching?: boolean;
 }
 
 export function RVReviewsSection({
-  locationId,
-  locationName,
   googleRating,
   googleReviewCount,
   reviewsSummary,
   reviewsHighlights,
   enrichedAt,
-  onEnrich,
   isEnriching,
 }: RVReviewsSectionProps) {
   const hasReviewData = reviewsSummary || reviewsHighlights;
@@ -55,30 +47,17 @@ export function RVReviewsSection({
             <MessageSquare className="h-5 w-5" />
             Reviews
           </CardTitle>
-          <div className="flex items-center gap-2">
-            {googleRating && (
-              <div className="flex items-center gap-1">
-                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                <span className="font-semibold">{googleRating.toFixed(1)}</span>
-                {googleReviewCount && (
-                  <span className="text-sm text-muted-foreground">
-                    ({googleReviewCount.toLocaleString()} reviews)
-                  </span>
-                )}
-              </div>
-            )}
-            {onEnrich && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onEnrich}
-                disabled={isEnriching}
-              >
-                <RefreshCw className={`h-4 w-4 mr-1 ${isEnriching ? "animate-spin" : ""}`} />
-                {hasReviewData ? "Refresh" : "Fetch Reviews"}
-              </Button>
-            )}
-          </div>
+          {googleRating && (
+            <div className="flex items-center gap-1">
+              <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+              <span className="font-semibold">{googleRating.toFixed(1)}</span>
+              {googleReviewCount && (
+                <span className="text-sm text-muted-foreground">
+                  ({googleReviewCount.toLocaleString()} reviews)
+                </span>
+              )}
+            </div>
+          )}
         </div>
         {enrichedTimeAgo && (
           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
@@ -177,12 +156,9 @@ export function RVReviewsSection({
             )}
           </>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="text-center py-6 text-muted-foreground">
             <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No review data available</p>
-            <p className="text-xs mt-1">
-              Click &ldquo;Fetch Reviews&rdquo; to get Google reviews and AI analysis
-            </p>
           </div>
         )}
       </CardContent>
