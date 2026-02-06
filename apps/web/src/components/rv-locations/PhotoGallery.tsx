@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,11 +61,14 @@ export function PhotoGallery({
   location,
 }: PhotoGalleryProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Reset selected index when gallery opens/closes
+  // Reset selected index and active section when gallery opens/closes
   useEffect(() => {
     if (!open) {
       setSelectedIndex(null);
+      setActiveSection(null);
     }
   }, [open]);
 
@@ -98,6 +101,63 @@ export function PhotoGallery({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  // Scroll-spy to track which section is currently visible
+  useEffect(() => {
+    if (!open || selectedIndex !== null) return;
+
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const sections = scrollContainer.querySelectorAll('[id^="gallery-section-"]');
+    if (sections.length === 0) return;
+
+    // Set initial active section to first one
+    const firstSectionId = sections[0]?.id?.replace('gallery-section-', '');
+    if (firstSectionId && !activeSection) {
+      setActiveSection(firstSectionId);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the section with the highest intersection ratio that's visible
+        let mostVisibleSection: string | null = null;
+        let highestRatio = 0;
+
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio > highestRatio) {
+            highestRatio = entry.intersectionRatio;
+            mostVisibleSection = entry.target.id.replace('gallery-section-', '');
+          }
+        });
+
+        // If no section is intersecting much, check which one is closest to the top
+        if (!mostVisibleSection) {
+          sections.forEach((section) => {
+            const rect = section.getBoundingClientRect();
+            const containerRect = scrollContainer.getBoundingClientRect();
+            // If section top is above container middle and section bottom is still visible
+            if (rect.top <= containerRect.top + containerRect.height / 3 && rect.bottom > containerRect.top) {
+              mostVisibleSection = section.id.replace('gallery-section-', '');
+            }
+          });
+        }
+
+        if (mostVisibleSection) {
+          setActiveSection(mostVisibleSection);
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: '-10% 0px -60% 0px',
+        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+      }
+    );
+
+    sections.forEach((section) => observer.observe(section));
+
+    return () => observer.disconnect();
+  }, [open, selectedIndex, activeSection]);
 
   if (media.length === 0) return null;
 
@@ -209,6 +269,7 @@ export function PhotoGallery({
   });
 
   const scrollToSection = (sectionId: string) => {
+    setActiveSection(sectionId);
     const element = document.getElementById(`gallery-section-${sectionId}`);
     element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -240,15 +301,20 @@ export function PhotoGallery({
                 const IconComponent = groupKey === 'campground'
                   ? Tent
                   : (group.activityType && activityIcons[group.activityType]) || MapPin;
+                const isActive = activeSection === groupKey;
                 return (
                   <button
                     key={groupKey}
                     onClick={() => scrollToSection(groupKey)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium whitespace-nowrap transition-colors"
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground ring-2 ring-primary ring-offset-2 ring-offset-background'
+                        : 'bg-muted hover:bg-muted/80'
+                    }`}
                   >
                     <IconComponent className="h-3.5 w-3.5" />
                     <span className="max-w-[120px] truncate">{group.caption}</span>
-                    <span className="text-muted-foreground">({group.items.length})</span>
+                    <span className={isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}>({group.items.length})</span>
                   </button>
                 );
               })}
@@ -257,7 +323,7 @@ export function PhotoGallery({
         </div>
 
         {/* Masonry grid - Grouped by Activity */}
-        <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div ref={scrollContainerRef} className="overflow-y-auto max-h-[calc(90vh-120px)]">
           <div className="p-6 space-y-8">
             {sortedGroups.map(([groupKey, group]) => {
               const SectionIcon = groupKey === 'campground'
