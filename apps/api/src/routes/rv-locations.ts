@@ -8,6 +8,20 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { authenticateUser } from '../middleware/auth';
 import { enrichLocation, suggestActivities } from '../services/rv-enrichment';
+import {
+  createEnrichmentJob,
+  runEnrichmentJob,
+  getActiveJob,
+  getJobById,
+  cancelEnrichmentJob,
+  getRecentJobs,
+  registerSSEConnection,
+  jobToProgress,
+} from '../services/rv-batch-enrichment';
+import {
+  getAllApiUsageSummary,
+  getGooglePlacesUsageSummary,
+} from '../services/api-usage-tracking';
 import type {
   RVLocation,
   CreateRVLocationRequest,
@@ -382,6 +396,289 @@ router.get('/', authenticateUser, async (req: Request, res: Response): Promise<a
     });
   }
 });
+
+// =============================================
+// BATCH ENRICHMENT WITH SSE (MUST BE BEFORE /:id routes)
+// =============================================
+
+/**
+ * GET /api/v1/rv-locations/enrich-status
+ * Get the status of the active enrichment job (if any)
+ */
+router.get('/enrich-status', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  console.log('[Enrich Status] Route hit!');
+  try {
+    const userId = req.user!.id;
+    console.log('[Enrich Status] userId:', userId);
+
+    const activeJob = await getActiveJob(userId);
+    console.log('[Enrich Status] activeJob result:', activeJob ? `job ${activeJob.id} status=${activeJob.status}` : 'null');
+
+    res.json({
+      success: true,
+      hasActiveJob: !!activeJob,
+      job: activeJob ? jobToProgress(activeJob) : null,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/enrich-status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/rv-locations/enrich-batch
+ * Start a batch enrichment job for multiple locations
+ */
+router.post('/enrich-batch', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { locationIds, options = {} } = req.body;
+
+    if (!locationIds || !Array.isArray(locationIds) || locationIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'locationIds array is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check if there's already an active job
+    const activeJob = await getActiveJob(userId);
+    if (activeJob) {
+      return res.status(409).json({
+        success: false,
+        error: 'An enrichment job is already running',
+        job: jobToProgress(activeJob),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Verify ownership of all locations
+    const { data: locations, error: locError } = await supabase
+      .from('rv_locations')
+      .select('id')
+      .eq('user_id', userId)
+      .in('id', locationIds);
+
+    if (locError || !locations || locations.length !== locationIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'One or more locations not found or not owned by user',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Create the job
+    const job = await createEnrichmentJob(userId, locationIds, options);
+
+    // Start the job asynchronously (don't await)
+    runEnrichmentJob(job).catch(err => {
+      console.error('[Batch Enrichment] Job failed:', err);
+    });
+
+    res.json({
+      success: true,
+      job: jobToProgress(job),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /rv-locations/enrich-batch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/enrich-status/:jobId/stream
+ * SSE endpoint for live enrichment progress updates
+ */
+router.get('/enrich-status/:jobId/stream', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { jobId } = req.params;
+
+    const job = await getJobById(jobId, userId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const progress = jobToProgress(job);
+    res.write(`event: progress\ndata: ${JSON.stringify(progress)}\n\n`);
+
+    if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      res.write(`event: ${job.status}\ndata: ${JSON.stringify(progress)}\n\n`);
+      res.end();
+      return;
+    }
+
+    registerSSEConnection(jobId, res);
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/enrich-status/:jobId/stream error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/rv-locations/enrich-cancel/:jobId
+ * Cancel an active enrichment job
+ */
+router.post('/enrich-cancel/:jobId', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { jobId } = req.params;
+
+    const success = await cancelEnrichmentJob(jobId, userId);
+
+    if (!success) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not cancel job (may not be running or not found)',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Job cancelled',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /rv-locations/enrich-cancel/:jobId error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/enrich-history
+ * Get recent enrichment jobs for the user
+ */
+router.get('/enrich-history', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    const jobs = await getRecentJobs(userId, limit);
+
+    res.json({
+      success: true,
+      jobs: jobs.map(jobToProgress),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/enrich-history error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/api-usage
+ * Get API usage summary for the current month
+ */
+router.get('/api-usage', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const monthParam = req.query.month as string;
+
+    let month: Date | undefined;
+    if (monthParam) {
+      month = new Date(monthParam);
+    }
+
+    const usage = await getAllApiUsageSummary(userId, month);
+
+    res.json({
+      success: true,
+      usage,
+      month: month ? month.toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/api-usage error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/api-usage/google-places
+ * Get Google Places API usage with free tier info
+ */
+router.get('/api-usage/google-places', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const monthParam = req.query.month as string;
+
+    let month: Date | undefined;
+    if (monthParam) {
+      month = new Date(monthParam);
+    }
+
+    const usage = await getGooglePlacesUsageSummary(userId, month);
+
+    res.json({
+      success: true,
+      usage,
+      month: month ? month.toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/api-usage/google-places error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// =============================================
+// RV LOCATION BY ID
+// =============================================
 
 /**
  * GET /api/v1/rv-locations/:id

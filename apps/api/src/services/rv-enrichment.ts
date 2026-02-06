@@ -16,6 +16,11 @@ import {
   GooglePhoto,
 } from './google-photo-service';
 import {
+  trackTextSearch,
+  trackPlaceDetails,
+  trackAnthropicUsage,
+} from './api-usage-tracking';
+import {
   RVLocation,
   RVLocationActivity,
   RVEnrichmentOptions,
@@ -257,7 +262,8 @@ async function detectLandTypeWithAI(
   city?: string,
   state?: string,
   website?: string,
-  userId?: string
+  userId?: string,
+  contextId?: string
 ): Promise<RVLandType | null> {
   try {
     // Get user's API key
@@ -317,6 +323,18 @@ Think about what you know about this specific location, then respond with ONLY t
       messages: [{ role: 'user', content: prompt }],
     });
 
+    // Track Anthropic API usage
+    if (response.usage && userId) {
+      trackAnthropicUsage(
+        userId,
+        response.usage.input_tokens,
+        response.usage.output_tokens,
+        'rv_enrichment',
+        contextId,
+        { model: 'claude-sonnet-4-20250514', task: 'land_type_detection' }
+      );
+    }
+
     const result = (response.content[0] as { type: string; text: string }).text.trim().toLowerCase();
 
     // Validate the response is a valid land type
@@ -345,7 +363,9 @@ Think about what you know about this specific location, then respond with ONLY t
 export async function searchGooglePlace(
   name: string,
   city?: string,
-  state?: string
+  state?: string,
+  userId?: string,
+  contextId?: string
 ): Promise<string | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {
@@ -377,6 +397,11 @@ export async function searchGooglePlace(
       return null;
     }
 
+    // Track text search API usage
+    if (userId) {
+      trackTextSearch(userId, 'rv_enrichment', contextId);
+    }
+
     const data = await response.json() as GooglePlaceSearchResult;
 
     if (data.places && data.places.length > 0) {
@@ -394,7 +419,11 @@ export async function searchGooglePlace(
 /**
  * Fetch detailed place information including reviews
  */
-export async function fetchPlaceDetails(placeId: string): Promise<GooglePlaceDetails | null> {
+export async function fetchPlaceDetails(
+  placeId: string,
+  userId?: string,
+  contextId?: string
+): Promise<GooglePlaceDetails | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {
     console.error('GOOGLE_PLACES_API_KEY not configured');
@@ -414,6 +443,11 @@ export async function fetchPlaceDetails(placeId: string): Promise<GooglePlaceDet
       return null;
     }
 
+    // Track place details API usage
+    if (userId) {
+      trackPlaceDetails(userId, 'rv_enrichment', contextId);
+    }
+
     return await response.json() as GooglePlaceDetails;
   } catch (error) {
     console.error('Error fetching place details:', error);
@@ -427,7 +461,8 @@ export async function fetchPlaceDetails(placeId: string): Promise<GooglePlaceDet
 export async function analyzeReviews(
   reviews: GooglePlaceDetails['reviews'],
   locationName: string,
-  userId: string
+  userId: string,
+  contextId?: string
 ): Promise<ReviewAnalysis> {
   if (!reviews || reviews.length === 0) {
     return {
@@ -481,6 +516,18 @@ Focus on quotes that would help a family with young kids decide whether to visit
       max_tokens: 1000,
       messages: [{ role: 'user', content: prompt }],
     });
+
+    // Track Anthropic API usage
+    if (response.usage) {
+      trackAnthropicUsage(
+        userId,
+        response.usage.input_tokens,
+        response.usage.output_tokens,
+        'rv_enrichment',
+        contextId,
+        { model: 'claude-sonnet-4-20250514', task: 'review_analysis' }
+      );
+    }
 
     const content = response.content[0];
     if (content.type !== 'text') {
@@ -573,6 +620,18 @@ Respond in JSON format:
       messages: [{ role: 'user', content: prompt }],
     });
 
+    // Track Anthropic API usage
+    if (response.usage) {
+      trackAnthropicUsage(
+        userId,
+        response.usage.input_tokens,
+        response.usage.output_tokens,
+        'rv_enrichment',
+        location.id,
+        { model: 'claude-sonnet-4-20250514', task: 'activity_suggestions' }
+      );
+    }
+
     const content = response.content[0];
     if (content.type !== 'text') {
       throw new Error('Unexpected response type from Claude');
@@ -634,7 +693,7 @@ export async function enrichLocation(
     // 2. Search for Google Place ID if not already set
     let placeId = location.google_place_id;
     if (!placeId) {
-      placeId = await searchGooglePlace(location.name, location.city, location.state);
+      placeId = await searchGooglePlace(location.name, location.city, location.state, userId, locationId);
       if (!placeId) {
         result.errors?.push('Could not find Google Place for this location');
         return result;
@@ -642,7 +701,7 @@ export async function enrichLocation(
     }
 
     // 3. Fetch place details
-    const placeDetails = await fetchPlaceDetails(placeId);
+    const placeDetails = await fetchPlaceDetails(placeId, userId, locationId);
     if (!placeDetails) {
       result.errors?.push('Failed to fetch Google Place details');
       return result;
@@ -689,7 +748,8 @@ export async function enrichLocation(
           location.city,
           location.state,
           placeDetails.websiteUri || location.website,
-          userId
+          userId,
+          locationId
         );
       }
 
@@ -707,7 +767,7 @@ export async function enrichLocation(
       updateData.google_reviews = placeDetails.reviews;
 
       // Analyze with Claude
-      const analysis = await analyzeReviews(placeDetails.reviews, location.name, userId);
+      const analysis = await analyzeReviews(placeDetails.reviews, location.name, userId, locationId);
 
       updateData.reviews_summary = analysis.summary;
       updateData.reviews_highlights = {
@@ -772,6 +832,10 @@ export async function enrichLocation(
 
         const activitiesWithPhotos = new Set(existingActivityPhotos?.map(p => p.activity_id) || []);
 
+        // Track which Google Place IDs we've already fetched photos for in this session
+        // to avoid duplicates when multiple activities resolve to the same place
+        const processedPlaceIds = new Set<string>();
+
         for (const activity of allActivities) {
           let placeId = activity.google_place_id;
 
@@ -781,13 +845,15 @@ export async function enrichLocation(
             placeId = await searchGooglePlace(
               activity.name,
               location.city,
-              location.state
+              location.state,
+              userId,
+              locationId
             );
 
             if (placeId) {
               console.log(`[RV Enrichment] Found Google Place for ${activity.name}: ${placeId}`);
               // Update activity with place ID and rating
-              const activityDetails = await fetchPlaceDetails(placeId);
+              const activityDetails = await fetchPlaceDetails(placeId, userId, locationId);
               if (activityDetails) {
                 const activityUpdate: Record<string, any> = {
                   google_place_id: placeId,
@@ -814,9 +880,11 @@ export async function enrichLocation(
           }
 
           // Fetch photos for this activity if we don't have any yet
-          if (fetch_photos && placeId && !activitiesWithPhotos.has(activity.id)) {
+          // Skip if activity's place ID matches the location's place ID (would be duplicate photos)
+          // Skip if we've already fetched photos for this place ID (another activity uses the same place)
+          if (fetch_photos && placeId && !activitiesWithPhotos.has(activity.id) && placeId !== location.google_place_id && !processedPlaceIds.has(placeId)) {
             console.log(`[RV Enrichment] Fetching photos for activity: ${activity.name}`);
-            const activityDetails = await fetchPlaceDetails(placeId);
+            const activityDetails = await fetchPlaceDetails(placeId, userId, locationId);
 
             if (activityDetails?.photos && activityDetails.photos.length > 0) {
               const activityPhotoResult = await fetchAndStoreRVLocationPhotos(
@@ -834,9 +902,15 @@ export async function enrichLocation(
               if (activityPhotoResult.errors.length > 0) {
                 result.errors?.push(...activityPhotoResult.errors);
               }
+              // Mark this place ID as processed to avoid duplicates
+              processedPlaceIds.add(placeId);
             }
           } else if (activitiesWithPhotos.has(activity.id)) {
             console.log(`[RV Enrichment] Activity ${activity.name} already has photos, skipping`);
+          } else if (placeId === location.google_place_id) {
+            console.log(`[RV Enrichment] Activity ${activity.name} shares same Google Place as location, skipping duplicate photos`);
+          } else if (processedPlaceIds.has(placeId)) {
+            console.log(`[RV Enrichment] Activity ${activity.name} shares same Google Place as another activity, skipping duplicate photos`);
           }
         }
       }

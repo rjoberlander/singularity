@@ -19,6 +19,7 @@ import { DataExport } from "@/components/settings/DataExport";
 import { AIKeys } from "@/components/settings/AIKeys";
 import { AIConnectors } from "@/components/settings/AIConnectors";
 import { GoogleCalendar } from "@/components/settings/GoogleCalendar";
+import { ApiUsage } from "@/components/settings/ApiUsage";
 import { usersApi } from "@/lib/api";
 import {
   User,
@@ -35,6 +36,7 @@ import {
   Key,
   Plug,
   Calendar,
+  BarChart3,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -109,10 +111,14 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid grid-cols-4 sm:grid-cols-8 w-full h-auto gap-1">
+        <TabsList className="grid grid-cols-5 sm:grid-cols-9 w-full h-auto gap-1">
           <TabsTrigger value="profile" className="flex items-center gap-2 px-2 py-2">
             <User className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline truncate">Profile</span>
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="flex items-center gap-2 px-2 py-2">
+            <BarChart3 className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline truncate">Usage</span>
           </TabsTrigger>
           <TabsTrigger value="ai" className="flex items-center gap-2 px-2 py-2">
             <Key className="w-4 h-4 shrink-0" />
@@ -221,6 +227,11 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Usage Tab */}
+        <TabsContent value="usage">
+          <ApiUsage />
         </TabsContent>
 
         {/* AI Keys Tab */}

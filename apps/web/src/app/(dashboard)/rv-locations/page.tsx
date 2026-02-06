@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useRVLocations,
   useDeleteRVLocation,
-  useEnrichRVLocation,
+  useStartBatchEnrichment,
+  useEnrichmentStatus,
+  useCancelEnrichment,
+  useGooglePlacesUsage,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import {
   Plus,
   Upload,
@@ -33,6 +37,11 @@ import {
   Sparkles,
   Loader2,
   DollarSign,
+  Share2,
+  X,
+  CheckCircle,
+  XCircle,
+  ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -53,18 +62,34 @@ export default function RVLocationsPage() {
   const [showImportSheet, setShowImportSheet] = useState(false);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
   const [showCostModal, setShowCostModal] = useState(false);
-  const [isBulkEnriching, setIsBulkEnriching] = useState(false);
-  const [bulkEnrichProgress, setBulkEnrichProgress] = useState({ current: 0, total: 0 });
 
   // Fetch data
-  const { data: locations, isLoading } = useRVLocations({
+  const { data: locations, isLoading, refetch: refetchLocations } = useRVLocations({
     status: selectedStatus || undefined,
     category: selectedCategory || undefined,
     search: search || undefined,
     limit: 100,
   });
   const deleteLocation = useDeleteRVLocation();
-  const enrichLocation = useEnrichRVLocation();
+
+  // Batch enrichment hooks
+  const startBatchEnrichment = useStartBatchEnrichment();
+  const { data: enrichmentStatus, refetch: refetchStatus } = useEnrichmentStatus();
+  const cancelEnrichment = useCancelEnrichment();
+
+  // API usage tracking
+  const { data: googlePlacesUsage } = useGooglePlacesUsage();
+
+  // Check if there's an active enrichment job
+  const activeJob = enrichmentStatus?.hasActiveJob ? enrichmentStatus.job : null;
+  const isEnriching = !!activeJob && (activeJob.status === "running" || activeJob.status === "pending");
+
+  // Refetch locations when enrichment completes
+  useEffect(() => {
+    if (activeJob?.status === "completed" || activeJob?.status === "failed") {
+      refetchLocations();
+    }
+  }, [activeJob?.status, refetchLocations]);
 
   const handleDeleteLocation = async () => {
     if (!deleteLocationId) return;
@@ -112,41 +137,40 @@ export default function RVLocationsPage() {
       return;
     }
 
-    setIsBulkEnriching(true);
-    setBulkEnrichProgress({ current: 0, total: unenrichedLocations.length });
+    try {
+      const locationIds = unenrichedLocations.map((loc) => loc.id);
+      const result = await startBatchEnrichment.mutateAsync({
+        locationIds,
+        options: {
+          fetch_reviews: true,
+          fetch_photos: true,
+          fetch_hours: true,
+          enrich_activities: true,
+          max_photos: 10,
+        },
+      });
 
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (let i = 0; i < unenrichedLocations.length; i++) {
-      const location = unenrichedLocations[i];
-      setBulkEnrichProgress({ current: i + 1, total: unenrichedLocations.length });
-
-      try {
-        await enrichLocation.mutateAsync({
-          locationId: location.id,
-          options: {
-            fetch_reviews: true,
-            fetch_photos: true,
-            fetch_hours: true,
-            enrich_activities: true,
-            max_photos: 10,
-          },
-        });
-        successCount++;
-      } catch (error) {
-        console.error(`Failed to enrich ${location.name}:`, error);
-        errorCount++;
+      if (result.success) {
+        toast.success(`Started enrichment for ${locationIds.length} locations`);
+        refetchStatus();
+      } else {
+        toast.error(result.error || "Failed to start enrichment");
       }
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "Failed to start enrichment";
+      toast.error(errMsg);
     }
+  };
 
-    setIsBulkEnriching(false);
-    setBulkEnrichProgress({ current: 0, total: 0 });
+  const handleCancelEnrichment = async () => {
+    if (!activeJob) return;
 
-    if (errorCount === 0) {
-      toast.success(`Enriched ${successCount} locations`);
-    } else {
-      toast.warning(`Enriched ${successCount} locations, ${errorCount} failed`);
+    try {
+      await cancelEnrichment.mutateAsync(activeJob.jobId);
+      toast.success("Enrichment cancelled");
+      refetchStatus();
+    } catch {
+      toast.error("Failed to cancel enrichment");
     }
   };
 
@@ -170,6 +194,18 @@ export default function RVLocationsPage() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => {
+                const shareUrl = "https://singularity.boo/rv-locations/share";
+                navigator.clipboard.writeText(shareUrl);
+                toast.success("Share link copied to clipboard");
+              }}
+            >
+              <Share2 className="h-4 w-4 mr-2" />
+              Share
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowCostModal(true)}
             >
               <DollarSign className="h-4 w-4 mr-2" />
@@ -179,13 +215,13 @@ export default function RVLocationsPage() {
               variant="outline"
               size="sm"
               onClick={handleBulkEnrich}
-              disabled={isBulkEnriching || unenrichedLocations.length === 0}
+              disabled={isEnriching || startBatchEnrichment.isPending || unenrichedLocations.length === 0}
               title={unenrichedLocations.length > 0 ? `Estimated cost: ~$${estimatedCost.total} for ${estimatedCost.locations} locations + ${estimatedCost.activities} activities` : undefined}
             >
-              {isBulkEnriching ? (
+              {isEnriching || startBatchEnrichment.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {bulkEnrichProgress.current}/{bulkEnrichProgress.total}
+                  {activeJob ? `${activeJob.processedLocations}/${activeJob.totalLocations}` : "Starting..."}
                 </>
               ) : (
                 <>
@@ -211,6 +247,96 @@ export default function RVLocationsPage() {
           </>
         }
       />
+
+      {/* Enrichment Progress Panel */}
+      {activeJob && (
+        <div className="fixed bottom-4 right-4 w-96 bg-card border rounded-lg shadow-lg p-4 z-50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {activeJob.status === "running" && (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              )}
+              {activeJob.status === "completed" && (
+                <CheckCircle className="h-4 w-4 text-green-500" />
+              )}
+              {activeJob.status === "failed" && (
+                <XCircle className="h-4 w-4 text-red-500" />
+              )}
+              <span className="font-medium">
+                {activeJob.status === "running" && "Enriching Locations"}
+                {activeJob.status === "pending" && "Starting Enrichment..."}
+                {activeJob.status === "completed" && "Enrichment Complete"}
+                {activeJob.status === "failed" && "Enrichment Failed"}
+                {activeJob.status === "cancelled" && "Enrichment Cancelled"}
+              </span>
+            </div>
+            {(activeJob.status === "running" || activeJob.status === "pending") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancelEnrichment}
+                disabled={cancelEnrichment.isPending}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+            {(activeJob.status === "completed" || activeJob.status === "failed" || activeJob.status === "cancelled") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchStatus()}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          <Progress
+            value={(activeJob.processedLocations / activeJob.totalLocations) * 100}
+            className="h-2 mb-2"
+          />
+
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              {activeJob.processedLocations} / {activeJob.totalLocations} locations
+            </span>
+            <span className="flex items-center gap-1">
+              <ImageIcon className="h-3 w-3" />
+              {activeJob.photosDownloaded} photos
+            </span>
+          </div>
+
+          {activeJob.currentLocationName && activeJob.status === "running" && (
+            <div className="mt-2 text-sm text-muted-foreground truncate">
+              Processing: {activeJob.currentLocationName}
+              {activeJob.currentStep && ` (${activeJob.currentStep})`}
+            </div>
+          )}
+
+          {activeJob.status === "completed" && (
+            <div className="mt-2 text-sm">
+              <span className="text-green-600">{activeJob.successfulLocations} successful</span>
+              {activeJob.failedLocations > 0 && (
+                <span className="text-red-600 ml-2">{activeJob.failedLocations} failed</span>
+              )}
+              <span className="text-muted-foreground ml-2">
+                ~${activeJob.estimatedCostUsd.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {activeJob.errors && activeJob.errors.length > 0 && (
+            <div className="mt-2 text-xs text-red-500 max-h-20 overflow-y-auto">
+              {activeJob.errors.slice(0, 3).map((err, i) => (
+                <div key={i} className="truncate">{err.name}: {err.error}</div>
+              ))}
+              {activeJob.errors.length > 3 && (
+                <div>+{activeJob.errors.length - 3} more errors</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteLocationId} onOpenChange={() => setDeleteLocationId(null)}>
@@ -313,10 +439,41 @@ export default function RVLocationsPage() {
               </div>
             </div>
 
+            {/* Current Month API Usage */}
+            {googlePlacesUsage?.usage && (
+              <div className="border-t pt-4">
+                <h4 className="font-medium mb-2">This Month&apos;s Google Places Usage</h4>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <p className="text-2xl font-bold">{googlePlacesUsage.usage.photos.count}</p>
+                    <p className="text-muted-foreground text-xs">Photos fetched</p>
+                    {googlePlacesUsage.usage.photos.freeRemaining > 0 ? (
+                      <p className="text-green-600 text-xs">{googlePlacesUsage.usage.photos.freeRemaining} free left</p>
+                    ) : (
+                      <p className="text-orange-600 text-xs">~${googlePlacesUsage.usage.photos.cost.toFixed(2)}</p>
+                    )}
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <p className="text-2xl font-bold">{googlePlacesUsage.usage.textSearches.count}</p>
+                    <p className="text-muted-foreground text-xs">Text searches</p>
+                    <p className="text-xs text-muted-foreground">~${googlePlacesUsage.usage.textSearches.cost.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <p className="text-2xl font-bold">{googlePlacesUsage.usage.placeDetails.count}</p>
+                    <p className="text-muted-foreground text-xs">Place details</p>
+                    <p className="text-xs text-muted-foreground">~${googlePlacesUsage.usage.placeDetails.cost.toFixed(2)}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Estimated cost this month: <strong>~${googlePlacesUsage.usage.totalCost.toFixed(2)}</strong>
+                </p>
+              </div>
+            )}
+
             <div className="bg-muted/50 rounded-lg p-3 text-sm">
               <p className="text-muted-foreground">
-                <strong>Note:</strong> Photos are ~70% of the cost. Charges apply to your Google Cloud
-                and Anthropic accounts.
+                <strong>Note:</strong> Photos are ~70% of the cost. First 1,000 photos/month are free.
+                Charges apply to your Google Cloud and Anthropic accounts.
               </p>
             </div>
           </div>

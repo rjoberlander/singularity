@@ -4099,6 +4099,185 @@ export function useUpdateRVClaudeInstructions() {
   });
 }
 
+// ============================================
+// RV Location Batch Enrichment Hooks
+// ============================================
+
+export interface EnrichmentJobProgress {
+  jobId: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  totalLocations: number;
+  processedLocations: number;
+  successfulLocations: number;
+  failedLocations: number;
+  photosDownloaded: number;
+  estimatedCostUsd: number;
+  currentLocationId: string | null;
+  currentLocationName: string | null;
+  currentStep: string | null;
+  errors: Array<{ locationId: string; name: string; error: string }>;
+}
+
+// Start a batch enrichment job
+export function useStartBatchEnrichment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      locationIds,
+      options,
+    }: {
+      locationIds: string[];
+      options?: {
+        fetch_reviews?: boolean;
+        fetch_photos?: boolean;
+        fetch_hours?: boolean;
+        enrich_activities?: boolean;
+        max_photos?: number;
+      };
+    }) => {
+      const response = await rvLocationsApi.enrichBatch(locationIds, options);
+      return response.data as {
+        success: boolean;
+        job: EnrichmentJobProgress;
+        error?: string;
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-enrichment-status"] });
+    },
+  });
+}
+
+// Get current enrichment job status
+export function useEnrichmentStatus() {
+  return useQuery({
+    queryKey: ["rv-enrichment-status"],
+    queryFn: async () => {
+      const response = await rvLocationsApi.getEnrichStatus();
+      return response.data as {
+        success: boolean;
+        hasActiveJob: boolean;
+        job: EnrichmentJobProgress | null;
+      };
+    },
+    // Always refetch when component mounts to catch running jobs
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    // Keep data fresh
+    staleTime: 1000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Poll every 2 seconds if there's an active job
+      if (data?.hasActiveJob && (data.job?.status === 'running' || data.job?.status === 'pending')) {
+        return 2000;
+      }
+      // Poll every 10 seconds even when no job (to catch jobs started elsewhere)
+      return 10000;
+    },
+  });
+}
+
+// Cancel an enrichment job
+export function useCancelEnrichment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      const response = await rvLocationsApi.cancelEnrich(jobId);
+      return response.data as { success: boolean; message?: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rv-enrichment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["rv-locations"] });
+    },
+  });
+}
+
+// Get enrichment history
+export function useEnrichmentHistory(limit?: number) {
+  return useQuery({
+    queryKey: ["rv-enrichment-history", limit],
+    queryFn: async () => {
+      const response = await rvLocationsApi.getEnrichHistory(limit);
+      return response.data as {
+        success: boolean;
+        jobs: EnrichmentJobProgress[];
+      };
+    },
+  });
+}
+
+// ============================================
+// API Usage Tracking Hooks
+// ============================================
+
+export interface GooglePlacesUsageSummary {
+  photos: {
+    count: number;
+    cost: number;
+    freeRemaining: number;
+  };
+  textSearches: {
+    count: number;
+    cost: number;
+  };
+  placeDetails: {
+    count: number;
+    cost: number;
+  };
+  totalCost: number;
+}
+
+export interface AllApiUsageSummary {
+  google_places: GooglePlacesUsageSummary;
+  anthropic: {
+    input_tokens: number;
+    output_tokens: number;
+    cost: number;
+  };
+  openai: {
+    input_tokens: number;
+    output_tokens: number;
+    cost: number;
+  };
+  perplexity: {
+    requests: number;
+    cost: number;
+  };
+  totalCost: number;
+}
+
+// Get all API usage for the current month
+export function useApiUsage(month?: string) {
+  return useQuery({
+    queryKey: ["api-usage", month],
+    queryFn: async () => {
+      const response = await rvLocationsApi.getApiUsage(month);
+      return response.data as {
+        success: boolean;
+        usage: AllApiUsageSummary;
+        month: string;
+      };
+    },
+  });
+}
+
+// Get Google Places API usage with free tier info
+export function useGooglePlacesUsage(month?: string) {
+  return useQuery({
+    queryKey: ["api-usage", "google-places", month],
+    queryFn: async () => {
+      const response = await rvLocationsApi.getGooglePlacesUsage(month);
+      return response.data as {
+        success: boolean;
+        usage: GooglePlacesUsageSummary;
+        month: string;
+      };
+    },
+  });
+}
+
 // RV Location Helper Functions
 export function getRVLocationStatusColor(status: string): string {
   switch (status) {

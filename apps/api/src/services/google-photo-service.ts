@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { trackPhotoDownload } from './api-usage-tracking';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -29,6 +30,10 @@ export interface PhotoProcessingOptions {
   maxPhotos?: number;
   maxWidthPx?: number;
   maxHeightPx?: number;
+  // For API usage tracking
+  userId?: string;
+  contextType?: 'rv_enrichment' | 'travel_planning' | string;
+  contextId?: string;
 }
 
 export interface ProcessedPhoto {
@@ -173,6 +178,9 @@ export async function processGooglePhotos(
     maxPhotos = 30,
     maxWidthPx = 1600,
     maxHeightPx = 1200,
+    userId,
+    contextType,
+    contextId,
   } = options;
 
   const result: PhotoProcessingResult = {
@@ -206,6 +214,11 @@ export async function processGooglePhotos(
       const photoBytes = await downloadGooglePhoto(photo.name, maxWidthPx, maxHeightPx);
       if (!photoBytes) {
         continue;
+      }
+
+      // Track photo download for API usage billing
+      if (userId) {
+        trackPhotoDownload(userId, 1, contextType, contextId);
       }
 
       // Compute content hash
@@ -403,11 +416,16 @@ export async function fetchAndStoreRVLocationPhotos(
 
   const { data: existingPhotos } = await existingPhotosQuery;
 
-  // Process photos
+  // Process photos with tracking
   const storagePath = activityId
     ? `rv-locations/${locationId}/activities/${activityId}`
     : `rv-locations/${locationId}`;
-  const processResult = await processGooglePhotos(photos, storagePath, existingPhotos, options);
+  const processResult = await processGooglePhotos(photos, storagePath, existingPhotos, {
+    ...options,
+    userId,
+    contextType: 'rv_enrichment',
+    contextId: locationId,
+  });
 
   // Insert into database
   if (processResult.photos.length > 0) {
@@ -436,9 +454,14 @@ export async function fetchAndStoreTripPhotos(
     .select('google_photo_reference, content_hash, file_url')
     .eq('trip_id', tripId);
 
-  // Process photos
+  // Process photos with tracking
   const storagePath = `travel/${tripId}/activities/${activityId}`;
-  const processResult = await processGooglePhotos(photos, storagePath, existingPhotos, options);
+  const processResult = await processGooglePhotos(photos, storagePath, existingPhotos, {
+    ...options,
+    userId,
+    contextType: 'travel_planning',
+    contextId: tripId,
+  });
 
   // Insert into database
   if (processResult.photos.length > 0) {

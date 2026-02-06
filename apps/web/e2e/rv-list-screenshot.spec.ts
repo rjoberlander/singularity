@@ -15,11 +15,17 @@ test("RV locations list badge styling", async ({ page }) => {
   // Wait for location cards to load
   await page.waitForSelector('a[href^="/rv-locations/"]:not([href="/rv-locations/new"])', { timeout: 10000 });
 
+  // Take a screenshot of the header area showing the Share button
+  const header = page.locator('h1:has-text("RV Locations")').locator('..').locator('..');
+  await header.screenshot({
+    path: "e2e/screenshots/rv-list-header.png",
+  });
+
   // Get the first location card and take a screenshot of just that element
   const firstCard = page.locator('a[href^="/rv-locations/"]:not([href="/rv-locations/new"])').first();
   await firstCard.screenshot({
     path: "e2e/screenshots/rv-list-card.png",
   });
 
-  console.log("Screenshot saved to e2e/screenshots/rv-list-card.png");
+  console.log("Screenshots saved to e2e/screenshots/");
 });

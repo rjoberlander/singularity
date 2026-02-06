@@ -907,11 +907,22 @@ export const rvLocationsApi = {
     getApi().post("/rv-locations/import", payload, { params: dryRun ? { dryRun: 'true' } : undefined }),
   validateImport: (payload: unknown) => getApi().post("/rv-locations/import/validate", payload),
 
-  // Enrichment
+  // Enrichment (single location)
   enrich: (locationId: string, options?: { fetch_reviews?: boolean; fetch_photos?: boolean; fetch_hours?: boolean; enrich_activities?: boolean; max_photos?: number }) =>
     getApi().post(`/rv-locations/${locationId}/enrich`, options || {}),
   suggestActivities: (locationId: string) =>
     getApi().post(`/rv-locations/${locationId}/suggest-activities`),
+
+  // Batch Enrichment (with SSE streaming)
+  enrichBatch: (locationIds: string[], options?: { fetch_reviews?: boolean; fetch_photos?: boolean; fetch_hours?: boolean; enrich_activities?: boolean; max_photos?: number }) =>
+    getApi().post("/rv-locations/enrich-batch", { locationIds, options }),
+  getEnrichStatus: () => getApi().get("/rv-locations/enrich-status"),
+  cancelEnrich: (jobId: string) => getApi().post(`/rv-locations/enrich-cancel/${jobId}`),
+  getEnrichHistory: (limit?: number) => getApi().get("/rv-locations/enrich-history", { params: limit ? { limit } : undefined }),
+
+  // API Usage Tracking
+  getApiUsage: (month?: string) => getApi().get("/rv-locations/api-usage", { params: month ? { month } : undefined }),
+  getGooglePlacesUsage: (month?: string) => getApi().get("/rv-locations/api-usage/google-places", { params: month ? { month } : undefined }),
 
   // Convert to Trip
   convertToTrip: (locationId: string, options?: { start_date?: string; end_date?: string; traveler_count?: number }) =>

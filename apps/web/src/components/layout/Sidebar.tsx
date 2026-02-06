@@ -19,6 +19,7 @@ import {
   BookOpen,
   Plane,
   Tent,
+  BarChart3,
 } from "lucide-react";
 
 const navItems = [
@@ -75,8 +76,20 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Settings at bottom */}
-      <div className="p-4 border-t border-border">
+      {/* Usage & Settings at bottom */}
+      <div className="p-4 border-t border-border space-y-1">
+        <Link
+          href="/usage"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+            pathname === "/usage"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+          )}
+        >
+          <BarChart3 className="w-5 h-5" />
+          API Usage
+        </Link>
         <Link
           href="/settings"
           className={cn(

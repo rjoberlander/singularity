@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { UserService } from '../services/userService';
 import { InviteUserRequest } from '../types';
+import {
+  getAllApiUsageSummary,
+  getUsageByContext,
+  getGooglePlacesUsageSummary,
+} from '../services/api-usage-tracking';
 
 const router = Router();
 
@@ -244,6 +249,81 @@ router.delete('/links/:linkId', async (req: Request, res: Response): Promise<any
       success: false,
       error: 'Internal server error',
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ============================================
+// API Usage Tracking
+// ============================================
+
+/**
+ * GET /api/v1/users/api-usage
+ * Get comprehensive API usage for the current user
+ */
+router.get('/api-usage', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const monthParam = req.query.month as string;
+
+    let month: Date | undefined;
+    if (monthParam) {
+      month = new Date(monthParam);
+    }
+
+    // Get both overall usage and breakdown by module
+    const [overall, byContext] = await Promise.all([
+      getAllApiUsageSummary(userId, month),
+      getUsageByContext(userId, month),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        overall,
+        byModule: byContext,
+        month: month ? month.toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('GET /users/api-usage error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/v1/users/api-usage/google-places
+ * Get Google Places specific usage with free tier info
+ */
+router.get('/api-usage/google-places', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const monthParam = req.query.month as string;
+
+    let month: Date | undefined;
+    if (monthParam) {
+      month = new Date(monthParam);
+    }
+
+    const usage = await getGooglePlacesUsageSummary(userId, month);
+
+    res.json({
+      success: true,
+      data: usage,
+      month: month ? month.toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('GET /users/api-usage/google-places error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString(),
     });
   }
 });
