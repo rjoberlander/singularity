@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   X, ChevronLeft, ChevronRight, Heart, Tent, MapPin, Star, DollarSign, Calendar,
@@ -23,6 +23,22 @@ const activityIcons: Record<string, LucideIcon> = {
   rock_climbing: Mountain,
   camping: Tent,
   other: MapPin,
+};
+
+// Activity colors mapping
+const activityColors: Record<string, string> = {
+  hike: "text-emerald-500",
+  bike: "text-orange-500",
+  swim: "text-blue-500",
+  fish: "text-cyan-500",
+  kayak: "text-sky-500",
+  horseback: "text-amber-600",
+  wildlife_viewing: "text-green-600",
+  stargazing: "text-purple-500",
+  photography: "text-pink-500",
+  rock_climbing: "text-stone-500",
+  camping: "text-teal-500",
+  other: "text-gray-500",
 };
 
 interface ActivityInfo {
@@ -62,15 +78,30 @@ export function PhotoGallery({
 }: PhotoGalleryProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [activeSection, setActiveSection] = useState<string | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollContainerMounted, setScrollContainerMounted] = useState(false);
+
+  // Callback ref to track when scroll container mounts
+  const scrollContainerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    scrollContainerRef.current = el;
+    setScrollContainerMounted(!!el);
+  }, []);
+
+  // Compute first group key for initial active section
+  const firstGroupKey = media.length > 0
+    ? (media.some(m => !m.activity_id) ? 'campground' : media[0]?.activity_id || 'campground')
+    : null;
 
   // Reset selected index and active section when gallery opens/closes
   useEffect(() => {
     if (!open) {
       setSelectedIndex(null);
       setActiveSection(null);
+    } else if (open && !activeSection && firstGroupKey) {
+      // Set initial active section when gallery opens
+      setActiveSection(firstGroupKey);
     }
-  }, [open]);
+  }, [open, firstGroupKey, activeSection]);
 
   // Keyboard navigation for full image view
   const handleKeyDown = useCallback(
@@ -112,12 +143,6 @@ export function PhotoGallery({
     const sections = scrollContainer.querySelectorAll('[id^="gallery-section-"]');
     if (sections.length === 0) return;
 
-    // Set initial active section to first one
-    const firstSectionId = sections[0]?.id?.replace('gallery-section-', '');
-    if (firstSectionId && !activeSection) {
-      setActiveSection(firstSectionId);
-    }
-
     const observer = new IntersectionObserver(
       (entries) => {
         // Find the section with the highest intersection ratio that's visible
@@ -157,7 +182,7 @@ export function PhotoGallery({
     sections.forEach((section) => observer.observe(section));
 
     return () => observer.disconnect();
-  }, [open, selectedIndex, activeSection]);
+  }, [open, selectedIndex, scrollContainerMounted]);
 
   if (media.length === 0) return null;
 
@@ -170,6 +195,7 @@ export function PhotoGallery({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] p-0 gap-0 bg-black border-none [&>button]:hidden overflow-visible">
+          <DialogTitle className="sr-only">Photo viewer</DialogTitle>
           {/* Header */}
           <div className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4">
             <button
@@ -277,6 +303,7 @@ export function PhotoGallery({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[85vw] w-[85vw] max-h-[90vh] p-0 gap-0 bg-background border rounded-xl overflow-hidden [&>button]:hidden">
+        <DialogTitle className="sr-only">Photo gallery</DialogTitle>
         {/* Header */}
         <div className="sticky top-0 z-50 bg-background border-b">
           <div className="flex items-center justify-between px-6 py-4">
@@ -301,6 +328,9 @@ export function PhotoGallery({
                 const IconComponent = groupKey === 'campground'
                   ? Tent
                   : (group.activityType && activityIcons[group.activityType]) || MapPin;
+                const iconColor = groupKey === 'campground'
+                  ? 'text-teal-500'
+                  : (group.activityType && activityColors[group.activityType]) || 'text-gray-500';
                 const isActive = activeSection === groupKey;
                 return (
                   <button
@@ -312,8 +342,8 @@ export function PhotoGallery({
                         : 'bg-muted hover:bg-muted/80'
                     }`}
                   >
-                    <IconComponent className="h-3.5 w-3.5" />
-                    <span className="max-w-[120px] truncate">{group.caption}</span>
+                    <IconComponent className={`h-3.5 w-3.5 ${isActive ? '' : iconColor}`} />
+                    <span>{group.caption}</span>
                     <span className={isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}>({group.items.length})</span>
                   </button>
                 );
@@ -323,17 +353,23 @@ export function PhotoGallery({
         </div>
 
         {/* Masonry grid - Grouped by Activity */}
-        <div ref={scrollContainerRef} className="overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div
+          ref={scrollContainerCallbackRef}
+          className="overflow-y-auto max-h-[calc(90vh-120px)]"
+        >
           <div className="p-6 space-y-8">
             {sortedGroups.map(([groupKey, group]) => {
               const SectionIcon = groupKey === 'campground'
                 ? Tent
                 : (group.activityType && activityIcons[group.activityType]) || MapPin;
+              const sectionIconColor = groupKey === 'campground'
+                ? 'text-teal-500'
+                : (group.activityType && activityColors[group.activityType]) || 'text-gray-500';
               return (
                 <div key={groupKey} id={`gallery-section-${groupKey}`}>
                   <div className="mb-4">
                     <h3 className="text-lg font-medium text-foreground flex items-center gap-2 flex-wrap">
-                      <SectionIcon className="h-5 w-5 flex-shrink-0" />
+                      <SectionIcon className={`h-5 w-5 flex-shrink-0 ${sectionIconColor}`} />
                     <span>{group.caption}</span>
                     {group.rating && (
                       <span className="inline-flex items-center gap-1 text-amber-500">

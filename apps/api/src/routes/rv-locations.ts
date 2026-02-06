@@ -285,10 +285,9 @@ router.get('/', authenticateUser, async (req: Request, res: Response): Promise<a
         const [{ data: photos }, { data: activities }] = await Promise.all([
           supabase
             .from('rv_location_media')
-            .select('file_url')
+            .select('file_url, activity_id')
             .eq('location_id', location.id)
-            .order('sort_order')
-            .limit(4),
+            .order('sort_order'),
           supabase
             .from('rv_location_activities')
             .select('id, name, activity_type, kid_engagement')
@@ -296,25 +295,75 @@ router.get('/', authenticateUser, async (req: Request, res: Response): Promise<a
             .order('sort_order')
         ]);
 
-        // Calculate average kid engagement from activities
-        let avgKidEngagement: number | null = null;
+        // Build preview_photos: one photo per activity first, then campsite photo
+        const previewPhotos: string[] = [];
+        const activityIds = (activities || []).map((a: any) => a.id);
+        const usedActivityIds = new Set<string>();
+
+        // First, get one photo per activity (up to 3 activities)
+        for (const activityId of activityIds.slice(0, 3)) {
+          const activityPhoto = photos?.find(
+            (p: any) => p.activity_id === activityId && !usedActivityIds.has(activityId)
+          );
+          if (activityPhoto) {
+            previewPhotos.push(activityPhoto.file_url);
+            usedActivityIds.add(activityId);
+          }
+        }
+
+        // Then add a campsite/location photo (no activity_id) to fill up to 4
+        if (previewPhotos.length < 4) {
+          const campsitePhoto = photos?.find((p: any) => !p.activity_id);
+          if (campsitePhoto) {
+            previewPhotos.push(campsitePhoto.file_url);
+          }
+        }
+
+        // If still under 4, fill with any remaining photos
+        if (previewPhotos.length < 4 && photos) {
+          for (const photo of photos) {
+            if (previewPhotos.length >= 4) break;
+            if (!previewPhotos.includes(photo.file_url)) {
+              previewPhotos.push(photo.file_url);
+            }
+          }
+        }
+
+        // Calculate per-child average engagement from activities
+        let parkerAvg: number | null = null;
+        let charlotteAvg: number | null = null;
+        let xanderAvg: number | null = null;
+
         if (activities && activities.length > 0) {
-          const engagementScores = activities
-            .filter((a: any) => a.kid_engagement?.overall != null)
-            .map((a: any) => a.kid_engagement.overall);
-          if (engagementScores.length > 0) {
-            avgKidEngagement = Math.round(
-              engagementScores.reduce((sum: number, score: number) => sum + score, 0) / engagementScores.length * 10
-            ) / 10;
+          const parkerScores = activities
+            .filter((a: any) => typeof a.kid_engagement?.parker?.engagement_level === 'number')
+            .map((a: any) => a.kid_engagement.parker.engagement_level);
+          const charlotteScores = activities
+            .filter((a: any) => typeof a.kid_engagement?.charlotte?.engagement_level === 'number')
+            .map((a: any) => a.kid_engagement.charlotte.engagement_level);
+          const xanderScores = activities
+            .filter((a: any) => typeof a.kid_engagement?.xander?.engagement_level === 'number')
+            .map((a: any) => a.kid_engagement.xander.engagement_level);
+
+          if (parkerScores.length > 0) {
+            parkerAvg = Math.round(parkerScores.reduce((sum: number, s: number) => sum + s, 0) / parkerScores.length * 10) / 10;
+          }
+          if (charlotteScores.length > 0) {
+            charlotteAvg = Math.round(charlotteScores.reduce((sum: number, s: number) => sum + s, 0) / charlotteScores.length * 10) / 10;
+          }
+          if (xanderScores.length > 0) {
+            xanderAvg = Math.round(xanderScores.reduce((sum: number, s: number) => sum + s, 0) / xanderScores.length * 10) / 10;
           }
         }
 
         return {
           ...location,
-          preview_photos: photos?.map(p => p.file_url) || [],
+          preview_photos: previewPhotos,
           activities: activities || [],
           activity_count: activities?.length || 0,
-          avg_kid_engagement: avgKidEngagement
+          parker_engagement: parkerAvg,
+          charlotte_engagement: charlotteAvg,
+          xander_engagement: xanderAvg
         };
       })
     );
@@ -2320,6 +2369,69 @@ router.delete('/:locationId/share', authenticateUser, async (req: Request, res: 
     });
   } catch (error) {
     console.error('DELETE /rv-locations/:locationId/share error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/share/all
+ * Get all RV locations publicly (no auth required)
+ * Returns all locations with share_slug set (opted-in to sharing)
+ */
+router.get('/share/all', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { status, category, search } = req.query;
+
+    // Build query - only return locations that have opted into sharing
+    let query = supabase
+      .from('rv_locations')
+      .select(`
+        *,
+        activities:rv_location_activities(id, name, activity_type)
+      `)
+      .not('share_slug', 'is', null);
+
+    // Apply filters
+    if (status && typeof status === 'string') {
+      query = query.eq('status', status);
+    }
+    if (category && typeof category === 'string') {
+      query = query.eq('category', category);
+    }
+    if (search && typeof search === 'string') {
+      query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%,state.ilike.%${search}%`);
+    }
+
+    const { data: locations, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching public locations:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Add computed fields
+    const locationsWithCounts = (locations || []).map(loc => ({
+      ...loc,
+      activity_count: loc.activities?.length || 0,
+      // Compute preview photos from first 4 media items with share_slug
+      preview_photos: [] // Would need another query for media
+    }));
+
+    res.json({
+      success: true,
+      data: locationsWithCounts,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/share/all error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

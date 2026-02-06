@@ -4038,6 +4038,24 @@ export function usePublicRVLocation(slug: string) {
   });
 }
 
+export function usePublicRVLocations(params?: {
+  status?: string;
+  category?: string;
+  search?: string;
+}) {
+  return useQuery({
+    queryKey: ["rv-locations", "public", "all", params],
+    queryFn: async () => {
+      const response = await rvLocationsApi.share.getAll(params);
+      return response.data.data as (RVLocation & {
+        activities?: Array<{ id: string; name: string; activity_type?: string }>;
+        activity_count?: number;
+        preview_photos?: string[];
+      })[];
+    },
+  });
+}
+
 // RV Location Settings Hooks
 export function useRVResearchSettings() {
   return useQuery({
