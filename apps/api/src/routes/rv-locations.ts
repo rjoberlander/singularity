@@ -677,6 +677,130 @@ router.get('/api-usage/google-places', authenticateUser, async (req: Request, re
 });
 
 // =============================================
+// PUBLIC SHARE ROUTES (must be before /:id routes)
+// =============================================
+
+/**
+ * GET /api/v1/rv-locations/share/all
+ * Get all RV locations publicly (no auth required)
+ * Returns all locations with share_slug set (opted-in to sharing)
+ */
+router.get('/share/all', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { status, category, search } = req.query;
+
+    // Build query - only return locations that have opted into sharing
+    let query = supabase
+      .from('rv_locations')
+      .select(`
+        *,
+        activities:rv_location_activities(id, name, activity_type)
+      `)
+      .not('share_slug', 'is', null);
+
+    // Apply filters
+    if (status && typeof status === 'string') {
+      query = query.eq('status', status);
+    }
+    if (category && typeof category === 'string') {
+      query = query.eq('category', category);
+    }
+    if (search && typeof search === 'string') {
+      query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%,state.ilike.%${search}%`);
+    }
+
+    const { data: locations, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching public locations:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Add computed fields
+    const locationsWithCounts = (locations || []).map(loc => ({
+      ...loc,
+      activity_count: loc.activities?.length || 0,
+      // Compute preview photos from first 4 media items with share_slug
+      preview_photos: [] // Would need another query for media
+    }));
+
+    res.json({
+      success: true,
+      data: locationsWithCounts,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/share/all error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/rv-locations/share/:slug
+ * Get public location by share slug (no auth required)
+ */
+router.get('/share/:slug', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { slug } = req.params;
+
+    // Get location by share slug
+    const { data: location, error: locError } = await supabase
+      .from('rv_locations')
+      .select('*')
+      .eq('share_slug', slug)
+      .single();
+
+    if (locError || !location) {
+      return res.status(404).json({
+        success: false,
+        error: 'Shared location not found or link has expired',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get activities
+    const { data: activities } = await supabase
+      .from('rv_location_activities')
+      .select('*')
+      .eq('location_id', location.id)
+      .order('sort_order');
+
+    // Get media (sorted by favorites first)
+    const { data: media } = await supabase
+      .from('rv_location_media')
+      .select('*')
+      .eq('location_id', location.id)
+      .order('is_favorite', { ascending: false, nullsFirst: false })
+      .order('sort_order');
+
+    res.json({
+      success: true,
+      data: {
+        ...location,
+        activities: activities || [],
+        media: media || []
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /rv-locations/share/:slug error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// =============================================
 // RV LOCATION BY ID
 // =============================================
 
@@ -2666,126 +2790,6 @@ router.delete('/:locationId/share', authenticateUser, async (req: Request, res: 
     });
   } catch (error) {
     console.error('DELETE /rv-locations/:locationId/share error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-/**
- * GET /api/v1/rv-locations/share/all
- * Get all RV locations publicly (no auth required)
- * Returns all locations with share_slug set (opted-in to sharing)
- */
-router.get('/share/all', async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { status, category, search } = req.query;
-
-    // Build query - only return locations that have opted into sharing
-    let query = supabase
-      .from('rv_locations')
-      .select(`
-        *,
-        activities:rv_location_activities(id, name, activity_type)
-      `)
-      .not('share_slug', 'is', null);
-
-    // Apply filters
-    if (status && typeof status === 'string') {
-      query = query.eq('status', status);
-    }
-    if (category && typeof category === 'string') {
-      query = query.eq('category', category);
-    }
-    if (search && typeof search === 'string') {
-      query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%,state.ilike.%${search}%`);
-    }
-
-    const { data: locations, error } = await query.order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching public locations:', error);
-      return res.status(500).json({
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Add computed fields
-    const locationsWithCounts = (locations || []).map(loc => ({
-      ...loc,
-      activity_count: loc.activities?.length || 0,
-      // Compute preview photos from first 4 media items with share_slug
-      preview_photos: [] // Would need another query for media
-    }));
-
-    res.json({
-      success: true,
-      data: locationsWithCounts,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('GET /rv-locations/share/all error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-/**
- * GET /api/v1/rv-locations/share/:slug
- * Get public location by share slug (no auth required)
- */
-router.get('/share/:slug', async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { slug } = req.params;
-
-    // Get location by share slug
-    const { data: location, error: locError } = await supabase
-      .from('rv_locations')
-      .select('*')
-      .eq('share_slug', slug)
-      .single();
-
-    if (locError || !location) {
-      return res.status(404).json({
-        success: false,
-        error: 'Shared location not found or link has expired',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Get activities
-    const { data: activities } = await supabase
-      .from('rv_location_activities')
-      .select('*')
-      .eq('location_id', location.id)
-      .order('sort_order');
-
-    // Get media (sorted by favorites first)
-    const { data: media } = await supabase
-      .from('rv_location_media')
-      .select('*')
-      .eq('location_id', location.id)
-      .order('is_favorite', { ascending: false, nullsFirst: false })
-      .order('sort_order');
-
-    res.json({
-      success: true,
-      data: {
-        ...location,
-        activities: activities || [],
-        media: media || []
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('GET /rv-locations/share/:slug error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
