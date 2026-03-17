@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("Debug usage data", async ({ page, request }) => {
+test("Verify API usage data displays correctly", async ({ page }) => {
   // Login
   await page.goto("http://localhost:3000/login");
   await page.waitForLoadState("networkidle");
@@ -9,29 +9,25 @@ test("Debug usage data", async ({ page, request }) => {
   await page.click('button[type="submit"]', { force: true });
   await page.waitForURL(/\/(dashboard|rv-locations|biomarkers)/, { timeout: 15000 });
 
-  // Get auth token from localStorage/cookies
-  const cookies = await page.context().cookies();
-  console.log("Cookies:", cookies.map(c => c.name));
-
-  // Navigate to usage and capture network
-  page.on('response', async response => {
-    if (response.url().includes('api-usage') || response.url().includes('users')) {
-      const body = await response.text().catch(() => 'could not read');
-      console.log('API Response:', response.url(), response.status(), body.substring(0, 500));
-    }
-  });
-
+  // Navigate to usage page
   await page.goto("http://localhost:3000/usage");
   await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(2000);
 
-  // Take screenshot
-  await page.screenshot({ path: "e2e/screenshots/usage-debug.png", fullPage: true });
+  // Verify the page loaded with usage data
+  await expect(page.locator('h1:has-text("API Usage")')).toBeVisible();
 
-  // Check what the page shows
-  const photoCount = await page.locator('text=/\\d+ \\/ 1,000 used/').textContent().catch(() => 'not found');
-  console.log("Photo usage text:", photoCount);
+  // Verify photo usage is displayed (should show X / 1,000 used)
+  const photoUsageText = page.locator('text=/\\d+ \\/ 1,000 used/');
+  await expect(photoUsageText).toBeVisible();
 
-  const rvCount = await page.locator('.font-medium.text-sm:has-text("RV Locations") + div + div').textContent().catch(() => 'not found');
-  console.log("RV photos:", rvCount);
+  // Verify we have some actual usage (not zeros)
+  const photoText = await photoUsageText.textContent();
+  expect(photoText).not.toBe("0 / 1,000 used");
+
+  // Verify estimated cost section exists
+  await expect(page.locator('text="Estimated Total Cost"')).toBeVisible();
+
+  // Take verification screenshot
+  await page.screenshot({ path: "e2e/screenshots/usage-verified.png", fullPage: true });
 });

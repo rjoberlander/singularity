@@ -753,14 +753,14 @@ agenda JSONB, agenda_status TEXT, agenda_completed_at`}</pre>
       "args": [
         "-y",
         "mcp-remote",
-        "https://mcp.supabase.com/mcp?project_ref=fcsiqoebtpfhzreamotp"
+        "https://mcp.supabase.com/mcp?project_ref=cymbadkegbibhxbfevuq"
       ]
     }
   }
 }`}</pre>
                 </div>
                 <p className="text-muted-foreground mt-2 ml-3">
-                  Note: <code className="bg-muted px-1 rounded">fcsiqoebtpfhzreamotp</code> is this project's Supabase ID. The <code className="bg-muted px-1 rounded">mcp-remote</code> package bridges Claude Desktop to Supabase's remote MCP server.
+                  Note: <code className="bg-muted px-1 rounded">cymbadkegbibhxbfevuq</code> is this project's Supabase ID. The <code className="bg-muted px-1 rounded">mcp-remote</code> package bridges Claude Desktop to Supabase's remote MCP server.
                 </p>
               </div>
 

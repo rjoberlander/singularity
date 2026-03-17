@@ -40,7 +40,7 @@ async function applyMigration() {
 
     console.log('\nMigration needs to be applied via Supabase Dashboard SQL Editor.');
     console.log('Copy the migration file content and run it there:');
-    console.log('  https://app.supabase.com/project/fcsiqoebtpfhzreamotp/sql');
+    console.log('  https://app.supabase.com/project/cymbadkegbibhxbfevuq/sql');
     return false;
   }
 
@@ -102,7 +102,7 @@ async function importData() {
       if (updateError.message.includes('column')) {
         console.log('\n⚠️  The route_stops/segment_alternatives columns do not exist.');
         console.log('Please apply the migration first via Supabase Dashboard:');
-        console.log('  https://app.supabase.com/project/fcsiqoebtpfhzreamotp/sql');
+        console.log('  https://app.supabase.com/project/cymbadkegbibhxbfevuq/sql');
         console.log('\nMigration file: supabase/migrations/035_alternatives_and_route_stops.sql');
       }
     } else {

@@ -39,7 +39,7 @@ ACCESS_TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.data.session.access_token')
 
 if [ "$ACCESS_TOKEN" == "null" ] || [ -z "$ACCESS_TOKEN" ]; then
   echo -e "${RED}Login failed! Make sure you created the user in Supabase Auth first.${NC}"
-  echo "Go to: https://supabase.com/dashboard/project/fcsiqoebtpfhzreamotp/auth/users"
+  echo "Go to: https://supabase.com/dashboard/project/cymbadkegbibhxbfevuq/auth/users"
   echo "Add user: $EMAIL with password: $PASSWORD"
   exit 1
 fi
