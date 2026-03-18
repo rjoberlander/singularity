@@ -221,42 +221,83 @@ export async function getMonthlyUsage(
   month?: Date
 ): Promise<MonthlyUsageSummary[]> {
   const targetMonth = month || new Date();
-  const startOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
-  const endOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0, 23, 59, 59);
+  // Use UTC methods to avoid timezone issues
+  const year = targetMonth.getUTCFullYear();
+  const monthIndex = targetMonth.getUTCMonth();
+  const startOfMonth = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+  const endOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
 
-  const { data, error } = await supabase
-    .from('api_usage_tracking')
-    .select('provider, api_type, count, estimated_cost_usd')
-    .eq('user_id', userId)
-    .gte('created_at', startOfMonth.toISOString())
-    .lte('created_at', endOfMonth.toISOString());
+  // Use RPC to aggregate in database (avoids Supabase 1000 row limit)
+  const { data, error } = await supabase.rpc('get_monthly_usage_summary', {
+    p_user_id: userId,
+    p_start_date: startOfMonth.toISOString(),
+    p_end_date: endOfMonth.toISOString(),
+  });
 
   if (error) {
-    console.error('[API Usage] Failed to get monthly usage:', error);
-    return [];
-  }
+    // Fallback to client-side aggregation with pagination if RPC doesn't exist
+    console.log('[API Usage] RPC not available, using fallback query with pagination');
+    console.log('[API Usage] Date range:', startOfMonth.toISOString(), 'to', endOfMonth.toISOString());
 
-  // Aggregate by provider and api_type
-  const aggregated = new Map<string, MonthlyUsageSummary>();
+    // Aggregate by provider and api_type using pagination to get all records
+    const aggregated = new Map<string, MonthlyUsageSummary>();
+    const pageSize = 1000;
+    let offset = 0;
+    let hasMore = true;
+    let totalRows = 0;
 
-  for (const row of data || []) {
-    const key = `${row.provider}:${row.api_type}`;
-    const existing = aggregated.get(key);
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from('api_usage_tracking')
+        .select('provider, api_type, count, estimated_cost_usd')
+        .eq('user_id', userId)
+        .gte('created_at', startOfMonth.toISOString())
+        .lte('created_at', endOfMonth.toISOString())
+        .range(offset, offset + pageSize - 1);
 
-    if (existing) {
-      existing.total_count += row.count || 0;
-      existing.total_estimated_cost_usd += row.estimated_cost_usd || 0;
-    } else {
-      aggregated.set(key, {
-        provider: row.provider,
-        api_type: row.api_type,
-        total_count: row.count || 0,
-        total_estimated_cost_usd: row.estimated_cost_usd || 0,
-      });
+      if (pageError) {
+        console.error('[API Usage] Failed to get monthly usage:', pageError);
+        break;
+      }
+
+      const rowCount = pageData?.length || 0;
+      totalRows += rowCount;
+
+      // Aggregate this page
+      for (const row of pageData || []) {
+        const key = `${row.provider}:${row.api_type}`;
+        const existing = aggregated.get(key);
+
+        if (existing) {
+          existing.total_count += row.count || 0;
+          existing.total_estimated_cost_usd += row.estimated_cost_usd || 0;
+        } else {
+          aggregated.set(key, {
+            provider: row.provider,
+            api_type: row.api_type,
+            total_count: row.count || 0,
+            total_estimated_cost_usd: row.estimated_cost_usd || 0,
+          });
+        }
+      }
+
+      // Check if we need to fetch more
+      hasMore = rowCount === pageSize;
+      offset += pageSize;
     }
+
+    console.log('[API Usage] Fallback query returned', totalRows, 'total rows');
+    const result = Array.from(aggregated.values());
+    console.log('[API Usage] Aggregated result:', JSON.stringify(result));
+    return result;
   }
 
-  return Array.from(aggregated.values());
+  return (data || []).map((row: { provider: string; api_type: string; total_count: number; total_estimated_cost_usd: number }) => ({
+    provider: row.provider,
+    api_type: row.api_type,
+    total_count: Number(row.total_count) || 0,
+    total_estimated_cost_usd: Number(row.total_estimated_cost_usd) || 0,
+  }));
 }
 
 /**
@@ -318,25 +359,13 @@ export async function getUsageByContext(
   other: { photos: number; searches: number; details: number; cost: number };
 }> {
   const targetMonth = month || new Date();
-  const startOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
-  const endOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0, 23, 59, 59);
+  // Use UTC methods to avoid timezone issues
+  const year = targetMonth.getUTCFullYear();
+  const monthIndex = targetMonth.getUTCMonth();
+  const startOfMonth = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+  const endOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
 
-  const { data, error } = await supabase
-    .from('api_usage_tracking')
-    .select('provider, api_type, count, estimated_cost_usd, context_type')
-    .eq('user_id', userId)
-    .eq('provider', 'google_places')
-    .gte('created_at', startOfMonth.toISOString())
-    .lte('created_at', endOfMonth.toISOString());
-
-  if (error) {
-    console.error('[API Usage] Failed to get context usage:', error);
-    return {
-      rv_enrichment: { photos: 0, searches: 0, details: 0, cost: 0 },
-      travel_planning: { photos: 0, searches: 0, details: 0, cost: 0 },
-      other: { photos: 0, searches: 0, details: 0, cost: 0 },
-    };
-  }
+  console.log('[API Usage Context] Date range:', startOfMonth.toISOString(), 'to', endOfMonth.toISOString());
 
   const result = {
     rv_enrichment: { photos: 0, searches: 0, details: 0, cost: 0 },
@@ -344,24 +373,53 @@ export async function getUsageByContext(
     other: { photos: 0, searches: 0, details: 0, cost: 0 },
   };
 
-  for (const row of data || []) {
-    const context = row.context_type === 'rv_enrichment' ? 'rv_enrichment'
-      : row.context_type === 'travel_planning' ? 'travel_planning'
-      : 'other';
+  // Use pagination to get all records
+  const pageSize = 1000;
+  let offset = 0;
+  let hasMore = true;
+  let totalRows = 0;
 
-    const count = row.count || 0;
-    const cost = row.estimated_cost_usd || 0;
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from('api_usage_tracking')
+      .select('provider, api_type, count, estimated_cost_usd, context_type')
+      .eq('user_id', userId)
+      .eq('provider', 'google_places')
+      .gte('created_at', startOfMonth.toISOString())
+      .lte('created_at', endOfMonth.toISOString())
+      .range(offset, offset + pageSize - 1);
 
-    if (row.api_type === 'photo_fetch') {
-      result[context].photos += count;
-    } else if (row.api_type === 'text_search') {
-      result[context].searches += count;
-    } else if (row.api_type === 'place_details') {
-      result[context].details += count;
+    if (error) {
+      console.error('[API Usage] Failed to get context usage:', error);
+      break;
     }
-    result[context].cost += cost;
+
+    const rowCount = data?.length || 0;
+    totalRows += rowCount;
+
+    for (const row of data || []) {
+      const context = row.context_type === 'rv_enrichment' ? 'rv_enrichment'
+        : row.context_type === 'travel_planning' ? 'travel_planning'
+        : 'other';
+
+      const count = row.count || 0;
+      const cost = row.estimated_cost_usd || 0;
+
+      if (row.api_type === 'photo_fetch') {
+        result[context].photos += count;
+      } else if (row.api_type === 'text_search') {
+        result[context].searches += count;
+      } else if (row.api_type === 'place_details') {
+        result[context].details += count;
+      }
+      result[context].cost += cost;
+    }
+
+    hasMore = rowCount === pageSize;
+    offset += pageSize;
   }
 
+  console.log('[API Usage Context] Query returned', totalRows, 'total rows');
   return result;
 }
 
