@@ -141,12 +141,14 @@ class GoogleCalendarService {
   /**
    * Generate OAuth authorization URL
    */
-  async generateAuthUrl(userId: string, state?: string): Promise<string> {
+  async generateAuthUrl(userId: string, state?: string, additionalScopes?: string[]): Promise<string> {
     const oauth2Client = await this.getOAuth2Client(userId);
+
+    const scopes = [...GOOGLE_CALENDAR_SCOPES, ...(additionalScopes || [])];
 
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
-      scope: GOOGLE_CALENDAR_SCOPES,
+      scope: scopes,
       prompt: 'consent', // Force consent to get refresh token
       state: state || undefined,
     });

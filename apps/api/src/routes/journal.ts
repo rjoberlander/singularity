@@ -16,6 +16,7 @@ import {
   JournalTagCount,
 } from '@singularity/shared-types';
 import crypto from 'crypto';
+import { TwilioService } from '../modules/twilio/twilioService';
 
 const router = Router();
 
@@ -291,6 +292,339 @@ router.get('/public/:slug', async (req: Request, res: Response): Promise<any> =>
     });
   } catch (error) {
     console.error('GET /journal/public/:slug error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// =============================================
+// BROADCAST - PUBLIC ROUTES (no auth, token-based)
+// These MUST be defined BEFORE /:id to avoid route conflicts
+// =============================================
+
+/**
+ * GET /api/v1/journal/broadcast/view/:token
+ * Get broadcast content for a recipient (public)
+ */
+router.get('/broadcast/view/:token', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { token } = req.params;
+
+    // Find recipient by access token
+    const { data: recipient, error: recipientError } = await supabase
+      .from('broadcast_recipients')
+      .select('*')
+      .eq('access_token', token)
+      .single();
+
+    if (recipientError || !recipient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get the entry
+    const { data: entry, error: entryError } = await supabase
+      .from('journal_entries')
+      .select('id, title, content, content_html, created_at, voting_enabled, voting_type, voting_deadline, comments_enabled, journal_media(*)')
+      .eq('id', recipient.entry_id)
+      .eq('entry_type', 'broadcast')
+      .single();
+
+    if (entryError || !entry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get vote options
+    const { data: voteOptions } = await supabase
+      .from('broadcast_vote_options')
+      .select('*')
+      .eq('entry_id', entry.id)
+      .order('sort_order', { ascending: true });
+
+    // Get this recipient's votes
+    const { data: myVotes } = await supabase
+      .from('broadcast_votes')
+      .select('*, option:broadcast_vote_options(*)')
+      .eq('recipient_id', recipient.id);
+
+    // Get comments
+    const { data: comments } = await supabase
+      .from('broadcast_comments')
+      .select('*, recipient:broadcast_recipients(id, contact_name)')
+      .eq('entry_id', entry.id)
+      .order('created_at', { ascending: true });
+
+    res.json({
+      success: true,
+      data: {
+        entry: {
+          id: entry.id,
+          title: entry.title,
+          content: entry.content,
+          content_html: entry.content_html,
+          created_at: entry.created_at,
+          media: (entry as any).journal_media || [],
+        },
+        recipient: {
+          id: recipient.id,
+          contact_name: recipient.contact_name,
+        },
+        voting_enabled: entry.voting_enabled,
+        voting_type: entry.voting_type,
+        voting_deadline: entry.voting_deadline,
+        comments_enabled: entry.comments_enabled,
+        vote_options: voteOptions || [],
+        my_votes: myVotes || [],
+        comments: comments || [],
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /journal/broadcast/view/:token error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/journal/broadcast/view/:token/read
+ * Mark broadcast as read by recipient
+ */
+router.post('/broadcast/view/:token/read', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { token } = req.params;
+
+    const { data: recipient, error } = await supabase
+      .from('broadcast_recipients')
+      .select('id, first_read_at, read_count')
+      .eq('access_token', token)
+      .single();
+
+    if (error || !recipient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const updates: Record<string, any> = {
+      last_read_at: new Date().toISOString(),
+      read_count: (recipient.read_count || 0) + 1,
+    };
+
+    if (!recipient.first_read_at) {
+      updates.first_read_at = new Date().toISOString();
+    }
+
+    await supabase
+      .from('broadcast_recipients')
+      .update(updates)
+      .eq('id', recipient.id);
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /journal/broadcast/view/:token/read error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/journal/broadcast/view/:token/vote
+ * Submit vote(s) for a broadcast
+ */
+router.post('/broadcast/view/:token/vote', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { token } = req.params;
+    const { option_ids, other_text } = req.body;
+
+    if (!option_ids || !Array.isArray(option_ids) || option_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one option must be selected',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { data: recipient, error } = await supabase
+      .from('broadcast_recipients')
+      .select('id, entry_id')
+      .eq('access_token', token)
+      .single();
+
+    if (error || !recipient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check voting deadline
+    const { data: entry } = await supabase
+      .from('journal_entries')
+      .select('voting_enabled, voting_type, voting_deadline')
+      .eq('id', recipient.entry_id)
+      .single();
+
+    if (!entry?.voting_enabled) {
+      return res.status(400).json({
+        success: false,
+        error: 'Voting is not enabled for this broadcast',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (entry.voting_deadline && new Date(entry.voting_deadline) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Voting deadline has passed',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // For single voting, only allow one option
+    if (entry.voting_type === 'single' && option_ids.length > 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'Only one option can be selected for single-choice voting',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Delete existing votes for this recipient
+    await supabase
+      .from('broadcast_votes')
+      .delete()
+      .eq('recipient_id', recipient.id);
+
+    // Insert new votes
+    const votes = option_ids.map((optionId: string) => ({
+      entry_id: recipient.entry_id,
+      recipient_id: recipient.id,
+      option_id: optionId,
+      other_text: other_text || null,
+    }));
+
+    const { data: insertedVotes, error: voteError } = await supabase
+      .from('broadcast_votes')
+      .insert(votes)
+      .select('*, option:broadcast_vote_options(*)');
+
+    if (voteError) {
+      return res.status(500).json({
+        success: false,
+        error: voteError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: insertedVotes,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /journal/broadcast/view/:token/vote error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/journal/broadcast/view/:token/comment
+ * Submit a comment on a broadcast
+ */
+router.post('/broadcast/view/:token/comment', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { token } = req.params;
+    const { content } = req.body;
+
+    if (!content || typeof content !== 'string' || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Comment content is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { data: recipient, error } = await supabase
+      .from('broadcast_recipients')
+      .select('id, entry_id')
+      .eq('access_token', token)
+      .single();
+
+    if (error || !recipient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check if comments are enabled
+    const { data: entry } = await supabase
+      .from('journal_entries')
+      .select('comments_enabled')
+      .eq('id', recipient.entry_id)
+      .single();
+
+    if (!entry?.comments_enabled) {
+      return res.status(400).json({
+        success: false,
+        error: 'Comments are not enabled for this broadcast',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { data: comment, error: commentError } = await supabase
+      .from('broadcast_comments')
+      .insert({
+        entry_id: recipient.entry_id,
+        recipient_id: recipient.id,
+        content: content.trim(),
+      })
+      .select('*')
+      .single();
+
+    if (commentError) {
+      return res.status(500).json({
+        success: false,
+        error: commentError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: comment,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /journal/broadcast/view/:token/comment error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -1548,6 +1882,348 @@ router.delete('/prompts/:id', authenticateUser, async (req: Request, res: Respon
     });
   } catch (error) {
     console.error('DELETE /journal/prompts/:id error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// =============================================
+// BROADCAST - AUTHENTICATED ROUTES
+// =============================================
+
+/**
+ * POST /api/v1/journal/broadcast
+ * Create a new broadcast and send SMS to recipients
+ */
+router.post('/broadcast', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const {
+      title,
+      content,
+      broadcast_message,
+      voting_enabled = false,
+      voting_type = 'single',
+      voting_deadline,
+      comments_enabled = true,
+      vote_options = [],
+      recipients,
+    } = req.body;
+
+    if (!content || !broadcast_message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Content and broadcast message are required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one recipient is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 1. Create journal entry
+    const { data: entry, error: entryError } = await supabase
+      .from('journal_entries')
+      .insert({
+        user_id: userId,
+        title,
+        content,
+        entry_type: 'broadcast',
+        entry_mode: 'freeform',
+        entry_date: new Date().toISOString().split('T')[0],
+        entry_time: new Date().toTimeString().substring(0, 5),
+        broadcast_message,
+        voting_enabled,
+        voting_type,
+        voting_deadline: voting_deadline || null,
+        comments_enabled,
+        tags: ['broadcast'],
+      })
+      .select()
+      .single();
+
+    if (entryError || !entry) {
+      return res.status(500).json({
+        success: false,
+        error: entryError?.message || 'Failed to create broadcast entry',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 2. Create vote options if voting enabled
+    if (voting_enabled && vote_options.length > 0) {
+      const optionRows = vote_options.map((label: string, index: number) => ({
+        entry_id: entry.id,
+        label,
+        sort_order: index,
+        is_other: false,
+      }));
+
+      // Add "Other" option
+      optionRows.push({
+        entry_id: entry.id,
+        label: 'Other',
+        sort_order: vote_options.length,
+        is_other: true,
+      });
+
+      await supabase.from('broadcast_vote_options').insert(optionRows);
+    }
+
+    // 3. Create recipients with unique tokens and send SMS
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const recipientResults = [];
+
+    for (const r of recipients) {
+      const accessToken = crypto.randomBytes(32).toString('hex');
+
+      const { data: recipientRow, error: recipientError } = await supabase
+        .from('broadcast_recipients')
+        .insert({
+          entry_id: entry.id,
+          user_id: userId,
+          contact_name: r.contact_name,
+          contact_phone: r.contact_phone || null,
+          contact_email: r.contact_email || null,
+          google_contact_id: r.google_contact_id || null,
+          access_token: accessToken,
+        })
+        .select()
+        .single();
+
+      if (recipientError || !recipientRow) {
+        recipientResults.push({ contact_name: r.contact_name, error: recipientError?.message });
+        continue;
+      }
+
+      // Send SMS if phone number provided
+      if (r.contact_phone) {
+        const smsLink = `${FRONTEND_URL}/broadcast/${accessToken}`;
+        const smsBody = `${broadcast_message}\n\n${smsLink}`;
+        const smsResult = await TwilioService.sendSMS(userId, r.contact_phone, smsBody);
+
+        if (smsResult.success) {
+          await supabase
+            .from('broadcast_recipients')
+            .update({
+              sms_sent_at: new Date().toISOString(),
+              sms_message_id: smsResult.messageId,
+            })
+            .eq('id', recipientRow.id);
+        }
+
+        recipientResults.push({
+          ...recipientRow,
+          sms_sent: smsResult.success,
+          sms_error: smsResult.error,
+        });
+      } else {
+        recipientResults.push({ ...recipientRow, sms_sent: false });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        entry,
+        recipients: recipientResults,
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /journal/broadcast error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/journal/:id/broadcast-status
+ * Get broadcast status (read/vote/comment counts) for author
+ */
+router.get('/:id/broadcast-status', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    // Verify ownership
+    const { data: entry, error: entryError } = await supabase
+      .from('journal_entries')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .eq('entry_type', 'broadcast')
+      .single();
+
+    if (entryError || !entry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get recipients
+    const { data: recipients } = await supabase
+      .from('broadcast_recipients')
+      .select('*')
+      .eq('entry_id', id)
+      .order('created_at', { ascending: true });
+
+    // Get vote options
+    const { data: voteOptions } = await supabase
+      .from('broadcast_vote_options')
+      .select('*')
+      .eq('entry_id', id)
+      .order('sort_order', { ascending: true });
+
+    // Get votes
+    const { data: votes } = await supabase
+      .from('broadcast_votes')
+      .select('*, option:broadcast_vote_options(*)')
+      .eq('entry_id', id);
+
+    // Get comments
+    const { data: comments } = await supabase
+      .from('broadcast_comments')
+      .select('*, recipient:broadcast_recipients(id, contact_name)')
+      .eq('entry_id', id)
+      .order('created_at', { ascending: true });
+
+    const recipientList = recipients || [];
+    const voteList = votes || [];
+    const commentList = comments || [];
+
+    // Calculate summary
+    const readCount = recipientList.filter(r => r.first_read_at).length;
+    const votedRecipientIds = new Set(voteList.map(v => v.recipient_id));
+
+    res.json({
+      success: true,
+      data: {
+        entry: {
+          ...entry,
+          media: [],
+        },
+        recipients: recipientList,
+        vote_options: voteOptions || [],
+        votes: voteList,
+        comments: commentList,
+        summary: {
+          total_recipients: recipientList.length,
+          read_count: readCount,
+          voted_count: votedRecipientIds.size,
+          comment_count: commentList.length,
+        },
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /journal/:id/broadcast-status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/journal/:id/broadcast/resend
+ * Resend SMS to specific recipients
+ */
+router.post('/:id/broadcast/resend', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+    const { recipient_ids } = req.body;
+
+    // Verify ownership
+    const { data: entry } = await supabase
+      .from('journal_entries')
+      .select('broadcast_message')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .eq('entry_type', 'broadcast')
+      .single();
+
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Broadcast not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get recipients to resend to
+    let query = supabase
+      .from('broadcast_recipients')
+      .select('*')
+      .eq('entry_id', id);
+
+    if (recipient_ids && Array.isArray(recipient_ids) && recipient_ids.length > 0) {
+      query = query.in('id', recipient_ids);
+    }
+
+    const { data: recipients } = await query;
+
+    if (!recipients || recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No recipients found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const results = [];
+
+    for (const r of recipients) {
+      if (!r.contact_phone) {
+        results.push({ id: r.id, contact_name: r.contact_name, sms_sent: false, error: 'No phone number' });
+        continue;
+      }
+
+      const smsLink = `${FRONTEND_URL}/broadcast/${r.access_token}`;
+      const smsBody = `${entry.broadcast_message}\n\n${smsLink}`;
+      const smsResult = await TwilioService.sendSMS(userId, r.contact_phone, smsBody);
+
+      if (smsResult.success) {
+        await supabase
+          .from('broadcast_recipients')
+          .update({
+            sms_sent_at: new Date().toISOString(),
+            sms_message_id: smsResult.messageId,
+          })
+          .eq('id', r.id);
+      }
+
+      results.push({
+        id: r.id,
+        contact_name: r.contact_name,
+        sms_sent: smsResult.success,
+        error: smsResult.error,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: results,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /journal/:id/broadcast/resend error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

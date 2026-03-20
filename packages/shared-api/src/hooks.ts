@@ -14,6 +14,7 @@ import {
   userLinksApi,
   eightSleepApi,
   journalApi,
+  googleContactsApi,
   travelApi,
   scheduleItemsApi,
   userDietApi,
@@ -1552,6 +1553,151 @@ export function formatJournalDate(dateString: string): string {
     month: "short",
     day: "numeric",
     year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+// ============================================
+// Broadcast Hooks
+// ============================================
+
+export function useCreateBroadcast() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      title: string;
+      content: string;
+      broadcast_message: string;
+      voting_enabled?: boolean;
+      voting_type?: 'single' | 'multi';
+      voting_deadline?: string;
+      comments_enabled?: boolean;
+      vote_options?: string[];
+      recipients: {
+        contact_name: string;
+        contact_phone?: string;
+        contact_email?: string;
+        google_contact_id?: string;
+      }[];
+    }) => {
+      const response = await journalApi.createBroadcast(data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal"] });
+    },
+  });
+}
+
+export function useBroadcastStatus(entryId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["journal", "broadcast-status", entryId],
+    queryFn: async () => {
+      const response = await journalApi.getBroadcastStatus(entryId);
+      return response.data.data;
+    },
+    enabled,
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
+}
+
+export function useBroadcastView(token: string) {
+  return useQuery({
+    queryKey: ["broadcast", "view", token],
+    queryFn: async () => {
+      const response = await journalApi.getBroadcastView(token);
+      return response.data.data;
+    },
+    enabled: !!token,
+  });
+}
+
+export function useMarkBroadcastRead() {
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const response = await journalApi.markBroadcastRead(token);
+      return response.data;
+    },
+  });
+}
+
+export function useSubmitBroadcastVote(token: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { option_ids: string[]; other_text?: string }) => {
+      const response = await journalApi.submitBroadcastVote(token, data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["broadcast", "view", token] });
+    },
+  });
+}
+
+export function useSubmitBroadcastComment(token: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { content: string }) => {
+      const response = await journalApi.submitBroadcastComment(token, data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["broadcast", "view", token] });
+    },
+  });
+}
+
+export function useResendBroadcastSMS(entryId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (recipientIds?: string[]) => {
+      const response = await journalApi.resendBroadcastSMS(entryId, recipientIds);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal", "broadcast-status", entryId] });
+    },
+  });
+}
+
+// ============================================
+// Google Contacts Hooks
+// ============================================
+
+export function useGoogleContactsStatus() {
+  return useQuery({
+    queryKey: ["google-contacts", "status"],
+    queryFn: async () => {
+      const response = await googleContactsApi.getStatus();
+      return response.data.data;
+    },
+  });
+}
+
+export function useGoogleContacts(search?: string) {
+  return useQuery({
+    queryKey: ["google-contacts", "list", search],
+    queryFn: async () => {
+      const response = await googleContactsApi.getContacts(search);
+      return response.data.data;
+    },
+  });
+}
+
+export function useSyncGoogleContacts() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await googleContactsApi.syncContacts();
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["google-contacts"] });
+    },
   });
 }
 

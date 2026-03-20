@@ -50,10 +50,12 @@ import {
   ChevronDown,
   Filter,
   X,
+  Radio,
 } from "lucide-react";
 import { toast } from "sonner";
-import { JournalEntry, JournalMood } from "@singularity/shared-types";
+import { JournalEntry, JournalMood, JournalEntryType } from "@singularity/shared-types";
 import { cn } from "@/lib/utils";
+import { BroadcastCard } from "@/components/journal/BroadcastCard";
 
 const MOOD_OPTIONS: { value: JournalMood; label: string; emoji: string }[] = [
   { value: "happy", label: "Happy", emoji: "😊" },
@@ -69,6 +71,7 @@ export default function JournalPage() {
   const [search, setSearch] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
+  const [entryTypeFilter, setEntryTypeFilter] = useState<"all" | JournalEntryType>("all");
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
 
   // Fetch data
@@ -81,19 +84,31 @@ export default function JournalPage() {
   const { data: onThisDay } = useJournalOnThisDay();
   const deleteEntry = useDeleteJournalEntry();
 
-  // Filter entries by search
+  // Filter entries by search and entry type
   const filteredEntries = useMemo(() => {
     if (!entries) return [];
-    if (!search) return entries;
+    let result = entries;
 
-    const searchLower = search.toLowerCase();
-    return entries.filter(
-      (entry) =>
-        entry.title?.toLowerCase().includes(searchLower) ||
-        entry.content.toLowerCase().includes(searchLower) ||
-        entry.tags.some((tag) => tag.toLowerCase().includes(searchLower))
-    );
-  }, [entries, search]);
+    // Filter by entry type
+    if (entryTypeFilter !== "all") {
+      result = result.filter(
+        (entry) => (entry.entry_type || "journal") === entryTypeFilter
+      );
+    }
+
+    // Filter by search
+    if (search) {
+      const searchLower = search.toLowerCase();
+      result = result.filter(
+        (entry) =>
+          entry.title?.toLowerCase().includes(searchLower) ||
+          entry.content.toLowerCase().includes(searchLower) ||
+          entry.tags.some((tag) => tag.toLowerCase().includes(searchLower))
+      );
+    }
+
+    return result;
+  }, [entries, search, entryTypeFilter]);
 
   // Group entries by date
   const groupedEntries = useMemo(() => {
@@ -123,10 +138,11 @@ export default function JournalPage() {
   const clearFilters = () => {
     setSelectedTag(null);
     setSelectedMood(null);
+    setEntryTypeFilter("all");
     setSearch("");
   };
 
-  const hasFilters = selectedTag || selectedMood || search;
+  const hasFilters = selectedTag || selectedMood || search || entryTypeFilter !== "all";
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -141,12 +157,20 @@ export default function JournalPage() {
             {entries?.length || 0} entries
           </p>
         </div>
-        <Link href="/journal/new">
-          <Button>
-            <Plus className="w-4 h-4 mr-2" />
-            New Entry
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/journal/new/broadcast">
+            <Button variant="outline">
+              <Radio className="w-4 h-4 mr-2" />
+              Broadcast
+            </Button>
+          </Link>
+          <Link href="/journal/new">
+            <Button>
+              <Plus className="w-4 h-4 mr-2" />
+              New Entry
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* On This Day */}
@@ -174,6 +198,24 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+
+      {/* Entry type tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b">
+        {(["all", "journal", "broadcast"] as const).map((type) => (
+          <button
+            key={type}
+            onClick={() => setEntryTypeFilter(type)}
+            className={cn(
+              "px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
+              entryTypeFilter === type
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {type === "all" ? "All" : type === "journal" ? "Journal" : "Broadcasts"}
+          </button>
+        ))}
+      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -288,14 +330,18 @@ export default function JournalPage() {
                   {date}
                 </h3>
                 <div className="space-y-3">
-                  {dateEntries.map((entry) => (
-                    <JournalEntryCard
-                      key={entry.id}
-                      entry={entry}
-                      onEdit={() => router.push(`/journal/${entry.id}/edit`)}
-                      onDelete={() => setDeleteEntryId(entry.id)}
-                    />
-                  ))}
+                  {dateEntries.map((entry) =>
+                    entry.entry_type === "broadcast" ? (
+                      <BroadcastCard key={entry.id} entry={entry} />
+                    ) : (
+                      <JournalEntryCard
+                        key={entry.id}
+                        entry={entry}
+                        onEdit={() => router.push(`/journal/${entry.id}/edit`)}
+                        onDelete={() => setDeleteEntryId(entry.id)}
+                      />
+                    )
+                  )}
                 </div>
               </div>
             ))}

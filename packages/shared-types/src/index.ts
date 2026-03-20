@@ -712,6 +712,12 @@ export type JournalMood = 'happy' | 'calm' | 'neutral' | 'sad' | 'down' | 'frust
 // Entry mode options
 export type JournalEntryMode = 'freeform' | 'guided';
 
+// Entry type (journal vs broadcast)
+export type JournalEntryType = 'journal' | 'broadcast';
+
+// Broadcast voting type
+export type BroadcastVotingType = 'single' | 'multi';
+
 // Prompt source options
 export type JournalPromptSource = 'curated' | 'ai' | 'user';
 
@@ -764,6 +770,14 @@ export interface JournalEntry {
   capsule_reminder_30d_sent: boolean;
   capsule_reminder_7d_sent: boolean;
 
+  // Broadcast fields
+  entry_type: JournalEntryType;
+  broadcast_message?: string;
+  voting_enabled: boolean;
+  voting_type: BroadcastVotingType;
+  voting_deadline?: string;
+  comments_enabled: boolean;
+
   // Timestamps
   created_at: string;
   updated_at: string;
@@ -771,6 +785,8 @@ export interface JournalEntry {
   // Related data (populated via joins)
   media?: JournalMedia[];
   capsule_recipients?: JournalCapsuleRecipient[];
+  broadcast_recipients?: BroadcastRecipient[];
+  vote_options?: BroadcastVoteOption[];
 }
 
 export interface CreateJournalEntryRequest {
@@ -907,6 +923,122 @@ export interface OnThisDayEntry {
 export interface JournalTagCount {
   tag: string;
   count: number;
+}
+
+// =============================================
+// BROADCAST TYPES
+// =============================================
+
+export interface BroadcastVoteOption {
+  id: string;
+  entry_id: string;
+  label: string;
+  sort_order: number;
+  is_other: boolean;
+  created_at: string;
+}
+
+export interface BroadcastRecipient {
+  id: string;
+  entry_id: string;
+  user_id: string;
+  contact_name: string;
+  contact_phone?: string;
+  contact_email?: string;
+  google_contact_id?: string;
+  access_token: string;
+  first_read_at?: string;
+  last_read_at?: string;
+  read_count: number;
+  sms_sent_at?: string;
+  sms_message_id?: string;
+  followup_count: number;
+  last_followup_at?: string;
+  created_at: string;
+}
+
+export interface BroadcastVote {
+  id: string;
+  entry_id: string;
+  recipient_id: string;
+  option_id: string;
+  other_text?: string;
+  created_at: string;
+  option?: BroadcastVoteOption;
+}
+
+export interface BroadcastComment {
+  id: string;
+  entry_id: string;
+  recipient_id: string;
+  content: string;
+  created_at: string;
+  recipient?: BroadcastRecipient;
+}
+
+export interface CreateBroadcastRequest {
+  title: string;
+  content: string;
+  broadcast_message: string;
+  voting_enabled?: boolean;
+  voting_type?: BroadcastVotingType;
+  voting_deadline?: string;
+  comments_enabled?: boolean;
+  vote_options?: string[];
+  recipients: {
+    contact_name: string;
+    contact_phone?: string;
+    contact_email?: string;
+    google_contact_id?: string;
+  }[];
+}
+
+export interface BroadcastStatus {
+  entry: JournalEntry;
+  recipients: BroadcastRecipient[];
+  vote_options: BroadcastVoteOption[];
+  votes: BroadcastVote[];
+  comments: BroadcastComment[];
+  summary: {
+    total_recipients: number;
+    read_count: number;
+    voted_count: number;
+    comment_count: number;
+  };
+}
+
+// What a recipient sees (public, token-based)
+export interface BroadcastRecipientView {
+  entry: {
+    id: string;
+    title?: string;
+    content: string;
+    content_html?: string;
+    created_at: string;
+    media?: JournalMedia[];
+  };
+  recipient: {
+    id: string;
+    contact_name: string;
+  };
+  voting_enabled: boolean;
+  voting_type: BroadcastVotingType;
+  voting_deadline?: string;
+  comments_enabled: boolean;
+  vote_options: BroadcastVoteOption[];
+  my_votes: BroadcastVote[];
+  comments: BroadcastComment[];
+}
+
+export interface GoogleContact {
+  id: string;
+  user_id: string;
+  google_resource_name: string;
+  display_name?: string;
+  phone_numbers: { value: string; type?: string }[];
+  email_addresses: { value: string; type?: string }[];
+  photo_url?: string;
+  synced_at: string;
 }
 
 // =============================================

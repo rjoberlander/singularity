@@ -424,6 +424,25 @@ export default function NewJournalEntryPage() {
                 </div>
               </div>
             </button>
+
+            {/* Broadcast */}
+            <Link
+              href="/journal/new/broadcast"
+              className="group p-6 rounded-xl border-2 border-border hover:border-blue-500 bg-card hover:bg-blue-500/5 transition-all text-left"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500/20">
+                  <Send className="w-6 h-6 text-blue-500" />
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-1">Broadcast</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Send an update to your group via SMS. Track reads, collect
+                    votes, and get comments.
+                  </p>
+                </div>
+              </div>
+            </Link>
           </div>
         </div>
       </div>

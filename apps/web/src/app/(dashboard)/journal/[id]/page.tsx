@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { X, Video } from "lucide-react";
+import { BroadcastStatusPanel } from "@/components/journal/BroadcastStatusPanel";
 
 export default function JournalEntryPage({
   params,
@@ -271,6 +272,13 @@ export default function JournalEntryPage({
                     {tag}
                   </Badge>
                 ))}
+              </div>
+            )}
+
+            {/* Broadcast Status Panel */}
+            {entry.entry_type === "broadcast" && (
+              <div className="mt-6">
+                <BroadcastStatusPanel entryId={id} />
               </div>
             )}
           </div>

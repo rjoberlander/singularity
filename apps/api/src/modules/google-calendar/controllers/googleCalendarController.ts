@@ -131,6 +131,7 @@ export const getAuthUrl = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const state = req.body.state; // Optional state for CSRF protection
+    const additionalScopes = req.body.additionalScopes as string[] | undefined;
 
     if (!userId) {
       return res.status(401).json({
@@ -140,7 +141,7 @@ export const getAuthUrl = async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
-    const authUrl = await googleCalendarService.generateAuthUrl(userId, state);
+    const authUrl = await googleCalendarService.generateAuthUrl(userId, state, additionalScopes);
 
     res.json({
       success: true,

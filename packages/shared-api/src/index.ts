@@ -524,6 +524,46 @@ export const journalApi = {
   createPrompt: (data: { prompt_text: string; category?: string }) =>
     getApi().post("/journal/prompts", data),
   deletePrompt: (id: string) => getApi().delete(`/journal/prompts/${id}`),
+
+  // Broadcasts (authenticated)
+  createBroadcast: (data: {
+    title: string;
+    content: string;
+    broadcast_message: string;
+    voting_enabled?: boolean;
+    voting_type?: 'single' | 'multi';
+    voting_deadline?: string;
+    comments_enabled?: boolean;
+    vote_options?: string[];
+    recipients: {
+      contact_name: string;
+      contact_phone?: string;
+      contact_email?: string;
+      google_contact_id?: string;
+    }[];
+  }) => getApi().post("/journal/broadcast", data),
+  getBroadcastStatus: (entryId: string) =>
+    getApi().get(`/journal/${entryId}/broadcast-status`),
+  resendBroadcastSMS: (entryId: string, recipientIds?: string[]) =>
+    getApi().post(`/journal/${entryId}/broadcast/resend`, { recipient_ids: recipientIds }),
+
+  // Broadcast public (no auth, token-based)
+  getBroadcastView: (token: string) =>
+    getApi().get(`/journal/broadcast/view/${token}`),
+  markBroadcastRead: (token: string) =>
+    getApi().post(`/journal/broadcast/view/${token}/read`),
+  submitBroadcastVote: (token: string, data: { option_ids: string[]; other_text?: string }) =>
+    getApi().post(`/journal/broadcast/view/${token}/vote`, data),
+  submitBroadcastComment: (token: string, data: { content: string }) =>
+    getApi().post(`/journal/broadcast/view/${token}/comment`, data),
+};
+
+// Google Contacts
+export const googleContactsApi = {
+  getStatus: () => getApi().get("/google-contacts/status"),
+  syncContacts: () => getApi().post("/google-contacts/sync"),
+  getContacts: (search?: string) =>
+    getApi().get("/google-contacts/contacts", { params: search ? { search } : undefined }),
 };
 
 // Schedule Items (Exercises & Meals)

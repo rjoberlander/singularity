@@ -24,8 +24,11 @@ import userRoutes from './routes/users';
 import aiAPIKeyRoutes from './modules/ai-api-keys/routes';
 import healthChatRoutes from './modules/kb-agent/routes';
 import { twilioRoutes } from './modules/twilio';
+import twilioWebhookRoutes from './modules/twilio/webhookRoutes';
+import telegramRoutes from './modules/telegram/routes';
 import eightSleepRoutes from './modules/eight-sleep/routes';
 import googleCalendarRoutes from './modules/google-calendar/routes';
+import googleContactsRoutes from './modules/google-contacts/routes';
 import adminRoutes from './routes/admin';
 import changelogRoutes from './routes/changelog';
 import protocolDocsRoutes from './routes/protocolDocs';
@@ -37,9 +40,11 @@ import routineVersionsRoutes from './routes/routineVersions';
 import travelRoutes from './routes/travel';
 import rvLocationsRoutes from './routes/rv-locations';
 import { startSyncScheduler } from './modules/eight-sleep/jobs/syncScheduler';
+import { telegramBotService } from './modules/telegram/telegramBotService';
 
 // Import cron jobs
 import { startAIKeyHealthCheckCron } from './cron/aiKeyHealthCheck';
+import { startBroadcastFollowupCron } from './cron/broadcastFollowups';
 
 // Import middleware
 import { authenticateUser } from './middleware/auth';
@@ -78,6 +83,19 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Webhook body parsing — must be BEFORE express.json() so Twilio's
+// application/x-www-form-urlencoded payloads are parsed correctly
+app.use('/api/v1/webhooks', (req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    return express.urlencoded({ extended: true })(req, res, next);
+  }
+  if (contentType.includes('application/json')) {
+    return express.json()(req, res, next);
+  }
+  next();
+});
 
 // Body parsing - 100MB limit for large PDF files (base64 encoded)
 app.use(express.json({ limit: '100mb' }));
@@ -126,6 +144,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
       chat: '/api/v1/chat',
       eightSleep: '/api/v1/eight-sleep',
       googleCalendar: '/api/v1/google-calendar',
+      googleContacts: '/api/v1/google-contacts',
       admin: '/api/v1/admin',
       twilio: '/api/v1/twilio',
       journal: '/api/v1/journal',
@@ -136,6 +155,7 @@ app.get('/api/v1', (req: Request, res: Response) => {
 
 // Public routes (no auth required)
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/webhooks/twilio', twilioWebhookRoutes); // Twilio webhooks (no auth — called by Twilio)
 
 // Protected routes (require authentication)
 // NOTE: More specific routes (stars, notes) must come BEFORE the general biomarkers route
@@ -154,6 +174,7 @@ app.use('/api/v1/ai-api-keys', aiAPIKeyRoutes); // Auth handled in routes
 app.use('/api/v1/chat', healthChatRoutes); // Health AI chat assistant
 app.use('/api/v1/eight-sleep', authenticateUser, eightSleepRoutes); // Eight Sleep integration
 app.use('/api/v1/google-calendar', googleCalendarRoutes); // Google Calendar integration (auth handled in routes)
+app.use('/api/v1/google-contacts', googleContactsRoutes); // Google Contacts integration
 app.use('/api/v1/admin', adminRoutes); // Admin routes (auth handled in routes)
 app.use('/api/v1/changelog', authenticateUser, changelogRoutes); // Protocol change log
 app.use('/api/v1/protocol-docs', authenticateUser, protocolDocsRoutes); // Protocol documents
@@ -165,6 +186,7 @@ app.use('/api/v1/user-diet', authenticateUser, userDietRoutes); // User diet set
 app.use('/api/v1/routine-versions', authenticateUser, routineVersionsRoutes); // Routine versions (change log)
 app.use('/api/v1/travel', travelRoutes); // Travel module (auth handled in routes, public routes for shared trips)
 app.use('/api/v1/rv-locations', rvLocationsRoutes); // RV Locations module
+app.use('/api/v1/telegram', telegramRoutes); // Telegram bot admin (auth handled in routes)
 
 // ==============================================
 // Error Handling
@@ -210,9 +232,28 @@ app.listen(PORT, () => {
 
   // Start cron jobs
   startAIKeyHealthCheckCron();
+  startBroadcastFollowupCron();
 
   // Start Eight Sleep sync scheduler
   startSyncScheduler();
+
+  // Start Telegram bot (if configured)
+  telegramBotService.initialize().catch(err => {
+    console.error('Failed to start Telegram bot:', err.message);
+  });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received — shutting down gracefully');
+  await telegramBotService.stop();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received — shutting down gracefully');
+  await telegramBotService.stop();
+  process.exit(0);
 });
 
 export default app;
