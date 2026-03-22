@@ -5,12 +5,18 @@
  * Supports Google Places, Anthropic, OpenAI, Perplexity, etc.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let _supabase: SupabaseClient;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return _supabase;
+}
 
 // Known pricing for various APIs (as of 2024)
 const API_PRICING = {
@@ -102,7 +108,7 @@ export async function trackApiUsage(params: TrackUsageParams): Promise<void> {
   }
 
   try {
-    const { error } = await supabase.from('api_usage_tracking').insert({
+    const { error } = await getSupabase().from('api_usage_tracking').insert({
       user_id: userId,
       provider,
       api_type: apiType,
@@ -232,7 +238,7 @@ export async function getMonthlyUsage(
   const endOfMonth = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
 
   // Use RPC to aggregate in database (avoids Supabase 1000 row limit)
-  const { data, error } = await supabase.rpc('get_monthly_usage_summary', {
+  const { data, error } = await getSupabase().rpc('get_monthly_usage_summary', {
     p_user_id: userId,
     p_start_date: startOfMonth.toISOString(),
     p_end_date: endOfMonth.toISOString(),
