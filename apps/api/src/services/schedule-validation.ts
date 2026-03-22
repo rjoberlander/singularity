@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { fetchAndStoreTripPhotos } from './google-photo-service';
 import type {
   ValidationIssue,
   ValidationResult,
@@ -682,9 +683,9 @@ export class ScheduleValidationService {
    * Searches Google for activities without google_place_id
    * Fetches photos and stores them in trip_media
    *
-   * Photo counts:
-   * - Primary activities: 20 photos
-   * - Alternate activities: 10 photos
+   * Photo counts (Google API returns max 10 refs per place):
+   * - Primary activities: up to 10 photos
+   * - Alternate activities: up to 5 photos
    *
    * Additional enrichment:
    * - For restaurants: Fetches reviews and extracts top 3-5 recommended dishes via AI
@@ -710,11 +711,33 @@ export class ScheduleValidationService {
     let photosAdded = 0;
     let reviewsAnalyzed = 0;
 
-    // Skip these activity types that don't have Google Places
+    // Activity types that should never be enriched (categories, not sub-types)
+    const NON_ENRICHABLE_TYPES = new Set(['transport', 'downtime', 'logistics', 'sleep', 'rest', 'custom']);
+
+    // Skip these activity names that don't map to a Google Place
     const SKIP_KEYWORDS = [
-      'arrive', 'depart', 'drive', 'pick up', 'check-in', 'check in', 'checkout',
+      'arrive', 'depart', 'pick up', 'check-in', 'check in', 'checkout',
       'wake up', 'kids to bed', 'load car', 'pack', 'pool time', 'siesta', 'nap',
-      'rest', 'sleep', 'breakfast', 'lunch', 'dinner', 'morning routine'
+      'sleep', 'morning routine'
+    ];
+
+    // Transit name patterns — activities that are travel TO a destination, not the destination itself
+    const TRANSIT_NAME_PATTERNS = [
+      /^uber\b/i, /^taxi\b/i, /^bus\b/i, /^train\b/i, /^tram\b/i,
+      /^drive\s+(to|from|back)\b/i,
+      /^walk\s+(to|from|back|down\s+to)\b/i,
+      /^travel\s+to\b/i, /^head\s+to\b/i, /^ride\s+to\b/i,
+      /^transfer\b/i, /^drop[\s-]*off\b/i,
+      /^park\s+at\b/i,
+      /\b(back\s+to|to\s+the)\s+(hotel|airport|car|station|accommodation)\b/i,
+    ];
+
+    // Generic meal names that should be skipped (at hotel, no specific restaurant)
+    const GENERIC_MEAL_PATTERNS = [
+      /^breakfast$/i, /^lunch$/i, /^dinner$/i,
+      /^hotel breakfast$/i, /^breakfast at hotel$/i, /^breakfast at accommodation$/i,
+      /breakfast \(at hotel\)/i, /lunch \(at hotel\)/i, /dinner \(at hotel\)/i,
+      /room service/i,
     ];
 
     // Activity types that are restaurants/food
@@ -723,9 +746,17 @@ export class ScheduleValidationService {
     // Activity types that are attractions with potential ticket prices
     const ATTRACTION_TYPES = ['museum', 'attraction', 'palace', 'castle', 'monument', 'park', 'zoo', 'aquarium', 'theme_park'];
 
-    const shouldSkip = (name: string) => {
+    const shouldSkip = (name: string, activityType?: string) => {
+      // Skip non-enrichable activity types entirely
+      if (activityType && NON_ENRICHABLE_TYPES.has(activityType)) return true;
       const lower = name.toLowerCase();
-      return SKIP_KEYWORDS.some(skip => lower.includes(skip));
+      // Check non-meal skip keywords
+      if (SKIP_KEYWORDS.some(skip => lower.includes(skip))) return true;
+      // Check transit name patterns (e.g. "Uber to X", "Walk to X", "Park at X")
+      if (TRANSIT_NAME_PATTERNS.some(p => p.test(name))) return true;
+      // Check generic meal patterns (skip "Breakfast" but not "Breakfast at Cafe Lisboa")
+      if (GENERIC_MEAL_PATTERNS.some(p => p.test(name))) return true;
+      return false;
     };
 
     const isRestaurant = (activity: TripActivityWithGoogleData) => {
@@ -741,18 +772,18 @@ export class ScheduleValidationService {
 
     // Filter activities that need Google data
     const needsData = activities.filter(a =>
-      !a.google_place_id && !shouldSkip(a.name)
+      !a.google_place_id && !shouldSkip(a.name, a.activity_type)
     );
 
     const alreadyEnriched = activities.filter(a => a.google_place_id).length;
-    const skippedByKeyword = activities.filter(a => !a.google_place_id && shouldSkip(a.name)).length;
-    const skipped = alreadyEnriched + skippedByKeyword;
+    const skippedByFilter = activities.filter(a => !a.google_place_id && shouldSkip(a.name, a.activity_type)).length;
+    const skipped = alreadyEnriched + skippedByFilter;
 
     log('START', {
       totalActivities: activities.length,
       needsEnrichment: needsData.length,
       alreadyEnriched,
-      skippedByKeyword
+      skippedByFilter
     });
 
     // Process sequentially to respect rate limits
@@ -767,10 +798,8 @@ export class ScheduleValidationService {
           ? `${activity.name} ${activity.location_name}`
           : activity.name;
 
-        // Determine photo count: 3 for primary activities during initial enrichment
-        // Full photo fetch (20/10) can be done as a separate background job
         const isAlternate = activity.is_backup || !!activity.alternate_to_activity_id;
-        const maxPhotos = isAlternate ? 1 : 3; // Reduced for speed - was 10/20
+        const maxPhotos = isAlternate ? 5 : 10; // Google API returns max 10 photo refs per place
 
         log(`Processing ${processedCount}/${needsData.length}`, {
           name: activity.name.substring(0, 40),
@@ -947,68 +976,33 @@ export class ScheduleValidationService {
 
         enriched++;
 
-        // Fetch and store photos (20 for primary, 10 for alternates)
-        const photos = place.photos?.slice(0, maxPhotos) || [];
-        let activityPhotosAdded = 0;
-        log(`Fetching ${photos.length} photos for ${activity.name.substring(0, 30)}`);
+        // Fetch and store photos using shared service (handles dedup via content hash + photo ref)
+        // Note: Google Places API returns max 10 photo refs per place — this is a hard API limit
+        const photos = place.photos || [];
+        log(`Fetching photos for ${activity.name.substring(0, 30)}`, { available: photos.length, maxPhotos });
 
-        for (const photo of photos) {
-          try {
-            const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${googleApiKey}&maxWidthPx=1600`;
-            const photoResponse = await fetch(photoUrl);
-            if (!photoResponse.ok) continue;
+        const photoResult = await fetchAndStoreTripPhotos(
+          tripId,
+          userId,
+          activity.id,
+          photos,
+          activity.name,
+          { maxPhotos, userId, contextType: 'travel_planning', contextId: tripId }
+        );
 
-            const photoBuffer = await photoResponse.arrayBuffer();
-            const photoBytes = new Uint8Array(photoBuffer);
-
-            const filename = `google_${photo.name.replace(/\//g, '_')}.jpg`;
-            const storagePath = `travel/${tripId}/activities/${activity.id}/${filename}`;
-
-            const { error: uploadError } = await supabase.storage
-              .from('singularity-uploads')
-              .upload(storagePath, photoBytes, { contentType: 'image/jpeg', upsert: true });
-
-            if (uploadError) continue;
-
-            const { data: urlData } = supabase.storage
-              .from('singularity-uploads')
-              .getPublicUrl(storagePath);
-
-            const attribution = photo.authorAttributions?.[0];
-            await supabase.from('trip_media').insert({
-              trip_id: tripId,
-              user_id: userId,
-              parent_type: 'activity',
-              parent_id: activity.id,
-              file_url: urlData.publicUrl,
-              media_type: 'image',
-              width: photo.widthPx,
-              height: photo.heightPx,
-              is_google_sourced: true,
-              approved: true,
-              google_attribution_name: attribution?.displayName,
-              google_attribution_uri: attribution?.uri,
-              google_photo_reference: photo.name
-            });
-
-            photosAdded++;
-            activityPhotosAdded++;
-            await new Promise(r => setTimeout(r, 50)); // Reduced delay
-          } catch (photoError) {
-            // Continue on photo errors
-          }
-        }
+        photosAdded += photoResult.photosAdded;
 
         const activityDuration = ((Date.now() - activityStartTime) / 1000).toFixed(2);
         log(`DONE ${processedCount}/${needsData.length}`, {
           activity: activity.name.substring(0, 30),
           duration: `${activityDuration}s`,
-          photos: activityPhotosAdded,
+          photos: photoResult.photosAdded,
+          skipped: photoResult.photosSkipped,
           totalEnriched: enriched,
           totalPhotos: photosAdded
         });
 
-        // Rate limiting between activities (reduced since we fetch fewer photos now)
+        // Rate limiting between activities
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         log(`ERROR processing activity`, { activity: activity.name, error: String(error) });
@@ -1203,7 +1197,7 @@ Return ONLY the JSON array, no other text.`
         } : undefined,
         rating: result.rating,
         user_ratings_total: result.user_ratings_total,
-        photos: result.photos?.slice(0, 5).map(p => ({
+        photos: result.photos?.map(p => ({
           photo_reference: p.photo_reference,
           width: p.width,
           height: p.height,

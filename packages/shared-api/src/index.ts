@@ -711,6 +711,10 @@ export const travelApi = {
       getApi().put(`/travel/trips/${tripId}/accommodations/${accommodationId}`, data),
     delete: (tripId: string, accommodationId: string) =>
       getApi().delete(`/travel/trips/${tripId}/accommodations/${accommodationId}`),
+    lookupHotel: (tripId: string, data: { query: string; segmentName?: string; startDate?: string; endDate?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/lookup-hotel`, data),
+    fetchGooglePlaces: (tripId: string, accommodationId: string) =>
+      getApi().post(`/travel/trips/${tripId}/accommodations/${accommodationId}/fetch-google`),
   },
 
   // Days

@@ -900,7 +900,7 @@ export default function TripDetailsPage() {
                                           )}
                                         >
                                           <span className="w-4 text-center shrink-0">
-                                            {getActivityTypeIcon(activity.activity_type || "activity")}
+                                            {getActivityTypeIcon(activity.activity_type || "activity", activity.activity_sub_type)}
                                           </span>
                                           <span className="truncate max-w-[240px]">{activity.name}</span>
                                           {/* Status icons - right after name */}

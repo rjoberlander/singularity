@@ -63,6 +63,7 @@ import {
   X,
   Check,
   ChevronDown,
+  BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -77,6 +78,7 @@ const TABS = [
   { value: "lodging", label: "Lodging", icon: Hotel, href: "/lodging" },
   { value: "packing", label: "Packing", icon: ListTodo, href: "/packing" },
   { value: "media", label: "Media", icon: Images, href: "/media" },
+  { value: "browse", label: "Browse", icon: BookOpen, href: "/browse" },
 ];
 
 export default function TripDetailLayout({

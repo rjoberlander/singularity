@@ -41,6 +41,12 @@ import {
   Timer,
   History,
   Columns,
+  Footprints,
+  Plane,
+  Coffee,
+  BedDouble,
+  Moon,
+  ClipboardList,
 } from "lucide-react";
 import { TripActivity, TripMedia } from "@singularity/shared-types";
 import {
@@ -61,21 +67,37 @@ interface ActivityDetailPanelProps {
 }
 
 // Get activity type icon as a component
-function ActivityTypeIcon({ type }: { type: string }) {
+function ActivityTypeIcon({ type, subType }: { type: string; subType?: string }) {
   const iconClass = "h-5 w-5";
+  // Sub-type specific icons
+  if (subType) {
+    switch (subType) {
+      case "hike": return <Mountain className={iconClass} />;
+      case "beach": return <Waves className={iconClass} />;
+      case "museum": return <Building2 className={iconClass} />;
+      case "viewpoint": return <Eye className={iconClass} />;
+      case "tour": return <Ticket className={iconClass} />;
+      case "walking": return <Footprints className={iconClass} />;
+      case "long_haul": return <Car className={iconClass} />;
+      case "flight": return <Plane className={iconClass} />;
+      case "coffee": return <Coffee className={iconClass} />;
+      case "pool": return <Waves className={iconClass} />;
+      case "check_in": case "check_out": return <BedDouble className={iconClass} />;
+      case "packing": return <Backpack className={iconClass} />;
+    }
+  }
+  // Category-level icons
   switch (type) {
-    case "restaurant":
-      return <Utensils className={iconClass} />;
-    case "hike":
-      return <Mountain className={iconClass} />;
-    case "beach":
-      return <Waves className={iconClass} />;
-    case "museum":
-      return <Building2 className={iconClass} />;
-    case "transport":
-      return <Car className={iconClass} />;
-    default:
-      return <MoreHorizontal className={iconClass} />;
+    case "restaurant": return <Utensils className={iconClass} />;
+    case "activity": return <Star className={iconClass} />;
+    case "transport": return <Car className={iconClass} />;
+    case "downtime": return <Moon className={iconClass} />;
+    case "logistics": return <ClipboardList className={iconClass} />;
+    // Legacy
+    case "hike": return <Mountain className={iconClass} />;
+    case "beach": return <Waves className={iconClass} />;
+    case "museum": return <Building2 className={iconClass} />;
+    default: return <MoreHorizontal className={iconClass} />;
   }
 }
 
@@ -162,7 +184,7 @@ export function ActivityDetailPanel({
             <SheetHeader className="mb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-primary/10 rounded-lg">
-                  <ActivityTypeIcon type={activity.activity_type || "activity"} />
+                  <ActivityTypeIcon type={activity.activity_type || "activity"} subType={activity.activity_sub_type} />
                 </div>
                 <div>
                   <SheetTitle className="text-left">{activity.name}</SheetTitle>

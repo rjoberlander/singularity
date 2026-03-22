@@ -1216,8 +1216,25 @@ export type TripTransportationType = 'flying' | 'driving' | 'both';
 // Flight direction
 export type FlightDirection = 'outbound' | 'return';
 
-// Activity types
-export type TripActivityType = 'hike' | 'beach' | 'restaurant' | 'museum' | 'transport' | 'activity' | 'other';
+// Activity categories (redefined from flat types)
+export type TripActivityCategory = 'restaurant' | 'activity' | 'transport' | 'downtime' | 'logistics';
+
+// Activity sub-types for granular classification
+export type TripActivitySubType =
+  // activity sub-types
+  | 'tour' | 'museum' | 'hike' | 'beach' | 'viewpoint' | 'water_sport'
+  | 'horseback' | 'shopping' | 'nightlife' | 'sightseeing' | 'outdoor' | 'other'
+  // transport sub-types
+  | 'long_haul' | 'local' | 'walking' | 'flight' | 'ferry' | 'train'
+  // restaurant sub-types
+  | 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'coffee'
+  // downtime sub-types
+  | 'rest' | 'pool' | 'relaxation'
+  // logistics sub-types
+  | 'check_in' | 'check_out' | 'packing';
+
+// Backward compat alias
+export type TripActivityType = TripActivityCategory;
 
 // Time block options
 export type TripTimeBlock = 'morning' | 'midday' | 'sunset' | 'evening';
@@ -1511,6 +1528,9 @@ export interface TripAccommodation {
   website?: string;
   phone?: string;
   notes?: string;
+  google_place_id?: string;
+  google_rating?: number;
+  photos_fetched?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1535,6 +1555,21 @@ export interface CreateTripAccommodationRequest {
   website?: string;
   phone?: string;
   notes?: string;
+}
+
+export interface HotelLookupResult {
+  name: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  website?: string;
+  phone?: string;
+  room_type?: string;
+  amenities?: string[];
+  check_in_time?: string;
+  check_out_time?: string;
+  notes?: string;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 // Trip Day
@@ -1605,6 +1640,7 @@ export interface TripActivity {
   name: string;
   description?: string;
   activity_type?: TripActivityType;
+  activity_sub_type?: TripActivitySubType;
   time_block?: TripTimeBlock;
   start_time?: string;  // HH:MM format
   end_time?: string;    // HH:MM format
@@ -1684,6 +1720,7 @@ export interface TripActivity {
   };
   // Restaurant-specific details (enriched with AI review analysis)
   restaurant_details?: RestaurantDetails;
+  restaurant_suggestion_source?: 'ai_discovery' | 'imported_research' | 'user_manual' | 'hotel_restaurant';
   kid_engagement?: {
     age_7?: string[];
     age_5?: string[];
@@ -1725,6 +1762,7 @@ export interface CreateTripActivityRequest {
   name: string;
   description?: string;
   activity_type?: TripActivityType;
+  activity_sub_type?: TripActivitySubType;
   time_block?: TripTimeBlock;
   start_time?: string;
   end_time?: string;
@@ -1885,7 +1923,7 @@ export interface GooglePlaceDetails {
 export interface FetchGooglePlacesResponse {
   success: boolean;
   google_place_id: string;
-  data: Partial<TripActivity | TripSegment>;
+  data: Partial<TripActivity | TripSegment | TripAccommodation>;
   photos_added: number;
   message?: string;
 }

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { Check, CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2, Pencil, X, Wand2, Upload, FileUp, Sparkles, ImageIcon, Plane, ExternalLink } from "lucide-react";
+import { Check, CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2, Pencil, X, Wand2, Upload, FileUp, Sparkles, ImageIcon, Plane, ExternalLink, Lock, Timer, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,9 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useUpdateTrip } from "@/lib/api";
 import { toast } from "sonner";
-import type { PlanningStepId, StepCompletionStatus, PlanningStepConfig, SegmentInfo, SegmentAccommodationInfo, FlightInfo } from "@/lib/travel-planning";
+import type { PlanningStepId, StepCompletionStatus, PlanningStepConfig, SegmentInfo, SegmentAccommodationInfo, FlightInfo, SegmentEnrichmentStats } from "@/lib/travel-planning";
 import type { Trip, ValidationResult, ValidationIssue } from "@singularity/shared-types";
+import { AddHotelDialog } from "./AddHotelDialog";
 
 interface PlanStepCardProps {
   tripId: string;
@@ -43,6 +44,12 @@ interface PlanStepCardProps {
   hasSegments?: boolean;
   // Validation results (for days_activities step)
   validationResult?: ValidationResult | null;
+  // Per-segment enrichment
+  onEnrichSegment?: (segmentId: string) => void;
+  enrichingSegmentId?: string | null;
+  // Per-segment timing enrichment (phase 2)
+  onTimingSegment?: (segmentId: string) => void;
+  timingSegmentId?: string | null;
 }
 
 export function PlanStepCard({
@@ -63,6 +70,10 @@ export function PlanStepCard({
   isExtractingFlight,
   hasSegments,
   validationResult,
+  onEnrichSegment,
+  enrichingSegmentId,
+  onTimingSegment,
+  timingSegmentId,
 }: PlanStepCardProps) {
   const hasMissingItems = status.missingItems.length > 0;
   const isCompleted = status.completed;
@@ -77,6 +88,7 @@ export function PlanStepCard({
   const [origin, setOrigin] = useState("");
   const [transportationType, setTransportationType] = useState("");
   const [travelerCount, setTravelerCount] = useState(1);
+  const [addHotelSegment, setAddHotelSegment] = useState<{ segmentId: string; segmentName: string; startDate: string; endDate: string } | null>(null);
 
   // Sync state with tripData when it loads or changes
   useEffect(() => {
@@ -437,28 +449,37 @@ export function PlanStepCard({
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">
               <p className="font-medium text-foreground mb-2">Build itinerary:</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
                 <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">1. Enrich Data</p>
+                  <p className="font-medium text-foreground mb-1">1. Google Enrichment</p>
                   <ul className="space-y-0.5 text-muted-foreground">
-                    <li>• Fetch Google opening hours</li>
-                    <li>• Get ratings, reviews & photos</li>
-                    <li className="text-xs opacity-80 ml-2">↳ 20 photos (primary), 10 (alternates)</li>
-                    <li>• Restaurant: Top 3-5 dishes from reviews</li>
-                    <li>• Attraction: Ticket prices if available</li>
+                    <li>• Fetch Google Places data (opening hours, ratings)</li>
+                    <li>• Download photos</li>
+                    <li className="text-xs opacity-80 ml-2">↳ 20 primary, 10 alternates</li>
+                    <li>• Analyze reviews for dish recommendations</li>
+                    <li>• Fetch ticket prices for attractions</li>
                     <li className="text-green-600 dark:text-green-400">• Skip already enriched</li>
                   </ul>
                 </div>
                 <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">2. Generate Schedule</p>
+                  <p className="font-medium text-foreground mb-1">2. Timing & Restaurants</p>
+                  <ul className="space-y-0.5 text-muted-foreground">
+                    <li>• Replace generic meals with real restaurant suggestions</li>
+                    <li>• Compute drive/walk times between activities</li>
+                    <li>• Estimate activity durations</li>
+                    <li className="text-amber-600 dark:text-amber-400 mt-1">⚠ Requires: Google enrichment done + hotels/lodging set</li>
+                  </ul>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-2.5">
+                  <p className="font-medium text-foreground mb-1">3. Generate Schedule</p>
                   <ul className="space-y-0.5 text-muted-foreground">
                     <li>• AI creates 15-min precision times</li>
-                    <li>• Add travel time between locations</li>
+                    <li>• Uses pre-computed travel times</li>
                     <li>• Insert meals, check-in/out, buffers</li>
                   </ul>
                 </div>
                 <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">3. Validate</p>
+                  <p className="font-medium text-foreground mb-1">4. Validate</p>
                   <ul className="space-y-0.5 text-muted-foreground">
                     <li>• Check opening hours conflicts</li>
                     <li>• Verify hotel amenities</li>
@@ -488,59 +509,151 @@ export function PlanStepCard({
                     </span>
                   </div>
                 </div>
-                <table className="text-xs w-full">
-                  <thead>
-                    <tr className="text-muted-foreground border-b border-border/50">
-                      <th className="text-left py-1 pr-2 font-medium">#</th>
-                      <th className="text-left py-1 pr-2 font-medium">Segment</th>
-                      <th className="text-left py-1 pr-2 font-medium">Dates</th>
-                      <th className="text-left py-1 pr-2 font-medium">Enrichment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {status.segmentDetails.map((seg) => (
-                      <tr key={seg.segmentId} className="border-b border-border/30 last:border-0">
-                        <td className="py-0.5 pr-2 text-muted-foreground">{seg.segmentNumber || "-"}</td>
-                        <td className="py-0.5 pr-2">{seg.segmentName}</td>
-                        <td className="py-0.5 pr-2 text-muted-foreground whitespace-nowrap">
-                          {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
-                        </td>
-                        <td className="py-0.5 pr-2">
-                          <div className="flex items-center gap-0.5">
-                            {seg.days?.map((day) => {
-                              const hasEnrichable = (day.totalEnrichable || 0) > 0;
-                              const isComplete = day.enrichmentStatus === 'complete';
-                              const isPartial = day.enrichmentStatus === 'partial';
-
-                              return (
-                                <div
-                                  key={`enrich-${day.date}`}
-                                  className={cn(
-                                    "w-4 h-4 rounded-sm text-[9px] flex items-center justify-center font-medium",
-                                    isComplete
-                                      ? "bg-purple-500 text-white"
-                                      : isPartial
-                                      ? "border-2 border-purple-500 text-purple-500"
-                                      : hasEnrichable
-                                      ? "bg-muted text-muted-foreground"
-                                      : "bg-muted/50 text-muted-foreground/50"
-                                  )}
-                                  title={
-                                    hasEnrichable
-                                      ? `${day.date}: ${day.enrichedCount || 0}/${day.totalEnrichable} enriched`
-                                      : `${day.date}: No enrichable activities`
-                                  }
-                                >
-                                  {day.dayOfMonth}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full">
+                    <thead>
+                      <tr className="text-muted-foreground border-b border-border/50">
+                        <th className="text-left py-1 pr-2 font-medium">#</th>
+                        <th className="text-left py-1 pr-2 font-medium">Segment</th>
+                        <th className="text-left py-1 pr-2 font-medium">Dates</th>
+                        <th className="text-center py-1 px-1 font-medium">Places</th>
+                        <th className="text-center py-1 px-1 font-medium">Photos</th>
+                        <th className="text-center py-1 px-1 font-medium">Meals</th>
+                        <th className="text-left py-1 pr-2 font-medium">Days</th>
+                        <th className="text-right py-1 font-medium" colSpan={2}></th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {status.segmentDetails.map((seg) => {
+                        const stats = seg.enrichmentStats;
+                        const isEnrichingThis = enrichingSegmentId === seg.segmentId;
+                        const isTimingThis = timingSegmentId === seg.segmentId;
+                        const enrichmentDone = stats ? (stats.placesTotal === 0 || stats.placesEnriched > 0) : false;
+                        const timingLocked = !seg.hasHotel || !enrichmentDone;
+                        return (
+                          <tr key={seg.segmentId} className="border-b border-border/30 last:border-0">
+                            <td className="py-1 pr-2 text-muted-foreground">{seg.segmentNumber || "-"}</td>
+                            <td className="py-1 pr-2 font-medium">{seg.segmentName}</td>
+                            <td className="py-1 pr-2 text-muted-foreground whitespace-nowrap">
+                              {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
+                            </td>
+                            <td className="py-1 px-1 text-center">
+                              {stats ? (
+                                <span className={cn(
+                                  "whitespace-nowrap",
+                                  stats.placesTotal === 0 ? "text-muted-foreground" :
+                                  stats.placesEnriched === stats.placesTotal ? "text-green-600 dark:text-green-400" :
+                                  stats.placesEnriched > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                )}>
+                                  {stats.placesEnriched}/{stats.placesTotal}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td className="py-1 px-1 text-center">
+                              {stats ? (
+                                <span className={cn(
+                                  "whitespace-nowrap",
+                                  stats.photosExpected === 0 ? "text-muted-foreground" :
+                                  stats.photosActual >= stats.photosExpected ? "text-green-600 dark:text-green-400" :
+                                  stats.photosActual > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                )}>
+                                  {stats.photosActual}/{stats.photosExpected}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td className="py-1 px-1 text-center">
+                              {stats ? (
+                                <span className={cn(
+                                  "whitespace-nowrap",
+                                  stats.genericMealsTotal === 0 ? "text-muted-foreground" :
+                                  stats.mealsWithRestaurant === stats.genericMealsTotal ? "text-green-600 dark:text-green-400" :
+                                  stats.mealsWithRestaurant > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                )}>
+                                  {stats.mealsWithRestaurant}/{stats.genericMealsTotal}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td className="py-1 pr-2">
+                              <div className="flex items-center gap-0.5">
+                                {seg.days?.map((day) => {
+                                  const hasEnrichable = (day.totalEnrichable || 0) > 0;
+                                  const isComplete = day.enrichmentStatus === 'complete';
+                                  const isPartial = day.enrichmentStatus === 'partial';
+
+                                  return (
+                                    <div
+                                      key={`enrich-${day.date}`}
+                                      className={cn(
+                                        "w-4 h-4 rounded-sm text-[9px] flex items-center justify-center font-medium",
+                                        isComplete
+                                          ? "bg-purple-500 text-white"
+                                          : isPartial
+                                          ? "border-2 border-purple-500 text-purple-500"
+                                          : hasEnrichable
+                                          ? "bg-muted text-muted-foreground"
+                                          : "bg-muted/50 text-muted-foreground/50"
+                                      )}
+                                      title={
+                                        hasEnrichable
+                                          ? `${day.date}: ${day.enrichedCount || 0}/${day.totalEnrichable} enriched`
+                                          : `${day.date}: No enrichable activities`
+                                      }
+                                    >
+                                      {day.dayOfMonth}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                            <td className="py-1 text-right">
+                              {onEnrichSegment && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => onEnrichSegment(seg.segmentId)}
+                                  disabled={!!enrichingSegmentId || !!timingSegmentId}
+                                >
+                                  {isEnrichingThis ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    "Enrich"
+                                  )}
+                                </Button>
+                              )}
+                            </td>
+                            <td className="py-1 pl-1 text-right">
+                              {onTimingSegment && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className={cn(
+                                    "h-6 px-2 text-[10px]",
+                                    !timingLocked && "border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
+                                  )}
+                                  onClick={() => onTimingSegment(seg.segmentId)}
+                                  disabled={timingLocked || !!enrichingSegmentId || !!timingSegmentId}
+                                  title={timingLocked ? "Requires: Google enrichment + hotels set" : "Run timing enrichment & restaurant suggestions"}
+                                >
+                                  {isTimingThis ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : timingLocked ? (
+                                    <Lock className="h-3 w-3" />
+                                  ) : (
+                                    <>
+                                      <Timer className="h-3 w-3 mr-0.5" />
+                                      Timing
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -683,7 +796,20 @@ export function PlanStepCard({
                             {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
                           </td>
                           <td className="py-0.5 pr-2">
-                            {seg.hotelName || <span className="text-muted-foreground">-</span>}
+                            {seg.hotelName || (
+                              <button
+                                onClick={() => setAddHotelSegment({
+                                  segmentId: seg.segmentId,
+                                  segmentName: seg.segmentName,
+                                  startDate: seg.startDate,
+                                  endDate: seg.endDate,
+                                })}
+                                className="inline-flex items-center gap-0.5 text-purple-500 hover:text-purple-600 text-xs font-medium"
+                              >
+                                <Plus className="h-3 w-3" />
+                                Add
+                              </button>
+                            )}
                           </td>
                           <td className="py-0.5 text-center">
                             {seg.hasAccommodation ? (
@@ -696,6 +822,14 @@ export function PlanStepCard({
                       ))}
                     </tbody>
                   </table>
+                  {addHotelSegment && (
+                    <AddHotelDialog
+                      open={!!addHotelSegment}
+                      onOpenChange={(open) => { if (!open) setAddHotelSegment(null); }}
+                      tripId={tripId}
+                      segment={addHotelSegment}
+                    />
+                  )}
                 </div>
               )}
 

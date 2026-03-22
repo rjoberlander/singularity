@@ -6,6 +6,7 @@ import type {
   TripActivity,
   TripFlight,
   TripDriving,
+  TripMedia,
   TripPlanningProgress,
   PlanningStepProgress,
 } from "@singularity/shared-types";
@@ -59,6 +60,21 @@ export interface TripFullData extends Trip {
   activities?: TripActivity[];
   flights?: TripFlight[];
   driving?: TripDriving[];
+  media?: TripMedia[];
+}
+
+export interface SegmentEnrichmentStats {
+  placesEnriched: number;
+  placesTotal: number;
+  photosActual: number;
+  photosExpected: number;
+  mealsResearched: number;
+  mealsTotal: number;
+  genericMealsTotal: number;
+  mealsWithRestaurant: number;
+  reviewsAnalyzed: number;
+  reviewsTotal: number;
+  isFullyEnriched: boolean;
 }
 
 export interface FlightInfo {
@@ -517,6 +533,7 @@ export interface SegmentInfo {
   researchItemCount?: number; // Number of research items for this segment
   hasHotel?: boolean; // Whether segment has accommodation
   hotelName?: string; // Name of the hotel if exists
+  enrichmentStats?: SegmentEnrichmentStats; // Per-segment enrichment tracking
 }
 
 function computeSegmentsCompletion(trip: TripFullData): {
@@ -596,8 +613,10 @@ function computeSegmentsCompletion(trip: TripFullData): {
     'dining', 'meal', 'breakfast', 'lunch', 'dinner', 'snack', 'coffee', 'restaurant', 'cafe'
   ]);
 
+  // Non-enrichable activity types (categories, not sub-types)
+  const nonEnrichableTypes = new Set(['transport', 'downtime', 'logistics', 'sleep', 'rest', 'custom']);
+
   // Activities that don't need a location/enrichment (based on name patterns)
-  // These are routine activities that happen at the accommodation or don't have a specific place
   const noLocationNeededPatterns = [
     /wake\s*up/i, /sleep/i, /bed/i, /pack/i, /rest/i, /pool\s*time/i,
     /check\s*-?\s*(in|out)/i, /checkout/i, /checkin/i,
@@ -605,12 +624,33 @@ function computeSegmentsCompletion(trip: TripFullData): {
     /kids?\s*to\s*bed/i, /early\s*night/i
   ];
 
+  // Transit name patterns — activities that are travel TO a destination, not the destination
+  const transitNamePatterns = [
+    /^uber\b/i, /^taxi\b/i, /^bus\b/i, /^train\b/i, /^tram\b/i,
+    /^drive\s+(to|from|back)\b/i,
+    /^walk\s+(to|from|back|down\s+to)\b/i,
+    /^travel\s+to\b/i, /^head\s+to\b/i, /^ride\s+to\b/i,
+    /^transfer\b/i, /^drop[\s-]*off\b/i,
+    /^park\s+at\b/i,
+    /\b(back\s+to|to\s+the)\s+(hotel|airport|car|station|accommodation)\b/i,
+  ];
+
   // Check if activity name suggests it doesn't need enrichment
   function activityNeedsEnrichment(name: string, type: string): boolean {
+    // Non-enrichable activity types
+    if (nonEnrichableTypes.has(type)) return false;
+    // Not in enrichable types
+    if (!enrichableTypes.has(type)) return false;
     const lowerName = name.toLowerCase();
     // Check if name matches any "no location needed" pattern
     for (const pattern of noLocationNeededPatterns) {
       if (pattern.test(lowerName)) {
+        return false;
+      }
+    }
+    // Transit name patterns (e.g. "Uber to X", "Walk to X", "Park at X")
+    for (const pattern of transitNamePatterns) {
+      if (pattern.test(name)) {
         return false;
       }
     }
@@ -632,6 +672,25 @@ function computeSegmentsCompletion(trip: TripFullData): {
   for (const acc of accommodations) {
     if (acc.segment_id) {
       accommodationsBySegment.set(acc.segment_id, { name: acc.name || "Hotel" });
+    }
+  }
+
+  // Pre-compute media count per activity for photo stats
+  const mediaCountByActivity = new Map<string, number>();
+  for (const m of (trip.media || [])) {
+    if (m.parent_type === 'activity') {
+      mediaCountByActivity.set(m.parent_id, (mediaCountByActivity.get(m.parent_id) || 0) + 1);
+    }
+  }
+
+  // Build a map of segment_id -> activities for enrichment stats (exclude backups)
+  const activitiesBySegment = new Map<string, TripActivity[]>();
+  for (const activity of activities) {
+    const segId = activity.segment_id;
+    if (segId && !activity.is_backup) {
+      const list = activitiesBySegment.get(segId) || [];
+      list.push(activity);
+      activitiesBySegment.set(segId, list);
     }
   }
 
@@ -738,6 +797,78 @@ function computeSegmentsCompletion(trip: TripFullData): {
       }
     }
 
+    // Compute per-segment enrichment stats
+    const segActivities = activitiesBySegment.get(seg.id) || [];
+    let placesEnriched = 0;
+    let placesTotal = 0;
+    let photosActual = 0;
+    let mealsResearched = 0;
+    let mealsTotal = 0;
+    let genericMealsTotal = 0;
+    let mealsWithRestaurant = 0;
+    let reviewsAnalyzed = 0;
+    let reviewsTotal = 0;
+
+    for (const a of segActivities) {
+      const aType = a.activity_type || '';
+      const aName = a.name || '';
+      if (!activityNeedsEnrichment(aName, aType)) continue;
+
+      // Places: enrichable activities with Google data
+      if (enrichableTypes.has(aType)) {
+        placesTotal++;
+        const hasGoogleData = a.google_place_id && (
+          (a.google_rating !== undefined && a.google_rating !== null) ||
+          (a.opening_hours !== undefined && a.opening_hours !== null) ||
+          a.photos_fetched === true
+        );
+        if (hasGoogleData) placesEnriched++;
+        // Photos count from media
+        photosActual += mediaCountByActivity.get(a.id) || 0;
+      }
+
+      // Meals: non-generic meal names
+      if (mealTypes.has(aType)) {
+        mealsTotal++;
+        if (!isGenericMealName(aName)) mealsResearched++;
+      }
+
+      // Generic meal replacement tracking: count meals that are (or were) generic
+      // A meal is "generic" if it still has a generic name, or if it was replaced (has restaurant_suggestion_source)
+      if (mealTypes.has(aType) || aType === 'restaurant') {
+        const isGeneric = isGenericMealName(aName);
+        const wasReplaced = !!(a as any).restaurant_suggestion_source;
+        if (isGeneric || wasReplaced) {
+          genericMealsTotal++;
+          if (wasReplaced) mealsWithRestaurant++;
+        }
+      }
+
+      // Reviews: restaurants/dining with signature_dishes from review analysis
+      if (['dining', 'restaurant', 'cafe'].includes(aType)) {
+        reviewsTotal++;
+        const rd = a.restaurant_details as { signature_dishes?: unknown[] } | undefined;
+        if (rd?.signature_dishes && rd.signature_dishes.length > 0) {
+          reviewsAnalyzed++;
+        }
+      }
+    }
+
+    const photosExpected = placesTotal * 10; // Google Places API hard limit: 10 photo refs per place
+    const placesOk = placesTotal === 0 || placesEnriched === placesTotal;
+    const photosOk = photosExpected === 0 || photosActual >= photosExpected;
+    const mealsOk = mealsTotal === 0 || mealsResearched === mealsTotal;
+    const reviewsOk = reviewsTotal === 0 || reviewsAnalyzed === reviewsTotal;
+
+    const enrichmentStats: SegmentEnrichmentStats = {
+      placesEnriched, placesTotal,
+      photosActual, photosExpected,
+      mealsResearched, mealsTotal,
+      genericMealsTotal, mealsWithRestaurant,
+      reviewsAnalyzed, reviewsTotal,
+      isFullyEnriched: placesOk && photosOk && mealsOk && reviewsOk,
+    };
+
     return {
       segmentId: seg.id,
       segmentNumber: seg.segment_number,
@@ -750,6 +881,7 @@ function computeSegmentsCompletion(trip: TripFullData): {
       researchStatus: seg.research_status,
       hasHotel,
       hotelName,
+      enrichmentStats,
     };
   });
 

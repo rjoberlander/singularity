@@ -735,6 +735,7 @@ export default function TripOverviewPage() {
                               time: string;
                               activity_name: string;
                               activity_type?: string;
+                              activity_sub_type?: string;
                               location?: string;
                               notes?: string;
                               is_deep_dive?: boolean;
@@ -788,7 +789,7 @@ export default function TripOverviewPage() {
                                             className="flex items-center gap-2 text-xs py-0.5 text-muted-foreground"
                                           >
                                             <span className="w-4 text-center">
-                                              {getActivityTypeIcon(activity.activity_type || "activity")}
+                                              {getActivityTypeIcon(activity.activity_type || "activity", activity.activity_sub_type)}
                                             </span>
                                             <span className="flex-1 truncate">{activity.name}</span>
                                             {activity.start_time && timeInfo && (
@@ -822,7 +823,7 @@ export default function TripOverviewPage() {
                                             )}
                                           >
                                             <span className="w-4 text-center">
-                                              {getActivityTypeIcon(item.activity_type || "activity")}
+                                              {getActivityTypeIcon(item.activity_type || "activity", item.activity_sub_type)}
                                             </span>
                                             <span className={cn("flex-1 truncate", item.is_deep_dive && "font-medium")}>
                                               {item.activity_name}

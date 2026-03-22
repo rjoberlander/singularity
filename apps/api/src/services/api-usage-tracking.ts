@@ -33,6 +33,10 @@ const API_PRICING = {
     // Perplexity API pricing
     request: 0.005, // Approximate per request
   },
+  google_routes: {
+    // Google Routes API (Essentials tier)
+    compute_routes: 0.005, // $5 per 1,000 requests
+  },
 } as const;
 
 export interface TrackUsageParams {

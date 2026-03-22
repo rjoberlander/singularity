@@ -448,11 +448,12 @@ export async function fetchAndStoreTripPhotos(
   caption?: string,
   options: PhotoProcessingOptions = {}
 ): Promise<PhotoProcessingResult> {
-  // Get existing photos at TRIP level for deduplication
+  // Get existing photos at TRIP level for deduplication (need all rows, not default 1000)
   const { data: existingPhotos } = await supabase
     .from('trip_media')
     .select('google_photo_reference, content_hash, file_url')
-    .eq('trip_id', tripId);
+    .eq('trip_id', tripId)
+    .limit(5000);
 
   // Process photos with tracking
   const storagePath = `travel/${tripId}/activities/${activityId}`;
@@ -463,10 +464,12 @@ export async function fetchAndStoreTripPhotos(
     contextId: tripId,
   });
 
-  // Insert into database
+  // Insert into database — use actual insert count, not download count
   if (processResult.photos.length > 0) {
     const insertResult = await insertTripPhotos(tripId, userId, processResult.photos, 'activity', activityId, caption);
     processResult.errors.push(...insertResult.errors);
+    // Correct photosAdded to reflect actual DB inserts (downloads may exceed inserts due to constraints)
+    processResult.photosAdded = insertResult.inserted;
   }
 
   return processResult;

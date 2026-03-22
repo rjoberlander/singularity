@@ -2122,6 +2122,15 @@ export function useTripAccommodations(tripId: string, segmentId?: string) {
   });
 }
 
+export function useLookupHotel() {
+  return useMutation({
+    mutationFn: async ({ tripId, data }: { tripId: string; data: { query: string; segmentName?: string; startDate?: string; endDate?: string } }) => {
+      const response = await travelApi.accommodations.lookupHotel(tripId, data);
+      return response.data.data;
+    },
+  });
+}
+
 export function useCreateTripAccommodation() {
   const queryClient = useQueryClient();
 
@@ -2167,6 +2176,29 @@ export function useDeleteTripAccommodation() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+    },
+  });
+}
+
+export function useFetchGooglePlacesForAccommodation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      accommodationId,
+    }: {
+      tripId: string;
+      accommodationId: string;
+    }) => {
+      const response = await travelApi.accommodations.fetchGooglePlaces(tripId, accommodationId);
+      return response.data.data as FetchGooglePlacesResponse;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "full"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "accommodations"] });
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", variables.tripId, "media"] });
     },
   });
 }
@@ -2908,28 +2940,55 @@ export function getTripStatusLabel(status: string): string {
   }
 }
 
-export function getActivityTypeIcon(type: string): string {
+export function getActivityTypeIcon(type: string, subType?: string): string {
+  // Check sub-type first for more specific icons
+  if (subType) {
+    switch (subType) {
+      case "hike": return "🥾";
+      case "beach": return "🏖️";
+      case "museum": return "🏛️";
+      case "viewpoint": return "📸";
+      case "tour": return "🎫";
+      case "water_sport": return "🚣";
+      case "horseback": return "🐴";
+      case "shopping": return "🛍️";
+      case "nightlife": return "🍸";
+      case "sightseeing": return "🏰";
+      case "outdoor": return "🌲";
+      case "long_haul": return "🚙";
+      case "local": return "🚕";
+      case "walking": return "🚶";
+      case "flight": return "✈️";
+      case "ferry": return "⛴️";
+      case "train": return "🚂";
+      case "breakfast": return "🥐";
+      case "lunch": return "🍽️";
+      case "dinner": return "🍷";
+      case "snack": return "🍦";
+      case "coffee": return "☕";
+      case "rest": return "😴";
+      case "pool": return "🏊";
+      case "relaxation": return "🧘";
+      case "check_in": return "🏨";
+      case "check_out": return "🧳";
+      case "packing": return "📦";
+    }
+  }
+  // Fall back to category-level icons
   switch (type) {
-    case "hike":
-      return "🥾";
-    case "beach":
-      return "🏖️";
-    case "restaurant":
-      return "🍽️";
-    case "museum":
-      return "🏛️";
-    case "transport":
-      return "🚗";
-    case "activity":
-      return "⭐";
-    case "shopping":
-      return "🛍️";
-    case "viewpoint":
-      return "📸";
-    case "nightlife":
-      return "🍸";
-    default:
-      return "📍";
+    case "restaurant": return "🍽️";
+    case "activity": return "⭐";
+    case "transport": return "🚗";
+    case "downtime": return "😴";
+    case "logistics": return "📋";
+    // Legacy types (pre-migration)
+    case "hike": return "🥾";
+    case "beach": return "🏖️";
+    case "museum": return "🏛️";
+    case "viewpoint": return "📸";
+    case "shopping": return "🛍️";
+    case "nightlife": return "🍸";
+    default: return "📍";
   }
 }
 

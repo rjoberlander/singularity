@@ -31,6 +31,8 @@ import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService';
 import { ScheduleValidationService } from '../services/schedule-validation';
+import { computeTravelTimesForTrip, formatTravelTimesForPrompt, getDefaultDurationMinutes } from '../services/google-routes-service';
+import { RestaurantSuggestionService } from '../services/restaurant-suggestion';
 import type { ValidationResult, AssembleScheduleResponse } from '@singularity/shared-types';
 
 // Import travel import & settings routes (see docs/travel-module-prd.md for workflow)
@@ -317,7 +319,7 @@ router.get('/trips/:id/full', authenticateUser, async (req: Request, res: Respon
       supabase.from('trip_accommodations').select('*').eq('trip_id', id).order('check_in_date'),
       supabase.from('trip_days').select('*').eq('trip_id', id).order('date'),
       supabase.from('trip_activities').select('*').eq('trip_id', id).order('sort_order'),
-      supabase.from('trip_media').select('*').eq('trip_id', id).order('sort_order'),
+      supabase.from('trip_media').select('*').eq('trip_id', id).order('sort_order').limit(5000),
       supabase.from('trip_sharing').select('*, users!shared_with_user_id(id, name, email)').eq('trip_id', id)
     ]);
 
@@ -1991,6 +1993,154 @@ router.post('/trips/:tripId/segments/:segmentId/fetch-google', authenticateUser,
 // =============================================
 
 /**
+ * POST /api/v1/travel/trips/:tripId/lookup-hotel
+ * Look up hotel details using LLM given a hotel name or URL
+ */
+router.post('/trips/:tripId/lookup-hotel', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+    const { query, segmentName, startDate, endDate } = req.body;
+
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Hotel name or URL is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get Anthropic API key
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!keyData) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Anthropic API key configured. Please add your API key in Settings > AI Keys.',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const segmentContext = segmentName
+      ? `The hotel is for the "${segmentName}" segment of a trip${startDate ? ` from ${startDate}` : ''}${endDate ? ` to ${endDate}` : ''}.`
+      : '';
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': keyData.api_key,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: `Identify this accommodation/property and return structured details. The input may be a hotel name, a booking URL, a hotel website URL, an Airbnb link, a VRBO link, or any vacation rental URL.
+
+Input: ${query.trim()}
+
+${segmentContext}
+
+Return a JSON object with this EXACT structure:
+{
+  "name": "<official property/hotel name>",
+  "address": "<full street address including city and country>",
+  "latitude": <number or null>,
+  "longitude": <number or null>,
+  "website": "<property website URL or null>",
+  "phone": "<phone number or null>",
+  "room_type": "<room/unit type, e.g. 'Deluxe King', 'Entire apartment', 'Private room', 'Entire villa'>",
+  "amenities": ["<amenity1>", "<amenity2>", ...],
+  "check_in_time": "<HH:MM format, e.g. 15:00>",
+  "check_out_time": "<HH:MM format, e.g. 11:00>",
+  "notes": "<brief description of the property, 1-2 sentences>",
+  "confidence": "high" | "medium" | "low"
+}
+
+IMPORTANT:
+- Use "high" confidence if you are certain about the property identity
+- Use "medium" if the name is ambiguous or you're making reasonable assumptions
+- Use "low" if you're guessing or the input is unclear
+- For Airbnb/VRBO listings, use the listing name as "name" and set room_type to "Entire apartment", "Private room", "Entire villa", etc.
+- For coordinates, provide accurate lat/lng if you know the property location
+- For amenities, list the most notable ones (pool, spa, gym, restaurant, bar, parking, wifi, kitchen, washer/dryer, etc.)
+- Return ONLY valid JSON, no markdown or explanation`
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Anthropic API error (hotel lookup):', errorText);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to look up hotel with AI',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const aiResult = await response.json() as { content?: Array<{ text?: string }>; usage?: { input_tokens?: number; output_tokens?: number } };
+    const content = aiResult.content?.[0]?.text;
+
+    if (!content) {
+      return res.status(500).json({
+        success: false,
+        error: 'No response from AI',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Parse the JSON response
+    let hotelData;
+    try {
+      let jsonStr = content;
+      if (jsonStr.includes('```json')) {
+        jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      } else if (jsonStr.includes('```')) {
+        jsonStr = jsonStr.replace(/```\n?/g, '');
+      }
+      hotelData = JSON.parse(jsonStr.trim());
+    } catch (parseError) {
+      console.error('Failed to parse hotel lookup AI response:', content);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse hotel data from AI',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: hotelData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/lookup-hotel error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * GET /api/v1/travel/trips/:tripId/accommodations
  * Get all accommodations for a trip
  */
@@ -2224,6 +2374,248 @@ router.delete('/trips/:tripId/accommodations/:accommodationId', authenticateUser
     });
   } catch (error) {
     console.error('DELETE /travel/trips/:tripId/accommodations/:accommodationId error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/accommodations/:accommodationId/fetch-google
+ * Fetch Google Places data and photos for an accommodation
+ */
+router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, accommodationId } = req.params;
+    const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+
+    if (!GOOGLE_PLACES_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google Places API key not configured',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get the accommodation
+    const { data: accommodation, error: accommodationError } = await supabase
+      .from('trip_accommodations')
+      .select('*')
+      .eq('id', accommodationId)
+      .eq('trip_id', tripId)
+      .single();
+
+    if (accommodationError || !accommodation) {
+      return res.status(404).json({
+        success: false,
+        error: 'Accommodation not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Search for the hotel/accommodation using Google Places API (New)
+    const searchQuery = `${accommodation.name} ${accommodation.address || ''} hotel`;
+    const searchResponse = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.formattedAddress,places.location,places.types,places.websiteUri'
+      },
+      body: JSON.stringify({
+        textQuery: searchQuery,
+        maxResultCount: 1
+      })
+    });
+
+    if (!searchResponse.ok) {
+      const errorText = await searchResponse.text();
+      console.error('Google Places search error:', errorText);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to search Google Places',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const searchData = await searchResponse.json() as { places?: GooglePlaceResult[] };
+    const place = searchData.places?.[0];
+
+    if (!place) {
+      return res.status(404).json({
+        success: false,
+        error: 'No Google Places result found for this accommodation',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Update accommodation with Google data
+    const updateData: Partial<TripAccommodation> = {
+      google_place_id: place.id,
+      google_rating: place.rating,
+      photos_fetched: true
+    };
+
+    // Add lat/lng if not already set
+    if (!accommodation.latitude && place.location) {
+      updateData.latitude = place.location.latitude;
+      updateData.longitude = place.location.longitude;
+    }
+
+    const { error: updateError } = await supabase
+      .from('trip_accommodations')
+      .update(updateData)
+      .eq('id', accommodationId);
+
+    if (updateError) {
+      console.error('Accommodation update error:', updateError);
+    }
+
+    // Fetch and store photos
+    let photosAdded = 0;
+    let photosSkipped = 0;
+    const targetPhotoCount = 10;
+    const allPhotos = place.photos || [];
+
+    // Get existing photo references AND content hashes to avoid duplicates at trip level
+    const { data: existingPhotos } = await supabase
+      .from('trip_media')
+      .select('google_photo_reference, content_hash, file_url')
+      .eq('trip_id', tripId);
+
+    const existingRefs = new Set(existingPhotos?.map(p => p.google_photo_reference).filter(Boolean) || []);
+    const existingHashes = new Set(existingPhotos?.map(p => p.content_hash).filter(Boolean) || []);
+    const existingUrls = new Set(existingPhotos?.map(p => p.file_url).filter(Boolean) || []);
+
+    for (const photo of allPhotos) {
+      if (photosAdded >= targetPhotoCount) {
+        break;
+      }
+
+      try {
+        if (existingRefs.has(photo.name)) {
+          photosSkipped++;
+          continue;
+        }
+
+        const photoUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${GOOGLE_PLACES_API_KEY}&maxWidthPx=1600`;
+        const photoResponse = await fetch(photoUrl);
+
+        if (!photoResponse.ok) continue;
+
+        const photoBuffer = await photoResponse.arrayBuffer();
+        const photoBytes = new Uint8Array(photoBuffer);
+
+        const contentHash = crypto.createHash('sha256').update(photoBytes).digest('hex');
+
+        if (existingHashes.has(contentHash)) {
+          photosSkipped++;
+          continue;
+        }
+
+        const filename = `google_${photo.name.replace(/\//g, '_')}.jpg`;
+        const storagePath = `travel/${tripId}/accommodations/${accommodationId}/${filename}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('singularity-uploads')
+          .upload(storagePath, photoBytes, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error('Photo upload error:', uploadError);
+          continue;
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('singularity-uploads')
+          .getPublicUrl(storagePath);
+
+        if (existingUrls.has(urlData.publicUrl)) {
+          photosSkipped++;
+          continue;
+        }
+
+        const attribution = photo.authorAttributions?.[0];
+        const { error: insertError } = await supabase
+          .from('trip_media')
+          .upsert({
+            trip_id: tripId,
+            user_id: userId,
+            parent_type: 'accommodation',
+            parent_id: accommodationId,
+            file_url: urlData.publicUrl,
+            media_type: 'image',
+            width: photo.widthPx,
+            height: photo.heightPx,
+            caption: accommodation.name,
+            is_google_sourced: true,
+            approved: true,
+            google_attribution_name: attribution?.displayName,
+            google_attribution_uri: attribution?.uri,
+            google_photo_reference: photo.name,
+            content_hash: contentHash
+          }, {
+            onConflict: 'trip_id,content_hash',
+            ignoreDuplicates: true
+          });
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            photosSkipped++;
+            continue;
+          }
+          console.error('Photo insert error:', insertError);
+          continue;
+        }
+
+        existingRefs.add(photo.name);
+        existingHashes.add(contentHash);
+        existingUrls.add(urlData.publicUrl);
+        photosAdded++;
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (photoError) {
+        console.error('Photo processing error:', photoError);
+      }
+    }
+
+    const photoMessage = photosSkipped > 0
+      ? `${photosAdded} photos added, ${photosSkipped} duplicates skipped.`
+      : `${photosAdded} photos added.`;
+
+    res.json({
+      success: true,
+      data: {
+        google_place_id: place.id,
+        data: updateData,
+        photos_added: photosAdded,
+        photos_skipped: photosSkipped,
+        message: `Fetched data from Google Places. ${photoMessage}`
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/accommodations/:accommodationId/fetch-google error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -2933,6 +3325,7 @@ router.post('/trips/:tripId/activities', authenticateUser, async (req: Request, 
         name: activityData.name,
         description: activityData.description,
         activity_type: activityData.activity_type,
+        activity_sub_type: activityData.activity_sub_type || null,
         time_block: activityData.time_block,
         start_time: activityData.start_time,
         end_time: activityData.end_time,
@@ -4708,7 +5101,7 @@ router.get('/public/:slug', async (req: Request, res: Response): Promise<any> =>
       supabase.from('trip_accommodations').select('*').eq('trip_id', trip.id).order('check_in_date'),
       supabase.from('trip_days').select('*').eq('trip_id', trip.id).order('date'),
       supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('sort_order'),
-      supabase.from('trip_media').select('*').eq('trip_id', trip.id).order('sort_order')
+      supabase.from('trip_media').select('*').eq('trip_id', trip.id).order('sort_order').limit(5000)
     ]);
 
     res.json({
@@ -5422,6 +5815,48 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
       .eq('trip_id', tripId);
     log('Step 8 complete', { deletedItems: deletedCount || 0 });
 
+    // 7b. Compute travel times using Google Routes API
+    log('Step 8b: Computing travel times');
+    const routesApiKey = process.env.GOOGLE_ROUTES_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
+    let travelTimesPromptSection = '';
+    try {
+      const travelTimes = await computeTravelTimesForTrip(
+        tripId,
+        (days || []).map((d: any) => ({ id: d.id, date: d.date })),
+        (activities || []).map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          latitude: a.latitude,
+          longitude: a.longitude,
+          activity_type: a.activity_type,
+          activity_sub_type: a.activity_sub_type,
+          sort_order: a.sort_order,
+          day_id: a.day_id,
+          date: a.date,
+        })),
+        (accommodations || []).map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          latitude: a.latitude,
+          longitude: a.longitude,
+          check_in_date: a.check_in_date,
+          check_out_date: a.check_out_date,
+        })),
+        routesApiKey || null,
+        userId
+      );
+      travelTimesPromptSection = formatTravelTimesForPrompt(travelTimes);
+      log('Step 8b complete', {
+        apiCalls: travelTimes.apiCallCount,
+        totalTravelMinutes: travelTimes.totalTravelMinutes,
+        daysWithRoutes: travelTimes.days.filter(d => d.routes.length > 0).length,
+      });
+    } catch (routesError) {
+      log('Step 8b: Routes computation failed, continuing without travel times', {
+        error: String(routesError),
+      });
+    }
+
     // 8. Prepare context for AI schedule generation
     const scheduleContext = {
       trip: {
@@ -5462,9 +5897,10 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
         name: a.name,
         description: a.description,
         activity_type: a.activity_type,
+        activity_sub_type: a.activity_sub_type,
         time_block: a.time_block,
         start_time: a.start_time,
-        duration_minutes: a.duration_minutes || 60,
+        duration_minutes: a.duration_minutes || a.estimated_duration_minutes || 60,
         location_name: a.location_name,
         location_address: a.location_address,
         latitude: a.latitude,
@@ -5517,7 +5953,7 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
 RULES:
 1. All times must be in 24-hour HH:MM format (e.g., "09:00", "14:30")
 2. Round all times to 15-minute increments (00, 15, 30, 45)
-3. Account for travel time between locations (estimate based on driving/walking)
+3. USE the provided travel times exactly when available — each already includes a 10-min buffer. If no travel times are provided, estimate based on driving/walking.
 4. Include buffer time between activities (15-30 min)
 5. Add logical transit events between activities at different locations
 6. Consider meal times (breakfast 7-9 AM, lunch 12-2 PM, dinner 6-8 PM)
@@ -5561,10 +5997,11 @@ Return ONLY valid JSON, no markdown or other text.`;
     const userPrompt = `Create a detailed 15-minute precision daily schedule for this trip:
 
 ${JSON.stringify(scheduleContext, null, 2)}
+${travelTimesPromptSection ? `\n${travelTimesPromptSection}` : ''}
 
 Generate a schedule that:
 1. Assigns specific times to each activity based on their time_block (morning, afternoon, evening) and duration
-2. Adds transit events between activities at different locations
+2. Adds transit events between activities at different locations — use the pre-computed travel times above if provided
 3. Includes hotel check-in on arrival days and check-out on departure days
 4. Adds meal breaks if not already included in activities
 5. Includes reasonable buffer time between packed activities
@@ -5940,6 +6377,264 @@ Return the complete schedule as a JSON array.`;
 });
 
 /**
+ * POST /api/v1/travel/trips/:tripId/segments/:segmentId/enrich-activities
+ * Enrich only the activities belonging to a specific segment with Google Places data
+ */
+router.post('/trips/:tripId/segments/:segmentId/enrich-activities', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  const log = (msg: string, details?: Record<string, unknown>) => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[SegmentEnrich][${elapsed}s] ${msg}`, details ? JSON.stringify(details) : '');
+  };
+
+  try {
+    const userId = req.user!.id;
+    const { tripId, segmentId } = req.params;
+
+    log('START', { tripId, segmentId });
+
+    // 1. Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    // 2. Verify segment exists and belongs to trip
+    const { data: segment, error: segError } = await supabase
+      .from('trip_segments')
+      .select('id, name, start_date, end_date')
+      .eq('id', segmentId)
+      .eq('trip_id', tripId)
+      .single();
+
+    if (segError || !segment) {
+      return res.status(404).json({ success: false, error: 'Segment not found', timestamp: new Date().toISOString() });
+    }
+
+    log('Segment found', { name: segment.name, start: segment.start_date, end: segment.end_date });
+
+    // 3. Get all activities for this segment (by segment_id)
+    const { data: segmentActivities } = await supabase
+      .from('trip_activities')
+      .select('*')
+      .eq('trip_id', tripId)
+      .eq('segment_id', segmentId)
+      .order('sort_order', { ascending: true });
+
+    if (!segmentActivities || segmentActivities.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No activities found for this segment',
+        data: { enriched: 0, skipped: 0, photosAdded: 0, reviewsAnalyzed: 0, errors: [] },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    log('Activities found', { count: segmentActivities.length });
+
+    // 4. Get Google API key
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    // 5. Get Anthropic API key for review analysis
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    const anthropicApiKey = keyData?.api_key;
+
+    // 6. Enrich activities
+    log('Starting enrichment...', { activitiesCount: segmentActivities.length });
+    const enrichResult = await ScheduleValidationService.enrichActivitiesWithGoogleData(
+      tripId,
+      userId,
+      segmentActivities as any,
+      googleApiKey,
+      anthropicApiKey
+    );
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    log('COMPLETE', {
+      duration: `${duration}s`,
+      enriched: enrichResult.enriched,
+      skipped: enrichResult.skipped,
+      photosAdded: enrichResult.photosAdded,
+      reviewsAnalyzed: enrichResult.reviewsAnalyzed,
+      errors: enrichResult.errors.length,
+    });
+
+    return res.json({
+      success: true,
+      message: `Enriched ${enrichResult.enriched} activities for segment "${segment.name}"`,
+      data: {
+        enriched: enrichResult.enriched,
+        skipped: enrichResult.skipped,
+        photosAdded: enrichResult.photosAdded,
+        reviewsAnalyzed: enrichResult.reviewsAnalyzed,
+        errors: enrichResult.errors,
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[SegmentEnrich][${elapsed}s] ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/segments/:segmentId/timing-enrichment
+ * Phase 2 enrichment: replace generic meals with real restaurants + compute travel times
+ */
+router.post('/trips/:tripId/segments/:segmentId/timing-enrichment', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  const log = (msg: string, details?: Record<string, unknown>) => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[TimingEnrich][${elapsed}s] ${msg}`, details ? JSON.stringify(details) : '');
+  };
+
+  try {
+    const userId = req.user!.id;
+    const { tripId, segmentId } = req.params;
+
+    log('START', { tripId, segmentId });
+
+    // 1. Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    // 2. Verify segment exists and belongs to trip
+    const { data: segment, error: segError } = await supabase
+      .from('trip_segments')
+      .select('id, name, start_date, end_date')
+      .eq('id', segmentId)
+      .eq('trip_id', tripId)
+      .single();
+
+    if (segError || !segment) {
+      return res.status(404).json({ success: false, error: 'Segment not found', timestamp: new Date().toISOString() });
+    }
+
+    log('Segment found', { name: segment.name, start: segment.start_date, end: segment.end_date });
+
+    // 3. Get Google API key
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    // 4. Get Anthropic API key for dish analysis
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    const anthropicApiKey = keyData?.api_key;
+
+    // 5. Run restaurant suggestions for this segment
+    log('Starting restaurant suggestions...');
+    const mealResult = await RestaurantSuggestionService.suggestRestaurantsForTrip(
+      tripId,
+      userId,
+      googleApiKey,
+      anthropicApiKey,
+      segmentId
+    );
+
+    log('Restaurant suggestions complete', {
+      processed: mealResult.mealsProcessed,
+      applied: mealResult.suggestionsApplied,
+      alternates: mealResult.alternatesCreated,
+    });
+
+    // 6. Get segment activities + days + accommodations for travel time computation
+    const { data: segDays } = await supabase
+      .from('trip_days')
+      .select('id, date')
+      .eq('trip_id', tripId)
+      .gte('date', segment.start_date)
+      .lte('date', segment.end_date)
+      .order('date', { ascending: true });
+
+    const { data: segActivities } = await supabase
+      .from('trip_activities')
+      .select('*')
+      .eq('trip_id', tripId)
+      .eq('segment_id', segmentId)
+      .eq('is_backup', false)
+      .order('sort_order', { ascending: true });
+
+    const { data: accommodations } = await supabase
+      .from('trip_accommodations')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('check_in_date', { ascending: true });
+
+    let routesComputed = 0;
+    let travelMinutesTotal = 0;
+
+    if (segDays && segDays.length > 0 && segActivities && segActivities.length > 0) {
+      log('Computing travel times...', { days: segDays.length, activities: segActivities.length });
+
+      const travelResult = await computeTravelTimesForTrip(
+        tripId,
+        segDays,
+        segActivities as any,
+        (accommodations || []) as any,
+        googleApiKey,
+        userId
+      );
+
+      routesComputed = travelResult.apiCallCount;
+      travelMinutesTotal = travelResult.totalTravelMinutes;
+
+      log('Travel times complete', { routes: routesComputed, totalMinutes: travelMinutesTotal });
+    }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    log('COMPLETE', { duration: `${duration}s` });
+
+    return res.json({
+      success: true,
+      message: `Timing enrichment complete for segment "${segment.name}"`,
+      data: {
+        meals_suggested: mealResult.suggestionsApplied,
+        alternates_created: mealResult.alternatesCreated,
+        routes_computed: routesComputed,
+        travel_minutes_total: travelMinutesTotal,
+        errors: mealResult.errors,
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[TimingEnrich][${elapsed}s] ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * GET /api/v1/travel/trips/:tripId/schedule
  * Get assembled daily schedule items for a trip
  */
@@ -5992,6 +6687,99 @@ router.get('/trips/:tripId/schedule', authenticateUser, async (req: Request, res
 
   } catch (error) {
     console.error('GET /travel/trips/:tripId/schedule error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/suggest-restaurants
+ * Find and replace generic meal slots ("Breakfast", "Lunch", "Dinner")
+ * with real restaurant suggestions using Google Places.
+ *
+ * Query params:
+ * - dry_run=true: Just find generic meals without replacing them
+ */
+router.post('/trips/:tripId/suggest-restaurants', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+    const dryRun = req.query.dry_run === 'true';
+
+    // Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get Google API key
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google API key configured',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get Anthropic API key for review analysis (optional)
+    const keyData2 = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    const anthropicApiKey = keyData2?.api_key;
+
+    if (dryRun) {
+      // Just find generic meals and return them
+      const { data: activities } = await supabase
+        .from('trip_activities')
+        .select('*')
+        .eq('trip_id', tripId)
+        .eq('is_backup', false)
+        .order('sort_order', { ascending: true });
+
+      const genericMeals = RestaurantSuggestionService.findGenericMealSlots(activities || []);
+
+      return res.json({
+        success: true,
+        data: {
+          generic_meals_found: genericMeals.length,
+          meals: genericMeals,
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Run restaurant suggestions
+    const result = await RestaurantSuggestionService.suggestRestaurantsForTrip(
+      tripId,
+      userId,
+      googleApiKey,
+      anthropicApiKey
+    );
+
+    res.json({
+      success: true,
+      data: {
+        meals_processed: result.mealsProcessed,
+        suggestions_applied: result.suggestionsApplied,
+        alternates_created: result.alternatesCreated,
+        errors: result.errors,
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/suggest-restaurants error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

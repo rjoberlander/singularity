@@ -622,66 +622,104 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
                 startTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
               }
 
-              // Map activity_type to our types
+              // Map activity_type to our categories
               const activityTypeMap: Record<string, string> = {
                 'main_activity': 'activity',
                 'meal': 'restaurant',
-                'rest': 'rest',
+                'rest': 'downtime',
                 'transport': 'transport',
-                'free_time': 'activity',
+                'free_time': 'downtime',
                 'activity': 'activity',
                 'attraction': 'activity',
                 'restaurant': 'restaurant',
               };
 
-              // Infer activity type from activity name if not provided
-              const inferActivityType = (name: string): string => {
+              // Infer activity type (category + sub_type) from activity name if not provided
+              const inferActivityType = (name: string): { category: string; sub_type: string | null } => {
                 const nameLower = name.toLowerCase();
-                // Restaurant/meals
+                // Restaurant/meals — infer meal sub_type
                 if (nameLower.includes('lunch') || nameLower.includes('dinner') ||
                     nameLower.includes('breakfast') || nameLower.includes('meal') ||
                     nameLower.includes('snack') || nameLower.includes('eat') ||
                     nameLower.includes('restaurant') || nameLower.includes('café') ||
                     nameLower.includes('cafe') || nameLower.includes('gelato') ||
                     nameLower.includes('pastéis') || nameLower.includes('pasteis')) {
-                  return 'restaurant';
+                  let sub_type: string = 'other';
+                  if (nameLower.includes('breakfast') || nameLower.includes('morning')) sub_type = 'breakfast';
+                  else if (nameLower.includes('lunch') || nameLower.includes('midday')) sub_type = 'lunch';
+                  else if (nameLower.includes('dinner') || nameLower.includes('supper')) sub_type = 'dinner';
+                  else if (nameLower.includes('snack') || nameLower.includes('gelato') || nameLower.includes('ice cream') || nameLower.includes('pastry') || nameLower.includes('pastéis') || nameLower.includes('pasteis')) sub_type = 'snack';
+                  else if (nameLower.includes('coffee') || nameLower.includes('café') || nameLower.includes('cafe') || nameLower.includes('espresso')) sub_type = 'coffee';
+                  return { category: 'restaurant', sub_type };
                 }
-                // Transport
+                // Logistics — check-in/out, packing
+                if (nameLower.includes('check out') || nameLower.includes('checkout')) {
+                  return { category: 'logistics', sub_type: 'check_out' };
+                }
+                if (nameLower.includes('check in') || nameLower.includes('checkin')) {
+                  return { category: 'logistics', sub_type: 'check_in' };
+                }
+                if (nameLower.includes('pack') || nameLower.includes('luggage') || nameLower.includes('load car')) {
+                  return { category: 'logistics', sub_type: 'packing' };
+                }
+                // Transport — infer sub_type
                 if (nameLower.includes('drive') || nameLower.includes('depart') ||
                     nameLower.includes('arrive') || nameLower.includes('return to') ||
-                    nameLower.includes('check out') || nameLower.includes('check in') ||
                     nameLower.includes('flight') || nameLower.includes('taxi') ||
                     nameLower.includes('uber') || nameLower.includes('transfer')) {
-                  return 'transport';
+                  let sub_type: string = 'local';
+                  if (nameLower.includes('drive') || nameLower.includes('depart') || nameLower.includes('road trip') || nameLower.includes('return to')) sub_type = 'long_haul';
+                  else if (nameLower.includes('flight') || nameLower.includes('fly') || nameLower.includes('airport')) sub_type = 'flight';
+                  else if (nameLower.includes('ferry') || nameLower.includes('boat')) sub_type = 'ferry';
+                  else if (nameLower.includes('train') || nameLower.includes('rail') || nameLower.includes('metro')) sub_type = 'train';
+                  else if (nameLower.includes('walk') || nameLower.includes('stroll') || nameLower.includes('on foot')) sub_type = 'walking';
+                  return { category: 'transport', sub_type };
                 }
-                // Rest
+                // Downtime — rest, relaxation, pool
                 if (nameLower.includes('rest') || nameLower.includes('nap') ||
-                    nameLower.includes('pool time') || nameLower.includes('sleep') ||
-                    nameLower.includes('relax') || nameLower.includes('downtime')) {
-                  return 'rest';
+                    nameLower.includes('sleep') || nameLower.includes('relax') ||
+                    nameLower.includes('downtime') || nameLower.includes('free time')) {
+                  let sub_type: string = 'rest';
+                  if (nameLower.includes('pool')) sub_type = 'pool';
+                  else if (nameLower.includes('relax')) sub_type = 'relaxation';
+                  return { category: 'downtime', sub_type };
                 }
-                // Beach
+                if (nameLower.includes('pool time') || nameLower.includes('pool')) {
+                  return { category: 'downtime', sub_type: 'pool' };
+                }
+                // Activity sub-types
                 if (nameLower.includes('beach') || nameLower.includes('praia') ||
                     nameLower.includes('swimming') || nameLower.includes('swim')) {
-                  return 'beach';
+                  return { category: 'activity', sub_type: 'beach' };
                 }
-                // Hike
-                if (nameLower.includes('hike') || nameLower.includes('walk') ||
-                    nameLower.includes('trail') || nameLower.includes('cliff walk')) {
-                  return 'hike';
+                if (nameLower.includes('hike') || nameLower.includes('trail') || nameLower.includes('cliff walk')) {
+                  return { category: 'activity', sub_type: 'hike' };
                 }
-                // Viewpoint
                 if (nameLower.includes('sunset') || nameLower.includes('viewpoint') ||
-                    nameLower.includes('photo') || nameLower.includes('vista')) {
-                  return 'viewpoint';
+                    nameLower.includes('photo') || nameLower.includes('vista') || nameLower.includes('miradouro')) {
+                  return { category: 'activity', sub_type: 'viewpoint' };
                 }
-                // Tour/Activity
-                if (nameLower.includes('tour') || nameLower.includes('boat') ||
-                    nameLower.includes('kayak') || nameLower.includes('museum') ||
-                    nameLower.includes('fortress') || nameLower.includes('castle')) {
-                  return 'activity';
+                if (nameLower.includes('kayak') || nameLower.includes('paddleboard') ||
+                    nameLower.includes('surf') || nameLower.includes('snorkel')) {
+                  return { category: 'activity', sub_type: 'water_sport' };
                 }
-                return 'activity';
+                if (nameLower.includes('museum') || nameLower.includes('gallery')) {
+                  return { category: 'activity', sub_type: 'museum' };
+                }
+                if (nameLower.includes('tour') || nameLower.includes('guided')) {
+                  return { category: 'activity', sub_type: 'tour' };
+                }
+                if (nameLower.includes('shop') || nameLower.includes('market') || nameLower.includes('bazaar')) {
+                  return { category: 'activity', sub_type: 'shopping' };
+                }
+                if (nameLower.includes('fortress') || nameLower.includes('castle') ||
+                    nameLower.includes('palace') || nameLower.includes('monument') || nameLower.includes('church')) {
+                  return { category: 'activity', sub_type: 'sightseeing' };
+                }
+                if (nameLower.includes('boat') || nameLower.includes('horseback') || nameLower.includes('horse riding')) {
+                  return { category: 'activity', sub_type: nameLower.includes('horse') ? 'horseback' : 'outdoor' };
+                }
+                return { category: 'activity', sub_type: 'other' };
               };
 
               // Try to find matching research_item for rich content
@@ -721,9 +759,20 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
               });
 
               // Determine activity type - use explicit type, then infer from name
-              const activityType = item.activity_type
-                ? (activityTypeMap[item.activity_type] || 'activity')
-                : inferActivityType(item.activity_name || '');
+              let activityCategory: string;
+              let activitySubType: string | null = null;
+              if (item.activity_type) {
+                activityCategory = activityTypeMap[item.activity_type] || 'activity';
+                // Infer sub_type even when category is explicit
+                const inferred = inferActivityType(item.activity_name || '');
+                if (inferred.category === activityCategory) {
+                  activitySubType = inferred.sub_type;
+                }
+              } else {
+                const inferred = inferActivityType(item.activity_name || '');
+                activityCategory = inferred.category;
+                activitySubType = inferred.sub_type;
+              }
 
               // Build activity data with rich content if available
               const activityData: any = {
@@ -731,7 +780,8 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
                 segment_id: segmentId || null,
                 day_id: day.id,
                 name: item.activity_name,
-                activity_type: activityType,
+                activity_type: activityCategory,
+                activity_sub_type: activitySubType,
                 location_name: item.location,
                 start_time: startTime,
                 description: item.notes,

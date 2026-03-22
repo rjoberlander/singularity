@@ -551,7 +551,7 @@ export default function TripItineraryPage() {
                                   }}
                                 >
                                   <span className="w-5 text-center shrink-0">
-                                    {getActivityTypeIcon(activity.activity_type || "activity")}
+                                    {getActivityTypeIcon(activity.activity_type || "activity", activity.activity_sub_type)}
                                   </span>
                                   <span className="flex-1 min-w-0 truncate">
                                     {activity.name}

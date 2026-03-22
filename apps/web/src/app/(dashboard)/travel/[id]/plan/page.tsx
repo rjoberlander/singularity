@@ -68,6 +68,10 @@ export default function TripPlanPage() {
   const [showAssembleDialog, setShowAssembleDialog] = useState(false);
   const [isAssembling, setIsAssembling] = useState(false);
 
+  // Per-segment enrichment state
+  const [enrichingSegmentId, setEnrichingSegmentId] = useState<string | null>(null);
+  const [timingSegmentId, setTimingSegmentId] = useState<string | null>(null);
+
   // Import dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importType, setImportType] = useState<"segment" | "hotel">("segment");
@@ -213,6 +217,80 @@ export default function TripPlanPage() {
       setIsAssembling(false);
     }
   };
+
+  // Per-segment enrichment handler
+  const handleEnrichSegment = useCallback(async (segmentId: string) => {
+    setEnrichingSegmentId(segmentId);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/trips/${tripId}/segments/${segmentId}/enrich-activities`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to enrich segment");
+      }
+
+      const result = await response.json();
+      const data = result.data;
+
+      // Invalidate trip full query to refresh stats
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
+
+      toast.success(
+        `Enriched ${data.enriched} activities` +
+        (data.photosAdded > 0 ? `, ${data.photosAdded} photos added` : '') +
+        (data.reviewsAnalyzed > 0 ? `, ${data.reviewsAnalyzed} reviews analyzed` : '')
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to enrich segment");
+    } finally {
+      setEnrichingSegmentId(null);
+    }
+  }, [tripId, queryClient]);
+
+  const handleTimingSegment = useCallback(async (segmentId: string) => {
+    setTimingSegmentId(segmentId);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/trips/${tripId}/segments/${segmentId}/timing-enrichment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to run timing enrichment");
+      }
+
+      const result = await response.json();
+      const data = result.data;
+
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
+
+      toast.success(
+        `Timing complete: ${data.meals_suggested} meals suggested` +
+        (data.routes_computed > 0 ? `, ${data.routes_computed} routes computed` : '') +
+        (data.alternates_created > 0 ? `, ${data.alternates_created} alternates` : '')
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to run timing enrichment");
+    } finally {
+      setTimingSegmentId(null);
+    }
+  }, [tripId, queryClient]);
 
   // Import research handler - called from PlanStepCard drag-drop or button
   const handleImportResearch = useCallback(async (type: "segment" | "hotel", file?: File) => {
@@ -810,6 +888,10 @@ export default function TripPlanPage() {
               } : undefined}
               onAssembleSchedule={step.id === "days_activities" ? () => setShowAssembleDialog(true) : undefined}
               isAssembling={step.id === "days_activities" ? isAssembling : undefined}
+              onEnrichSegment={step.id === "days_activities" ? handleEnrichSegment : undefined}
+              enrichingSegmentId={step.id === "days_activities" ? enrichingSegmentId : undefined}
+              onTimingSegment={step.id === "days_activities" ? handleTimingSegment : undefined}
+              timingSegmentId={step.id === "days_activities" ? timingSegmentId : undefined}
               onImportResearch={(step.id === "segments" || step.id === "accommodations") ? handleImportResearch : undefined}
               onImportSkeleton={step.id === "basics" ? handleImportSkeleton : undefined}
               onImportFlightImage={step.id === "basics" ? handleImportFlightImage : undefined}
