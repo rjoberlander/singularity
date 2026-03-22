@@ -2558,7 +2558,7 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
         const attribution = photo.authorAttributions?.[0];
         const { error: insertError } = await supabase
           .from('trip_media')
-          .upsert({
+          .insert({
             trip_id: tripId,
             user_id: userId,
             parent_type: 'accommodation',
@@ -2574,9 +2574,6 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
             google_attribution_uri: attribution?.uri,
             google_photo_reference: photo.name,
             content_hash: contentHash
-          }, {
-            onConflict: 'trip_id,content_hash',
-            ignoreDuplicates: true
           });
 
         if (insertError) {
