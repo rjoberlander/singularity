@@ -1,3 +1,7 @@
+import dns from 'dns';
+// Force IPv4 for outbound requests (droplet's IPv4 is whitelisted on Google API keys)
+dns.setDefaultResultOrder('ipv4first');
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
