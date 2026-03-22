@@ -900,6 +900,16 @@ export default function TripBrowsePage() {
               </span>
             </div>
             {activeSegment.description && <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{activeSegment.description}</p>}
+            {(() => {
+              const acc = trip?.accommodations?.find(a => a.segment_id === activeSegment.id);
+              return acc ? (
+                <a href={`/travel/${tripId}/lodging`} className="inline-flex items-center gap-1.5 text-sm mt-1.5 text-primary hover:underline">
+                  <Building2 className="h-3.5 w-3.5" />
+                  {acc.name}
+                  {acc.google_rating ? <span className="text-muted-foreground text-xs">({acc.google_rating})</span> : null}
+                </a>
+              ) : null;
+            })()}
             {activeSegment.theme && <p className="text-sm mt-1"><span className="font-medium">Theme: </span><span className="text-muted-foreground">{activeSegment.theme}</span></p>}
             {activeSegment.main_attractions && activeSegment.main_attractions.length > 0 && (
               <div className="flex items-center gap-2 mt-2 flex-wrap">

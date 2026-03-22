@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import type { TripMedia, TripActivity, TripDay, TripSegment } from "@singularity/shared-types";
+import type { TripMedia, TripActivity, TripDay, TripSegment, TripAccommodation } from "@singularity/shared-types";
 
 interface EnrichedMedia extends TripMedia {
   segmentName?: string;
@@ -44,6 +44,7 @@ interface EnrichedMedia extends TripMedia {
   activityName?: string;
   activityLocation?: string;
   activityTime?: string;
+  accommodationName?: string;
   isAlternate?: boolean;
   sortDate?: string;
   sortTime?: string;
@@ -53,12 +54,14 @@ function enrichMediaWithContext(
   media: TripMedia[],
   segments: TripSegment[],
   days: TripDay[],
-  activities: TripActivity[]
+  activities: TripActivity[],
+  accommodations: TripAccommodation[] = []
 ): EnrichedMedia[] {
   // Create lookup maps for efficient access
   const segmentMap = new Map(segments.map(s => [s.id, s]));
   const dayMap = new Map(days.map(d => [d.id, d]));
   const activityMap = new Map(activities.map(a => [a.id, a]));
+  const accommodationMap = new Map(accommodations.map(a => [a.id, a]));
 
   // Deduplicate by file_url - keep the first occurrence (which has more context)
   const seenUrls = new Set<string>();
@@ -141,6 +144,22 @@ function enrichMediaWithContext(
       if (m.caption && !enriched.activityName) {
         enriched.activityName = m.caption;
       }
+    } else if (m.parent_type === "accommodation" && m.parent_id) {
+      const accommodation = accommodationMap.get(m.parent_id);
+      if (accommodation) {
+        enriched.accommodationName = accommodation.name;
+        enriched.activityName = accommodation.name;
+        enriched.activityLocation = accommodation.address;
+        enriched.sortDate = accommodation.check_in_date;
+
+        if (accommodation.segment_id) {
+          const segment = segmentMap.get(accommodation.segment_id);
+          if (segment) {
+            enriched.segmentName = segment.name;
+            enriched.segmentNumber = segment.segment_number;
+          }
+        }
+      }
     }
 
     // Final fallback: use caption if nothing else is set
@@ -195,7 +214,8 @@ export default function TripMediaPage() {
       trip.media,
       trip.segments || [],
       trip.days || [],
-      trip.activities || []
+      trip.activities || [],
+      trip.accommodations || []
     );
     return sortMediaByTimeline(enriched);
   }, [trip]);

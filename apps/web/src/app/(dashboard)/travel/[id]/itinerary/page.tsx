@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import {
   useTripFull,
   useTripSchedule,
@@ -593,12 +594,15 @@ export default function TripItineraryPage() {
                         >
                           {row.accommodation ? (
                             <div className="flex flex-col gap-1">
-                              <div className="flex items-start gap-1.5">
+                              <Link
+                                href={`/travel/${tripId}/lodging`}
+                                className="flex items-start gap-1.5 hover:text-primary transition-colors"
+                              >
                                 <Building2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                                <span className="font-medium text-sm leading-tight">
+                                <span className="font-medium text-sm leading-tight hover:underline">
                                   {row.accommodation.name}
                                 </span>
-                              </div>
+                              </Link>
                               {row.lodgingRowSpan > 1 && (
                                 <span className="text-xs text-muted-foreground">
                                   {row.lodgingRowSpan} nights

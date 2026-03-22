@@ -261,8 +261,8 @@ function TripPhotoGallery({
       dayToGlobalNumber[day.id] = index + 1;
     });
 
-    // Get all activity media - group by place name (from caption) to avoid duplicates
-    const activityMedia = (trip.media || []).filter(m => m.parent_type === 'activity');
+    // Get all activity + accommodation media - group by place name (from caption) to avoid duplicates
+    const activityMedia = (trip.media || []).filter(m => m.parent_type === 'activity' || m.parent_type === 'accommodation');
 
     // First, dedupe by file_url to ensure same image never appears twice
     const seenUrls = new Set<string>();
@@ -357,7 +357,7 @@ function TripPhotoGallery({
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <div className="text-center p-8">
           <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p className="text-sm">No activity photos yet</p>
+          <p className="text-sm">No photos yet</p>
           <p className="text-xs mt-1">Select a segment or activity to view details</p>
         </div>
       </div>
@@ -368,7 +368,7 @@ function TripPhotoGallery({
     <div className="p-6">
       <h2 className="text-xl font-semibold mb-2">{trip.name}</h2>
       <p className="text-sm text-muted-foreground mb-4">
-        {photosWithInfo.length} photos from activities
+        {photosWithInfo.length} photos
       </p>
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
         {photosWithInfo.map((photoInfo) => {

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import {
   useTripFull,
   useCreateTripSegment,
@@ -49,6 +50,7 @@ import {
   Utensils,
   Sunset,
   Moon,
+  Hotel,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -537,8 +539,16 @@ export default function TripOverviewPage() {
       }
     }
 
-    // Combine and return (segment media first, then activity media)
-    return [...segmentMedia, ...activityMedia];
+    // Get media from accommodation within this segment
+    const accommodation = trip?.accommodations?.find((a) => a.segment_id === segmentId);
+    const accommodationMedia: typeof segmentMedia = [];
+    if (accommodation) {
+      const media = mediaByParent[`accommodation-${accommodation.id}`] || [];
+      accommodationMedia.push(...media);
+    }
+
+    // Combine and return (segment media first, then accommodation, then activity media)
+    return [...segmentMedia, ...accommodationMedia, ...activityMedia];
   };
 
   // Get accommodation for segment
@@ -681,9 +691,13 @@ export default function TripOverviewPage() {
                             </span>
                           </div>
                           {accommodation && (
-                            <p className="text-primary font-medium text-sm mt-1">
+                            <Link
+                              href={`/travel/${tripId}/lodging`}
+                              className="text-primary font-medium text-sm mt-1 hover:underline inline-flex items-center gap-1"
+                            >
+                              <Hotel className="h-3 w-3" />
                               {accommodation.name}
-                            </p>
+                            </Link>
                           )}
                         </div>
                       </div>
