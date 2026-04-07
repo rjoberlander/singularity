@@ -698,7 +698,10 @@ export class ScheduleValidationService {
     userId: string,
     activities: TripActivityWithGoogleData[],
     googleApiKey: string,
-    anthropicApiKey?: string
+    anthropicApiKey?: string,
+    segmentLocation?: { latitude: number; longitude: number },
+    accommodationName?: string,
+    segmentCountry?: string
   ): Promise<{ enriched: number; skipped: number; photosAdded: number; reviewsAnalyzed: number; errors: string[] }> {
     const startTime = Date.now();
     const log = (msg: string, details?: Record<string, unknown>) => {
@@ -746,7 +749,7 @@ export class ScheduleValidationService {
     // Activity types that are attractions with potential ticket prices
     const ATTRACTION_TYPES = ['museum', 'attraction', 'palace', 'castle', 'monument', 'park', 'zoo', 'aquarium', 'theme_park'];
 
-    const shouldSkip = (name: string, activityType?: string) => {
+    const shouldSkip = (name: string, activityType?: string, locationName?: string) => {
       // Skip non-enrichable activity types entirely
       if (activityType && NON_ENRICHABLE_TYPES.has(activityType)) return true;
       const lower = name.toLowerCase();
@@ -754,15 +757,24 @@ export class ScheduleValidationService {
       if (SKIP_KEYWORDS.some(skip => lower.includes(skip))) return true;
       // Check transit name patterns (e.g. "Uber to X", "Walk to X", "Park at X")
       if (TRANSIT_NAME_PATTERNS.some(p => p.test(name))) return true;
-      // Check generic meal patterns (skip "Breakfast" but not "Breakfast at Cafe Lisboa")
-      if (GENERIC_MEAL_PATTERNS.some(p => p.test(name))) return true;
+      // Check generic meal patterns — but DON'T skip if there's a specific location_name
+      if (GENERIC_MEAL_PATTERNS.some(p => p.test(name))) {
+        if (locationName && !/^(hotel|accommodation|resort)\b/i.test(locationName.trim())) {
+          return false; // "Lunch" at "Este Oeste at CCB" → enrich it
+        }
+        return true;
+      }
       return false;
     };
 
     const isRestaurant = (activity: TripActivityWithGoogleData) => {
       const type = activity.activity_type?.toLowerCase() || '';
       const name = activity.name.toLowerCase();
-      return RESTAURANT_TYPES.some(r => type.includes(r) || name.includes(r));
+      if (RESTAURANT_TYPES.some(r => type.includes(r) || name.includes(r))) return true;
+      // Generic meals (Breakfast/Lunch/Dinner) with a specific venue are restaurants too
+      if (GENERIC_MEAL_PATTERNS.some(p => p.test(activity.name)) && activity.location_name &&
+          !/^(hotel|accommodation|resort)\b/i.test(activity.location_name.trim())) return true;
+      return false;
     };
 
     const isAttraction = (activity: TripActivityWithGoogleData) => {
@@ -772,11 +784,11 @@ export class ScheduleValidationService {
 
     // Filter activities that need Google data
     const needsData = activities.filter(a =>
-      !a.google_place_id && !shouldSkip(a.name, a.activity_type)
+      !a.google_place_id && !shouldSkip(a.name, a.activity_type, a.location_name)
     );
 
     const alreadyEnriched = activities.filter(a => a.google_place_id).length;
-    const skippedByFilter = activities.filter(a => !a.google_place_id && shouldSkip(a.name, a.activity_type)).length;
+    const skippedByFilter = activities.filter(a => !a.google_place_id && shouldSkip(a.name, a.activity_type, a.location_name)).length;
     const skipped = alreadyEnriched + skippedByFilter;
 
     log('START', {
@@ -794,9 +806,30 @@ export class ScheduleValidationService {
 
       try {
         // Search for place using activity name and location
-        const searchQuery = activity.location_name
-          ? `${activity.name} ${activity.location_name}`
-          : activity.name;
+        // For generic meals like "Lunch" at "Este Oeste at CCB", use just the location name
+        const isGenericMeal = GENERIC_MEAL_PATTERNS.some(p => p.test(activity.name));
+        // Handle hotel restaurant references — use accommodation name for better search
+        const locName = activity.location_name?.trim() || '';
+        const isHotelRestaurant = /^(hotel|accommodation|resort)\b/i.test(locName)
+          || /^hotel\s+restaurant$/i.test(locName);
+        // Detect generic/vague location names that need country context
+        const isVagueLocation = !activity.location_name
+          || /^(local|nearby|flexible|family choice|choice of|village|town|old town)/i.test(locName)
+          || /\b(or hotel|or nearby|or similar|week's favorite)\b/i.test(locName);
+        let searchQuery: string;
+        if (isHotelRestaurant && accommodationName) {
+          searchQuery = `${accommodationName} restaurant`;
+        } else if (isGenericMeal && activity.location_name) {
+          searchQuery = activity.location_name;
+        } else if (activity.location_name) {
+          searchQuery = `${activity.name} ${activity.location_name}`;
+        } else {
+          searchQuery = activity.name;
+        }
+        // For restaurants with vague names, append country to bias toward local cuisine
+        if (isRestaurant(activity) && isVagueLocation && segmentCountry) {
+          searchQuery = `traditional ${segmentCountry} restaurant ${searchQuery}`;
+        }
 
         const isAlternate = activity.is_backup || !!activity.alternate_to_activity_id;
         const maxPhotos = isAlternate ? 5 : 10; // Google API returns max 10 photo refs per place
@@ -814,9 +847,36 @@ export class ScheduleValidationService {
           'places.location', 'places.websiteUri', 'places.priceLevel'
         ];
 
-        // Add reviews field for restaurants (requires additional API call)
+        // Add reviews + extended fields for restaurants
         if (isRestaurant(activity)) {
-          fieldMask.push('places.reviews');
+          fieldMask.push(
+            'places.reviews',
+            'places.editorialSummary',
+            'places.outdoorSeating', 'places.dineIn', 'places.takeout', 'places.delivery',
+            'places.reservable', 'places.goodForChildren', 'places.goodForGroups',
+            'places.servesBreakfast', 'places.servesLunch', 'places.servesDinner',
+            'places.servesBrunch', 'places.servesVegetarianFood',
+            'places.servesBeer', 'places.servesWine', 'places.servesCocktails',
+            'places.liveMusic', 'places.allowsDogs'
+          );
+        }
+
+        // Build request body with location bias for geographic accuracy
+        const requestBody: Record<string, unknown> = {
+          textQuery: searchQuery,
+          maxResultCount: 1
+        };
+        if (segmentLocation) {
+          requestBody.locationBias = {
+            circle: {
+              center: { latitude: segmentLocation.latitude, longitude: segmentLocation.longitude },
+              radius: 50000.0  // 50km radius
+            }
+          };
+        }
+        // For restaurants, add type filter for better matching
+        if (isRestaurant(activity)) {
+          requestBody.includedType = 'restaurant';
         }
 
         const searchResponse = await fetch('https://places.googleapis.com/v1/places:searchText', {
@@ -826,7 +886,7 @@ export class ScheduleValidationService {
             'X-Goog-Api-Key': googleApiKey,
             'X-Goog-FieldMask': fieldMask.join(',')
           },
-          body: JSON.stringify({ textQuery: searchQuery, maxResultCount: 1 })
+          body: JSON.stringify(requestBody)
         });
 
         if (!searchResponse.ok) {
@@ -852,6 +912,24 @@ export class ScheduleValidationService {
           formattedAddress?: string;
           location?: { latitude: number; longitude: number };
           websiteUri?: string;
+          editorialSummary?: { text: string };
+          outdoorSeating?: boolean;
+          dineIn?: boolean;
+          takeout?: boolean;
+          delivery?: boolean;
+          reservable?: boolean;
+          goodForChildren?: boolean;
+          goodForGroups?: boolean;
+          servesBreakfast?: boolean;
+          servesLunch?: boolean;
+          servesDinner?: boolean;
+          servesBrunch?: boolean;
+          servesVegetarianFood?: boolean;
+          servesBeer?: boolean;
+          servesWine?: boolean;
+          servesCocktails?: boolean;
+          liveMusic?: boolean;
+          allowsDogs?: boolean;
         }> };
 
         const place = searchData.places?.[0];
@@ -914,27 +992,76 @@ export class ScheduleValidationService {
           updateData.longitude = place.location.longitude;
         }
 
-        // For restaurants: Analyze reviews to extract recommended dishes
-        if (isRestaurant(activity) && place.reviews && place.reviews.length > 0 && anthropicApiKey) {
-          try {
-            log(`Analyzing restaurant reviews`, { activity: activity.name.substring(0, 30), reviewCount: place.reviews.length });
-            const recommendedDishes = await this.extractRecommendedDishesFromReviews(
-              place.reviews,
-              activity.name,
-              anthropicApiKey
-            );
-            if (recommendedDishes && recommendedDishes.length > 0) {
-              // Merge with existing restaurant_details or create new
-              const existingDetails = activity.restaurant_details || {};
-              updateData.restaurant_details = {
-                ...existingDetails,
-                signature_dishes: recommendedDishes
-              };
-              reviewsAnalyzed++;
-              log(`Extracted dishes`, { activity: activity.name.substring(0, 30), dishes: recommendedDishes.length });
+        // For restaurants: save extended Google Places attributes
+        if (isRestaurant(activity)) {
+          if (place.editorialSummary?.text) updateData.google_editorial_summary = place.editorialSummary.text;
+          if (place.outdoorSeating !== undefined) updateData.outdoor_seating = place.outdoorSeating;
+          if (place.dineIn !== undefined) updateData.dine_in = place.dineIn;
+          if (place.takeout !== undefined) updateData.takeout = place.takeout;
+          if (place.delivery !== undefined) updateData.delivery = place.delivery;
+          if (place.reservable !== undefined) updateData.reservable = place.reservable;
+          if (place.goodForChildren !== undefined) updateData.good_for_children = place.goodForChildren;
+          if (place.goodForGroups !== undefined) updateData.good_for_groups = place.goodForGroups;
+          if (place.servesBreakfast !== undefined) updateData.serves_breakfast = place.servesBreakfast;
+          if (place.servesLunch !== undefined) updateData.serves_lunch = place.servesLunch;
+          if (place.servesDinner !== undefined) updateData.serves_dinner = place.servesDinner;
+          if (place.servesBrunch !== undefined) updateData.serves_brunch = place.servesBrunch;
+          if (place.servesVegetarianFood !== undefined) updateData.serves_vegetarian = place.servesVegetarianFood;
+          if (place.servesBeer !== undefined) updateData.serves_beer = place.servesBeer;
+          if (place.servesWine !== undefined) updateData.serves_wine = place.servesWine;
+          if (place.servesCocktails !== undefined) updateData.serves_cocktails = place.servesCocktails;
+          if (place.liveMusic !== undefined) updateData.live_music = place.liveMusic;
+          if (place.allowsDogs !== undefined) updateData.allows_dogs = place.allowsDogs;
+        }
+
+        // For restaurants: Build comprehensive restaurant_details from Google Places data + AI review analysis
+        if (isRestaurant(activity)) {
+          const existingDetails = activity.restaurant_details || {};
+          const details: Record<string, unknown> = { ...existingDetails };
+
+          // Map Google Places attributes into restaurant_details
+          if (place.outdoorSeating !== undefined) {
+            details.seating = place.outdoorSeating ? 'both' : 'indoor';
+          }
+          if (place.goodForChildren !== undefined) {
+            details.highchair = place.goodForChildren;
+            details.kids_menu = place.goodForChildren;
+          }
+          if (place.reservable !== undefined && place.reservable) {
+            details.reservation_tips = 'Reservations accepted';
+          }
+          if (place.servesVegetarianFood !== undefined && place.servesVegetarianFood) {
+            const existing = (details.dietary_options as string[]) || [];
+            if (!existing.includes('Vegetarian')) {
+              details.dietary_options = [...existing, 'Vegetarian'];
             }
-          } catch (reviewError) {
-            log(`FAIL: Review analysis failed`, { activity: activity.name, error: String(reviewError) });
+          }
+          if (place.editorialSummary?.text) {
+            details.ambience = place.editorialSummary.text;
+          }
+
+          // Analyze reviews to extract recommended dishes via AI
+          if (place.reviews && place.reviews.length > 0 && anthropicApiKey) {
+            try {
+              log(`Analyzing restaurant reviews`, { activity: activity.name.substring(0, 30), reviewCount: place.reviews.length });
+              const recommendedDishes = await this.extractRecommendedDishesFromReviews(
+                place.reviews,
+                activity.name,
+                anthropicApiKey
+              );
+              if (recommendedDishes && recommendedDishes.length > 0) {
+                details.signature_dishes = recommendedDishes;
+                reviewsAnalyzed++;
+                log(`Extracted dishes`, { activity: activity.name.substring(0, 30), dishes: recommendedDishes.length });
+              }
+            } catch (reviewError) {
+              log(`FAIL: Review analysis failed`, { activity: activity.name, error: String(reviewError) });
+            }
+          }
+
+          // Only write if we have something beyond the original
+          if (Object.keys(details).length > Object.keys(existingDetails).length || details.signature_dishes) {
+            updateData.restaurant_details = details;
           }
         }
 

@@ -257,7 +257,7 @@ export async function getMonthlyUsage(
     let totalRows = 0;
 
     while (hasMore) {
-      const { data: pageData, error: pageError } = await supabase
+      const { data: pageData, error: pageError } = await getSupabase()
         .from('api_usage_tracking')
         .select('provider, api_type, count, estimated_cost_usd')
         .eq('user_id', userId)
@@ -390,7 +390,7 @@ export async function getUsageByContext(
   let totalRows = 0;
 
   while (hasMore) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('api_usage_tracking')
       .select('provider, api_type, count, estimated_cost_usd, context_type')
       .eq('user_id', userId)

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   useTripFull,
   parseLocalDate,
   getTimeBlockLabel,
 } from "@/lib/api";
-import type { TripActivity } from "@singularity/shared-types";
+import type { TripActivity, TripAccommodation } from "@singularity/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -53,6 +53,7 @@ import {
   Coffee,
   BedDouble,
   ClipboardList,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -76,6 +77,104 @@ function formatTimeAmPm(time: string): string {
   const period = hours >= 12 ? "PM" : "AM";
   const displayHours = hours % 12 || 12;
   return `${displayHours}:${minutes.toString().padStart(2, "0")} ${period}`;
+}
+
+// ─── Hotel reference resolution ──────────────────────────────────────
+function resolveHotelReference(text: string, accommodationName?: string): { text: string; hasHotelRef: boolean } {
+  if (!accommodationName) return { text, hasHotelRef: false };
+  const regex = /\bhotel\b/gi;
+  if (!regex.test(text)) return { text, hasHotelRef: false };
+  return { text: text.replace(/\bhotel\b/gi, accommodationName), hasHotelRef: true };
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function computeEndTime(startTime: string, durationMinutes: number): string {
+  const [hours, minutes] = startTime.split(":").map(Number);
+  const totalMinutes = hours * 60 + minutes + durationMinutes;
+  const endH = Math.floor(totalMinutes / 60) % 24;
+  const endM = totalMinutes % 60;
+  return `${endH.toString().padStart(2, "0")}:${endM.toString().padStart(2, "0")}`;
+}
+
+// ─── Travel hint helpers ────────────────────────────────────────────
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getActivityCoords(
+  activity: TripActivity,
+  accommodation?: TripAccommodation,
+): { lat: number; lng: number } | null {
+  if (activity.latitude && activity.longitude) return { lat: activity.latitude, lng: activity.longitude };
+  // Fallback: hotel-related activities use accommodation coordinates
+  if (accommodation?.latitude && accommodation?.longitude) {
+    const loc = (activity.location_name || "").toLowerCase();
+    const name = activity.name.toLowerCase();
+    if (/hotel|hyatt|accommodation|resort|pool|check.?in|check.?out/i.test(loc + " " + name)) {
+      return { lat: accommodation.latitude, lng: accommodation.longitude };
+    }
+  }
+  return null;
+}
+
+function estimateTravel(
+  from: TripActivity, to: TripActivity,
+  accommodation?: TripAccommodation,
+): { mode: "walk" | "drive"; distanceKm: number; minutes: number } | null {
+  const fromCoords = getActivityCoords(from, accommodation);
+  const toCoords = getActivityCoords(to, accommodation);
+  if (!fromCoords || !toCoords) return null;
+  const dist = haversineDistanceKm(fromCoords.lat, fromCoords.lng, toCoords.lat, toCoords.lng);
+  if (dist < 0.1) return null; // Same location (~100m)
+  if (dist > 50) return null; // Too far for a local travel hint (>50km)
+  const mode = dist < 1.5 ? "walk" as const : "drive" as const;
+  const speedKmh = mode === "walk" ? 5 : 40;
+  const minutes = Math.max(Math.round((dist / speedKmh) * 60), 1);
+  return { mode, distanceKm: dist, minutes };
+}
+
+function TravelHint({ estimate }: { estimate: { mode: "walk" | "drive"; distanceKm: number; minutes: number } }) {
+  const icon = estimate.mode === "walk" ? "\u{1F6B6}" : "\u{1F697}";
+  const label = estimate.mode === "walk" ? "walk" : "drive";
+  return (
+    <div className="flex items-center justify-center py-1 text-xs text-muted-foreground" data-testid="travel-hint">
+      <span className="opacity-40">&middot; &middot; &middot;</span>
+      <span className="mx-2">{icon} {estimate.minutes} min {label}</span>
+      <span className="opacity-40">&middot; &middot; &middot;</span>
+    </div>
+  );
+}
+
+// ─── Time gap helper — infer duration from gap to next activity ─────
+function inferEndTimeFromNext(activity: TripActivity, nextActivity?: TripActivity): string | null {
+  if (!activity.start_time || !nextActivity?.start_time) return null;
+  if (activity.end_time || activity.duration_minutes) return null; // Already has explicit timing
+  return nextActivity.start_time;
+}
+
+function getTransportColor(subType?: string): { bg: string; text: string; border: string } {
+  switch (subType) {
+    case "walking":
+      return { bg: "bg-emerald-100 dark:bg-emerald-900/40", text: "text-emerald-800 dark:text-emerald-200", border: "border-emerald-300 dark:border-emerald-700" };
+    case "flight":
+      return { bg: "bg-sky-100 dark:bg-sky-900/40", text: "text-sky-800 dark:text-sky-200", border: "border-sky-300 dark:border-sky-700" };
+    case "ferry":
+      return { bg: "bg-cyan-100 dark:bg-cyan-900/40", text: "text-cyan-800 dark:text-cyan-200", border: "border-cyan-300 dark:border-cyan-700" };
+    case "train":
+      return { bg: "bg-purple-100 dark:bg-purple-900/40", text: "text-purple-800 dark:text-purple-200", border: "border-purple-300 dark:border-purple-700" };
+    default: // local, long_haul, etc.
+      return { bg: "bg-slate-100 dark:bg-slate-800/60", text: "text-slate-700 dark:text-slate-200", border: "border-slate-300 dark:border-slate-600" };
+  }
 }
 
 const SEGMENT_COLORS = [
@@ -155,22 +254,186 @@ function AllPhotosGallery({ photos, activityName }: {
   );
 }
 
+// ─── Transport bar — compact colored bar for travel activities ────────
+function TransportBar({
+  activity,
+  previousActivity,
+  accommodation,
+  segmentLocationName,
+  tripId,
+}: {
+  activity: TripActivity;
+  previousActivity?: TripActivity;
+  accommodation?: TripAccommodation;
+  segmentLocationName?: string;
+  tripId?: string;
+}) {
+  const tc = getTimeColor(activity.start_time);
+  const transportColors = getTransportColor(activity.activity_sub_type);
+
+  // Determine from/to
+  const fromRaw = previousActivity?.location_name || accommodation?.name || segmentLocationName || "";
+  const toRaw = activity.location_name || "";
+  const fromResolved = accommodation ? resolveHotelReference(fromRaw, accommodation.name) : { text: fromRaw, hasHotelRef: false };
+  const toResolved = accommodation ? resolveHotelReference(toRaw, accommodation.name) : { text: toRaw, hasHotelRef: false };
+
+  // Duration display
+  const durationText = activity.duration_minutes ? formatDuration(activity.duration_minutes) : null;
+
+  // Time display
+  const timeStr = activity.start_time ? formatTimeAmPm(activity.start_time) : null;
+  const endTimeStr = activity.end_time
+    ? formatTimeAmPm(activity.end_time)
+    : activity.start_time && activity.duration_minutes
+      ? formatTimeAmPm(computeEndTime(activity.start_time, activity.duration_minutes))
+      : null;
+
+  const fromDisplay = fromResolved.text;
+  const toDisplay = toResolved.text;
+
+  return (
+    <div className="flex gap-0" data-testid="transport-bar">
+      {/* Timeline spacer for desktop alignment */}
+      <div className="hidden md:flex flex-col items-center w-3 shrink-0">
+        <div className="flex-1 w-1 rounded-full bg-muted-foreground/20" />
+      </div>
+
+      <div className={cn(
+        "flex-1 min-w-0 rounded-lg px-3 py-2 border",
+        transportColors.bg, transportColors.border
+      )}>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Transport icon */}
+          <div className={cn("shrink-0", transportColors.text)}>
+            <ActivityTypeIcon type="transport" subType={activity.activity_sub_type} className="h-4 w-4" />
+          </div>
+
+          {/* From → To */}
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
+            {fromDisplay && (
+              <>
+                <span className={cn("text-sm font-medium truncate max-w-[200px]", transportColors.text)}>
+                  {fromResolved.hasHotelRef && tripId ? (
+                    <a href={`/travel/${tripId}/lodging`} className="hover:underline">{fromDisplay}</a>
+                  ) : fromDisplay}
+                </span>
+                <ArrowRight className={cn("h-3 w-3 shrink-0", transportColors.text)} />
+              </>
+            )}
+            <span className={cn("text-sm font-medium truncate max-w-[200px]", transportColors.text)}>
+              {toResolved.hasHotelRef && tripId ? (
+                <a href={`/travel/${tripId}/lodging`} className="hover:underline">{toDisplay}</a>
+              ) : toDisplay}
+            </span>
+          </div>
+
+          {/* Duration + Time */}
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            {durationText && (
+              <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded bg-white/60 dark:bg-black/20", transportColors.text)}>
+                {durationText}
+              </span>
+            )}
+            {timeStr && (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white"
+                style={{ backgroundColor: tc.bgHex }}>
+                {tc.icon}
+                {timeStr}{endTimeStr && ` – ${endTimeStr}`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Description subtitle */}
+        {activity.description && (
+          <p className={cn("text-xs mt-1 opacity-80", transportColors.text)}>{activity.description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Activity card — desktop: text left / photos right ───────────────
 function BrowseActivityCard({
   activity,
   media,
   alternatives,
   allActivities,
+  previousActivity,
+  nextActivity,
+  accommodation,
+  tripId,
+  segmentLocationName,
+  isFirstHotelRef,
 }: {
   activity: TripActivity;
   media: Array<{ id: string; file_url: string; caption?: string | null; is_google_sourced?: boolean; approved?: boolean | null; google_attribution_name?: string | null }>;
   alternatives: TripActivity[];
   allActivities: TripActivity[];
+  previousActivity?: TripActivity;
+  nextActivity?: TripActivity;
+  accommodation?: TripAccommodation;
+  tripId?: string;
+  segmentLocationName?: string;
+  isFirstHotelRef?: boolean;
 }) {
+  const isTransport = activity.activity_type === "transport";
+
+  // Transport activities render as compact bars
+  if (isTransport) {
+    return (
+      <TransportBar
+        activity={activity}
+        previousActivity={previousActivity}
+        accommodation={accommodation}
+        segmentLocationName={segmentLocationName}
+        tripId={tripId}
+      />
+    );
+  }
+
   const approvedPhotos = media.filter(m => !m.is_google_sourced || m.approved === true);
   const photos = approvedPhotos.length > 0 ? approvedPhotos : media.filter(m => !m.is_google_sourced || m.approved !== false);
   const tc = getTimeColor(activity.start_time);
-  const isTransport = activity.activity_type === "transport";
+
+  // Resolve hotel references in name and location
+  const nameResolved = accommodation ? resolveHotelReference(activity.name, accommodation.name) : { text: activity.name, hasHotelRef: false };
+  const locationResolved = accommodation ? resolveHotelReference(activity.location_name || "", accommodation.name) : { text: activity.location_name || "", hasHotelRef: false };
+  const hasAnyHotelRef = nameResolved.hasHotelRef || locationResolved.hasHotelRef;
+
+  // For generic meals with a specific venue, promote the venue name to the title
+  const isGenericMeal = /^(breakfast|lunch|dinner)$/i.test(activity.name.trim());
+  const hasSpecificVenue = locationResolved.text && !/^(hotel|accommodation|resort)\b/i.test(locationResolved.text.trim());
+  const displayName = isGenericMeal && hasSpecificVenue ? locationResolved.text : nameResolved.text;
+  const mealTypeBadge = isGenericMeal && hasSpecificVenue ? activity.name : null;
+  const displayLocation = locationResolved.text;
+
+  // Compute end time for time range display (explicit > duration-based > inferred from next)
+  const explicitEndTimeStr = activity.end_time
+    ? formatTimeAmPm(activity.end_time)
+    : activity.start_time && activity.duration_minutes
+      ? formatTimeAmPm(computeEndTime(activity.start_time, activity.duration_minutes))
+      : null;
+  const inferredEnd = inferEndTimeFromNext(activity, nextActivity);
+  const endTimeStr = explicitEndTimeStr || (inferredEnd ? formatTimeAmPm(inferredEnd) : null);
+
+  // Compute duration text to show inline with the time pill
+  const effectiveDurationMinutes = activity.duration_minutes
+    || (!explicitEndTimeStr && inferredEnd && activity.start_time
+      ? (() => {
+          const [sh, sm] = activity.start_time!.split(":").map(Number);
+          const [eh, em] = inferredEnd.split(":").map(Number);
+          return (eh * 60 + em) - (sh * 60 + sm);
+        })()
+      : activity.end_time && activity.start_time
+        ? (() => {
+            const [sh, sm] = activity.start_time!.split(":").map(Number);
+            const [eh, em] = activity.end_time!.split(":").map(Number);
+            return (eh * 60 + em) - (sh * 60 + sm);
+          })()
+        : null);
+  const durationText = effectiveDurationMinutes && effectiveDurationMinutes > 0
+    ? formatDuration(effectiveDurationMinutes) : null;
 
   // Find parent activity if this is an alternative
   const parentActivity = activity.alternate_to_activity_id
@@ -185,7 +448,7 @@ function BrowseActivityCard({
       </div>
 
       {/* ── Card ── */}
-      <div className={cn("flex-1 min-w-0 border rounded-lg overflow-hidden bg-card", isTransport && "opacity-75")}>
+      <div className="flex-1 min-w-0 border rounded-lg overflow-hidden bg-card">
         {/* Mobile time bar */}
         <div className="md:hidden flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white"
           style={{ backgroundColor: tc.bgHex }} data-testid="mobile-time-bar">
@@ -226,7 +489,7 @@ function BrowseActivityCard({
           <div className="flex-1 min-w-0 p-3 md:p-4 space-y-2">
             {/* Header */}
             <div className="flex items-start gap-2">
-              <div className={cn("p-1.5 rounded-lg shrink-0", isTransport ? "bg-muted" : "bg-primary/10")}>
+              <div className="p-1.5 rounded-lg shrink-0 bg-primary/10">
                 <ActivityTypeIcon type={activity.activity_type || "activity"} subType={activity.activity_sub_type} />
               </div>
               <div className="flex-1 min-w-0">
@@ -234,11 +497,21 @@ function BrowseActivityCard({
                   {activity.website ? (
                     <a href={activity.website} target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1 hover:text-primary transition-colors">
-                      <h3 className="text-base md:text-lg font-semibold">{activity.name}</h3>
+                      <h3 className="text-base md:text-lg font-semibold">{displayName}</h3>
                       <ExternalLink className="h-3 w-3 text-muted-foreground" />
                     </a>
+                  ) : hasAnyHotelRef && tripId ? (
+                    <a href={`/travel/${tripId}/lodging`} className="flex items-center gap-1 hover:text-primary transition-colors">
+                      <h3 className="text-base md:text-lg font-semibold">{displayName}</h3>
+                      <Building2 className="h-3 w-3 text-muted-foreground" />
+                    </a>
                   ) : (
-                    <h3 className="text-base md:text-lg font-semibold">{activity.name}</h3>
+                    <h3 className="text-base md:text-lg font-semibold">{displayName}</h3>
+                  )}
+                  {mealTypeBadge && (
+                    <Badge variant="secondary" className="text-xs">
+                      <Utensils className="h-3 w-3 mr-0.5" />{mealTypeBadge}
+                    </Badge>
                   )}
                   {activity.google_rating && (
                     activity.google_maps_url ? (
@@ -263,9 +536,10 @@ function BrowseActivityCard({
                       <Popover>
                         <PopoverTrigger asChild>
                           <button className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white transition-opacity hover:opacity-80 cursor-pointer"
-                            style={{ backgroundColor: tc.bgHex }}>
+                            style={{ backgroundColor: tc.bgHex }} data-testid="activity-time-range">
                             {tc.icon}
-                            {formatTimeAmPm(activity.start_time)}{activity.end_time && ` - ${formatTimeAmPm(activity.end_time)}`}
+                            {formatTimeAmPm(activity.start_time)}{endTimeStr && ` – ${endTimeStr}`}
+                            {durationText && <>&nbsp;<span className="opacity-80 font-normal">· {durationText}</span></>}
                             {activity.opening_hours.open_now !== undefined && (
                               <span className={cn("ml-0.5 w-1.5 h-1.5 rounded-full", activity.opening_hours.open_now ? "bg-green-400" : "bg-red-400")} />
                             )}
@@ -289,9 +563,10 @@ function BrowseActivityCard({
                       </Popover>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-                        style={{ backgroundColor: tc.bgHex }}>
+                        style={{ backgroundColor: tc.bgHex }} data-testid="activity-time-range">
                         {tc.icon}
-                        {formatTimeAmPm(activity.start_time)}{activity.end_time && ` - ${formatTimeAmPm(activity.end_time)}`}
+                        {formatTimeAmPm(activity.start_time)}{endTimeStr && ` – ${endTimeStr}`}
+                        {durationText && <>&nbsp;<span className="opacity-80 font-normal">· {durationText}</span></>}
                       </span>
                     )
                   )}
@@ -304,12 +579,14 @@ function BrowseActivityCard({
                 </div>
                 {/* Address + Phone */}
                 <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                  {(activity.location_name || activity.address) && (
-                    <a href={activity.google_maps_url || `https://maps.google.com/maps?q=${encodeURIComponent(activity.address || activity.location_name || '')}`}
+                  {(activity.address || displayLocation) && (
+                    <a href={activity.google_maps_url || `https://maps.google.com/maps?q=${encodeURIComponent(activity.address || displayLocation || '')}`}
                       target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
                       <MapPin className="h-3 w-3" />
-                      <span className="hover:underline">{activity.address || activity.location_name}</span>
+                      <span className="hover:underline">
+                        {activity.address || (!mealTypeBadge ? displayLocation : "")}
+                      </span>
                       <ExternalLink className="h-2.5 w-2.5" />
                     </a>
                   )}
@@ -335,9 +612,7 @@ function BrowseActivityCard({
                   {activity.cost_estimate}{activity.cost_currency && ` ${activity.cost_currency}`}
                 </Badge>
               )}
-              {activity.duration_minutes && (
-                <Badge variant="outline" className="text-xs">{activity.duration_minutes}min</Badge>
-              )}
+              {/* Duration is now shown inline in the time pill */}
               {activity.reservation_required && (
                 <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 dark:text-amber-400">
                   <Ticket className="h-3 w-3 mr-0.5" />Reservation
@@ -357,7 +632,74 @@ function BrowseActivityCard({
                   <Mountain className="h-3 w-3" />AllTrails<ExternalLink className="h-2.5 w-2.5" />
                 </a>
               )}
+              {/* Restaurant attribute badges */}
+              {activity.outdoor_seating && <Badge variant="outline" className="text-xs">Outdoor Seating</Badge>}
+              {activity.good_for_children && <Badge variant="outline" className="text-xs">Kid-Friendly</Badge>}
+              {activity.good_for_groups && <Badge variant="outline" className="text-xs">Good for Groups</Badge>}
+              {activity.serves_vegetarian && <Badge variant="outline" className="text-xs">Vegetarian Options</Badge>}
+              {activity.serves_wine && <Badge variant="outline" className="text-xs">Wine</Badge>}
+              {activity.serves_cocktails && <Badge variant="outline" className="text-xs">Cocktails</Badge>}
+              {activity.reservable && !activity.reservation_required && <Badge variant="outline" className="text-xs">Reservable</Badge>}
             </div>
+
+            {/* Hotel info card — shown only on first hotel reference per segment */}
+            {isFirstHotelRef && accommodation && (
+              <div className="text-sm p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg space-y-2">
+                <div className="flex items-center gap-2 font-medium">
+                  <Building2 className="h-4 w-4" /> {accommodation.name}
+                  {accommodation.google_rating && (
+                    <span className="flex items-center gap-1">
+                      <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                      {accommodation.google_rating}
+                    </span>
+                  )}
+                </div>
+                {accommodation.address && (
+                  <a href={`https://maps.google.com/maps?q=${encodeURIComponent(accommodation.address)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                    <MapPin className="h-3 w-3" />{accommodation.address}<ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                )}
+                <div className="flex gap-4 text-xs text-muted-foreground">
+                  {accommodation.check_in_time && <span>Check-in: {accommodation.check_in_time}</span>}
+                  {accommodation.check_out_time && <span>Check-out: {accommodation.check_out_time}</span>}
+                  {accommodation.nights && <span>{accommodation.nights} nights</span>}
+                </div>
+                {accommodation.room_type && <div className="text-xs">Room: {accommodation.room_type}</div>}
+                {(accommodation.loyalty_program || accommodation.points_used) && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {accommodation.loyalty_program && <Badge variant="outline" className="text-xs">{accommodation.loyalty_program}</Badge>}
+                    {accommodation.points_used && <span className="text-muted-foreground">{accommodation.points_used.toLocaleString()} pts</span>}
+                  </div>
+                )}
+                {accommodation.amenities && accommodation.amenities.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {accommodation.amenities.map((a: string, i: number) => (
+                      <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  {accommodation.website && (
+                    <a href={accommodation.website} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-primary hover:underline">
+                      <Globe className="h-3 w-3" />Website<ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  )}
+                  {accommodation.phone && (
+                    <a href={`tel:${accommodation.phone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                      <Phone className="h-3 w-3" />{accommodation.phone}
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Editorial summary from Google */}
+            {activity.google_editorial_summary && (
+              <p className="text-sm text-muted-foreground italic">{activity.google_editorial_summary}</p>
+            )}
 
             <Separator />
 
@@ -606,41 +948,53 @@ function BrowseActivityCard({
 
             {/* Restaurant details */}
             {activity.restaurant_details && (
-              <div className="text-sm p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg space-y-1">
-                <div className="flex items-center gap-1.5 font-medium text-orange-800 dark:text-orange-300"><Utensils className="h-3.5 w-3.5" /> Restaurant</div>
-                {activity.restaurant_details.cuisine_type && <div><span className="font-medium">Cuisine: </span><span className="text-muted-foreground">{activity.restaurant_details.cuisine_type}</span></div>}
+              <div className="text-sm p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5 font-medium text-orange-800 dark:text-orange-300"><Utensils className="h-3.5 w-3.5" /> {activity.restaurant_details.cuisine_type || 'Restaurant'}</div>
+                {/* Existing badges */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {activity.restaurant_details.highchair && <Badge variant="secondary" className="text-[10px]">Highchair</Badge>}
+                  {activity.restaurant_details.kids_menu && <Badge variant="secondary" className="text-[10px]">Kids Menu</Badge>}
+                  {activity.restaurant_details.seating && <Badge variant="secondary" className="text-[10px]">{activity.restaurant_details.seating === 'both' ? 'Indoor & Outdoor' : activity.restaurant_details.seating === 'outdoor' ? 'Outdoor Seating' : 'Indoor'}</Badge>}
+                  {activity.restaurant_details.dietary_options && activity.restaurant_details.dietary_options.length > 0 && activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}
+                </div>
+                {/* Must-Try Dishes */}
                 {activity.restaurant_details.signature_dishes && activity.restaurant_details.signature_dishes.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">Must-Try Dishes:</span>
-                      {(activity.restaurant_details.signature_dishes[0] as any)?.source && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {(activity.restaurant_details.signature_dishes[0] as any).source === 'ai_review_analysis' ? 'From Reviews' : 'Recommended'}
-                        </Badge>
-                      )}
-                    </div>
+                  <div className="space-y-1.5">
+                    <div className="font-medium text-xs text-orange-800 dark:text-orange-300">Must-Try Dishes</div>
                     {activity.restaurant_details.signature_dishes.map((dish, i) => (
-                      <div key={i} className="p-1.5 bg-white dark:bg-gray-800 rounded ml-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-xs">{dish.name}</span>
-                          {(dish as any).price && <Badge variant="outline" className="text-[10px]">{(dish as any).price}</Badge>}
-                          {(dish as any).kid_friendly && <Badge variant="secondary" className="text-[10px]">Kid-friendly</Badge>}
+                      <div key={i} className="p-1.5 bg-white dark:bg-gray-800 rounded ml-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-xs">{i + 1}. {dish.name}</span>
+                          {dish.is_local_specialty && <Badge className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300">Local Specialty</Badge>}
+                          {dish.kid_friendly && <Badge variant="secondary" className="text-[10px]">Kid-Friendly</Badge>}
                         </div>
-                        {(dish as any).description && <p className="text-xs text-muted-foreground mt-0.5">{(dish as any).description}</p>}
+                        {dish.description && <p className="text-xs text-muted-foreground mt-0.5 ml-3">{dish.description}</p>}
                       </div>
                     ))}
                   </div>
                 )}
-                {activity.restaurant_details.ambience && <div><span className="font-medium">Ambience: </span><span className="text-muted-foreground">{activity.restaurant_details.ambience} ({activity.restaurant_details.noise_level})</span></div>}
-                {activity.restaurant_details.seating && <div><span className="font-medium">Seating: </span><span className="text-muted-foreground">{activity.restaurant_details.seating}</span></div>}
-                <div className="flex gap-1.5 flex-wrap">
-                  {activity.restaurant_details.highchair && <Badge variant="secondary" className="text-[10px]">Highchair</Badge>}
-                  {activity.restaurant_details.kids_menu && <Badge variant="secondary" className="text-[10px]">Kids Menu</Badge>}
-                </div>
-                {activity.restaurant_details.dietary_options && activity.restaurant_details.dietary_options.length > 0 && (
-                  <div className="flex gap-1 flex-wrap">{activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}</div>
+                {/* Ambience */}
+                {activity.restaurant_details.ambience && <div className="text-xs"><span className="font-medium">Vibe: </span><span className="text-muted-foreground">{activity.restaurant_details.ambience}</span></div>}
+                {/* Local Insight */}
+                {activity.restaurant_details.local_insight && (
+                  <div className="text-xs p-1.5 bg-amber-50 dark:bg-amber-900/20 rounded"><span className="font-medium text-amber-800 dark:text-amber-300">Local Insight: </span><span className="text-muted-foreground">{activity.restaurant_details.local_insight}</span></div>
                 )}
-                {activity.restaurant_details.reservation_tips && <div><span className="font-medium">Reservations: </span><span className="text-muted-foreground">{activity.restaurant_details.reservation_tips}</span></div>}
+                {/* Things to Know */}
+                {activity.restaurant_details.things_to_know && (
+                  <div className="text-xs"><span className="font-medium">Things to Know: </span><span className="text-muted-foreground">{activity.restaurant_details.things_to_know}</span></div>
+                )}
+                {/* Family Tips */}
+                {activity.restaurant_details.family_tips && (
+                  <div className="text-xs"><span className="font-medium">Family Tips: </span><span className="text-muted-foreground">{activity.restaurant_details.family_tips}</span></div>
+                )}
+                {/* Timing Tips */}
+                {activity.restaurant_details.timing_tips && (
+                  <div className="text-xs"><span className="font-medium">Timing: </span><span className="text-muted-foreground">{activity.restaurant_details.timing_tips}</span></div>
+                )}
+                {/* Reservation Tips */}
+                {activity.restaurant_details.reservation_tips && (
+                  <div className="text-xs"><span className="font-medium">Reservations: </span><span className="text-muted-foreground">{activity.restaurant_details.reservation_tips}</span></div>
+                )}
               </div>
             )}
 
@@ -837,6 +1191,17 @@ export default function TripBrowsePage() {
     return map;
   }, [trip?.activities]);
 
+  const mediaByAccommodation = useMemo(() => {
+    if (!trip?.media) return {};
+    const grouped: Record<string, typeof trip.media> = {};
+    for (const m of trip.media) {
+      if (m.parent_type !== "accommodation") continue;
+      if (!grouped[m.parent_id]) grouped[m.parent_id] = [];
+      grouped[m.parent_id].push(m);
+    }
+    return grouped;
+  }, [trip?.media]);
+
   const dayToGlobalNumber = useMemo(() => {
     if (!trip?.days) return {};
     const uniq = new Map<string, (typeof trip.days)[0]>();
@@ -922,40 +1287,111 @@ export default function TripBrowsePage() {
 
       {/* Days and activities */}
       <div className="max-w-7xl mx-auto px-2 md:px-4 py-4 space-y-8">
-        {segmentDays.map((day) => {
-          const dayActivities = activitiesByDay[day.id] || [];
-          const localDate = parseLocalDate(day.date);
-          const globalDayNum = dayToGlobalNumber[day.id];
-          return (
-            <div key={day.id} data-testid="browse-day">
-              <div className="flex items-center gap-3 mb-4">
-                <div className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex flex-col items-center justify-center text-white shrink-0", colorSet.bg)}>
-                  <span className="text-[10px] md:text-xs font-medium leading-none">{localDate.toLocaleDateString("en-US", { weekday: "short" })}</span>
-                  <span className="text-lg md:text-xl font-bold leading-none">{localDate.getDate()}</span>
+        {(() => {
+          const segmentAccommodation = trip?.accommodations?.find(a => a.segment_id === activeSegment?.id);
+          // Track which accommodations have shown their full photos (first reference only)
+          const shownAccommPhotos = new Set<string>();
+          return segmentDays.map((day) => {
+            const dayActivities = activitiesByDay[day.id] || [];
+            const localDate = parseLocalDate(day.date);
+            const globalDayNum = dayToGlobalNumber[day.id];
+
+            // Day-level time range
+            const dayTimes = dayActivities
+              .filter(a => a.start_time)
+              .map(a => {
+                const endTime = a.end_time || (a.start_time && a.duration_minutes ? computeEndTime(a.start_time!, a.duration_minutes) : a.start_time);
+                return { start: a.start_time!, end: endTime! };
+              });
+            const earliestTime = dayTimes.length > 0 ? dayTimes.reduce((min, t) => t.start < min ? t.start : min, dayTimes[0].start) : null;
+            const latestTime = dayTimes.length > 0 ? dayTimes.reduce((max, t) => t.end > max ? t.end : max, dayTimes[0].end) : null;
+
+            return (
+              <div key={day.id} data-testid="browse-day">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex flex-col items-center justify-center text-white shrink-0", colorSet.bg)}>
+                    <span className="text-[10px] md:text-xs font-medium leading-none">{localDate.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                    <span className="text-lg md:text-xl font-bold leading-none">{localDate.getDate()}</span>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base md:text-lg">{day.title || `Day ${globalDayNum || day.day_number || ""}`}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {localDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                      {day.theme && ` \u2014 ${day.theme}`}
+                      {earliestTime && latestTime && earliestTime !== latestTime && (
+                        <span className="ml-1" data-testid="day-time-range"> · {formatTimeAmPm(earliestTime)} – {formatTimeAmPm(latestTime)}</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-base md:text-lg">{day.title || `Day ${globalDayNum || day.day_number || ""}`}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {localDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                    {day.theme && ` \u2014 ${day.theme}`}
-                  </p>
+                {day.overview && <p className="text-sm text-muted-foreground mb-3 ml-0 md:ml-[72px]">{day.overview}</p>}
+                <div className="space-y-3 ml-0 md:ml-[72px]">
+                  {dayActivities.length > 0 ? dayActivities.map((activity, idx) => {
+                    // Hotel photo logic: only show full photos on first hotel reference per segment
+                    const activityMedia = mediaByActivity[activity.id] || [];
+                    const locAndName = ((activity.location_name || "") + " " + activity.name).toLowerCase();
+                    const accommName = segmentAccommodation?.name?.toLowerCase() || "";
+                    const isTransport = activity.activity_type === "transport";
+                    const isHotelActivity = !isTransport && (
+                      /\bhotel\b/i.test(locAndName)
+                      || activity.activity_sub_type === "pool"
+                      || activity.activity_sub_type === "check_in"
+                      || activity.activity_sub_type === "check_out"
+                      || /check.?in|check.?out|luggage/i.test(activity.name)
+                      || (accommName && locAndName.includes(accommName))
+                    );
+                    const isPoolActivity = activity.activity_sub_type === "pool" || /\bpool\b/i.test(activity.name);
+                    const isFirstHotelRef = isHotelActivity && segmentAccommodation
+                      && !shownAccommPhotos.has(segmentAccommodation.id);
+
+                    let effectiveMedia: typeof activityMedia;
+                    if (activityMedia.length > 0) {
+                      // Activity has its own photos — always use them
+                      effectiveMedia = activityMedia;
+                    } else if (isFirstHotelRef && segmentAccommodation) {
+                      // First hotel reference — show full accommodation photos
+                      effectiveMedia = mediaByAccommodation[segmentAccommodation.id] || [];
+                      shownAccommPhotos.add(segmentAccommodation.id);
+                    } else if (isPoolActivity && segmentAccommodation) {
+                      // Pool activities — show max 2 accommodation photos
+                      effectiveMedia = (mediaByAccommodation[segmentAccommodation.id] || []).slice(0, 2);
+                    } else {
+                      // Subsequent hotel references — no photos
+                      effectiveMedia = [];
+                    }
+
+                    // Travel hint between non-transport activities at different locations
+                    const prev = idx > 0 ? dayActivities[idx - 1] : null;
+                    const showTravelHint = prev
+                      && prev.activity_type !== "transport"
+                      && activity.activity_type !== "transport";
+                    const travelEstimate = showTravelHint && prev ? estimateTravel(prev, activity, segmentAccommodation) : null;
+
+                    const next = idx < dayActivities.length - 1 ? dayActivities[idx + 1] : undefined;
+
+                    return (
+                      <React.Fragment key={activity.id}>
+                        {travelEstimate && <TravelHint estimate={travelEstimate} />}
+                        <BrowseActivityCard
+                          activity={activity}
+                          media={effectiveMedia}
+                          alternatives={alternativesByActivity[activity.id] || []}
+                          allActivities={trip.activities || []}
+                          previousActivity={idx > 0 ? dayActivities[idx - 1] : undefined}
+                          nextActivity={next}
+                          accommodation={segmentAccommodation}
+                          tripId={tripId}
+                          segmentLocationName={activeSegment?.location_name}
+                          isFirstHotelRef={!!isFirstHotelRef}
+                        />
+                      </React.Fragment>
+                    );
+                  }) : <p className="text-sm text-muted-foreground italic py-2">No activities planned</p>}
                 </div>
               </div>
-              {day.overview && <p className="text-sm text-muted-foreground mb-3 ml-0 md:ml-[72px]">{day.overview}</p>}
-              <div className="space-y-3 ml-0 md:ml-[72px]">
-                {dayActivities.length > 0 ? dayActivities.map((activity) => (
-                  <BrowseActivityCard
-                    key={activity.id}
-                    activity={activity}
-                    media={mediaByActivity[activity.id] || []}
-                    alternatives={alternativesByActivity[activity.id] || []}
-                    allActivities={trip.activities || []}
-                  />
-                )) : <p className="text-sm text-muted-foreground italic py-2">No activities planned</p>}
-              </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
         {segmentDays.length === 0 && <div className="text-center py-8 text-muted-foreground">No days planned for this segment yet</div>}
       </div>
 

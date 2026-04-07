@@ -33,6 +33,7 @@ import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService
 import { ScheduleValidationService } from '../services/schedule-validation';
 import { computeTravelTimesForTrip, formatTravelTimesForPrompt, getDefaultDurationMinutes } from '../services/google-routes-service';
 import { RestaurantSuggestionService } from '../services/restaurant-suggestion';
+import { enrichRestaurantDetails } from '../services/restaurant-enrichment';
 import type { ValidationResult, AssembleScheduleResponse } from '@singularity/shared-types';
 
 // Import travel import & settings routes (see docs/travel-module-prd.md for workflow)
@@ -2473,6 +2474,16 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
       google_rating: place.rating,
       photos_fetched: true
     };
+
+    // Add address if not already set
+    if (!accommodation.address && place.formattedAddress) {
+      updateData.address = place.formattedAddress;
+    }
+
+    // Add website if not already set
+    if (!accommodation.website && place.websiteUri) {
+      updateData.website = place.websiteUri;
+    }
 
     // Add lat/lng if not already set
     if (!accommodation.latitude && place.location) {
@@ -5710,30 +5721,64 @@ router.post('/trips/:tripId/assemble-schedule', authenticateUser, async (req: Re
       });
 
       if (googleApiKey) {
-        // Enrich all activities (primary: 20 photos, alternates: 10 photos)
-        // Also analyzes reviews for restaurants and fetches ticket prices for attractions
-        log('Step 7: Starting Google enrichment...');
+        // Enrich per-segment to provide location bias for Google Places API
+        log('Step 7: Starting Google enrichment per-segment...');
         const enrichmentStartTime = Date.now();
-        const enrichResult = await ScheduleValidationService.enrichActivitiesWithGoogleData(
-          tripId,
-          userId,
-          allActivitiesForEnrichment as any,
-          googleApiKey,
-          anthropicApiKeyForEnrichment
-        );
+        let totalPhotosAdded = 0;
+        const allEnrichErrors: string[] = [];
+
+        // Build segment location + accommodation lookup
+        const segmentMap = new Map<string, { latitude?: number; longitude?: number; name?: string; country?: string }>();
+        for (const seg of (segments || [])) {
+          segmentMap.set(seg.id, { latitude: seg.latitude, longitude: seg.longitude, name: seg.name, country: seg.country });
+        }
+        const accommBySegment = new Map<string, string>();
+        for (const acc of (accommodations || [])) {
+          if (acc.segment_id) accommBySegment.set(acc.segment_id, acc.name);
+        }
+
+        // Group activities by segment_id
+        const activitiesBySegmentId = new Map<string, typeof allActivitiesForEnrichment>();
+        for (const act of allActivitiesForEnrichment) {
+          const sid = (act as any).segment_id || '_none';
+          if (!activitiesBySegmentId.has(sid)) activitiesBySegmentId.set(sid, []);
+          activitiesBySegmentId.get(sid)!.push(act);
+        }
+
+        for (const [segId, segActivities] of activitiesBySegmentId) {
+          const segInfo = segmentMap.get(segId);
+          const segLocation = segInfo?.latitude && segInfo?.longitude
+            ? { latitude: segInfo.latitude, longitude: segInfo.longitude }
+            : undefined;
+          const segAccommName = accommBySegment.get(segId);
+
+          const enrichResult = await ScheduleValidationService.enrichActivitiesWithGoogleData(
+            tripId,
+            userId,
+            segActivities as any,
+            googleApiKey,
+            anthropicApiKeyForEnrichment,
+            segLocation,
+            segAccommName,
+            segInfo?.country
+          );
+          activitiesEnriched += enrichResult.enriched;
+          activitiesSkipped += enrichResult.skipped;
+          reviewsAnalyzed += enrichResult.reviewsAnalyzed;
+          totalPhotosAdded += enrichResult.photosAdded;
+          allEnrichErrors.push(...enrichResult.errors);
+        }
+
         const enrichmentDuration = ((Date.now() - enrichmentStartTime) / 1000).toFixed(2);
-        activitiesEnriched = enrichResult.enriched;
-        activitiesSkipped = enrichResult.skipped;
-        reviewsAnalyzed = enrichResult.reviewsAnalyzed;
 
         log('Step 7 ENRICHMENT COMPLETE', {
           duration: `${enrichmentDuration}s`,
           enriched: activitiesEnriched,
           skipped: activitiesSkipped,
-          photosAdded: enrichResult.photosAdded,
+          photosAdded: totalPhotosAdded,
           reviewsAnalyzed,
-          errors: enrichResult.errors.length,
-          errorSamples: enrichResult.errors.slice(0, 5)
+          errors: allEnrichErrors.length,
+          errorSamples: allEnrichErrors.slice(0, 5)
         });
 
         // Reload primary activities with updated Google data
@@ -6405,7 +6450,7 @@ router.post('/trips/:tripId/segments/:segmentId/enrich-activities', authenticate
     // 2. Verify segment exists and belongs to trip
     const { data: segment, error: segError } = await supabase
       .from('trip_segments')
-      .select('id, name, start_date, end_date')
+      .select('id, name, start_date, end_date, latitude, longitude, country')
       .eq('id', segmentId)
       .eq('trip_id', tripId)
       .single();
@@ -6445,14 +6490,28 @@ router.post('/trips/:tripId/segments/:segmentId/enrich-activities', authenticate
     const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
     const anthropicApiKey = keyData?.api_key;
 
-    // 6. Enrich activities
-    log('Starting enrichment...', { activitiesCount: segmentActivities.length });
+    // 5b. Get accommodation name for this segment (for hotel restaurant resolution)
+    const { data: segAccomm } = await supabase
+      .from('trip_accommodations')
+      .select('name')
+      .eq('segment_id', segmentId)
+      .limit(1)
+      .single();
+
+    // 6. Enrich activities with segment location bias
+    const segmentLocation = segment.latitude && segment.longitude
+      ? { latitude: segment.latitude, longitude: segment.longitude }
+      : undefined;
+    log('Starting enrichment...', { activitiesCount: segmentActivities.length, hasLocation: !!segmentLocation });
     const enrichResult = await ScheduleValidationService.enrichActivitiesWithGoogleData(
       tripId,
       userId,
       segmentActivities as any,
       googleApiKey,
-      anthropicApiKey
+      anthropicApiKey,
+      segmentLocation,
+      segAccomm?.name,
+      segment.country
     );
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -6464,6 +6523,13 @@ router.post('/trips/:tripId/segments/:segmentId/enrich-activities', authenticate
       reviewsAnalyzed: enrichResult.reviewsAnalyzed,
       errors: enrichResult.errors.length,
     });
+
+    // 7. Auto-trigger restaurant detail enrichment (fire-and-forget)
+    if (anthropicApiKey && googleApiKey) {
+      enrichRestaurantDetails(tripId, userId, googleApiKey, anthropicApiKey, segmentId)
+        .then(r => log('Restaurant enrichment complete', { enriched: r.enriched, skipped: r.skipped }))
+        .catch(e => console.error('[SegmentEnrich] Restaurant enrichment error:', e));
+    }
 
     return res.json({
       success: true,
@@ -6603,6 +6669,13 @@ router.post('/trips/:tripId/segments/:segmentId/timing-enrichment', authenticate
       log('Travel times complete', { routes: routesComputed, totalMinutes: travelMinutesTotal });
     }
 
+    // Auto-trigger restaurant detail enrichment (fire-and-forget)
+    if (anthropicApiKey && googleApiKey) {
+      enrichRestaurantDetails(tripId, userId, googleApiKey, anthropicApiKey, segmentId)
+        .then(r => log('Restaurant enrichment complete', { enriched: r.enriched, skipped: r.skipped }))
+        .catch(e => console.error('[TimingEnrich] Restaurant enrichment error:', e));
+    }
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     log('COMPLETE', { duration: `${duration}s` });
 
@@ -6622,6 +6695,64 @@ router.post('/trips/:tripId/segments/:segmentId/timing-enrichment', authenticate
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[TimingEnrich][${elapsed}s] ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/enrich-restaurant-details
+ * Dedicated restaurant enrichment: fetches reviews and extracts dining recommendations via AI
+ */
+router.post('/trips/:tripId/enrich-restaurant-details', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+    const segmentId = req.query.segmentId as string | undefined;
+
+    // Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    // Get API keys
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!keyData?.api_key) {
+      return res.status(400).json({ success: false, error: 'Anthropic API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const result = await enrichRestaurantDetails(tripId, userId, googleApiKey, keyData.api_key, segmentId);
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[RestaurantEnrichEndpoint] Complete in ${duration}s`, result);
+
+    return res.json({
+      success: true,
+      message: `Restaurant enrichment complete: ${result.enriched} enriched, ${result.skipped} skipped`,
+      data: result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[RestaurantEnrichEndpoint][${elapsed}s] ERROR:`, error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

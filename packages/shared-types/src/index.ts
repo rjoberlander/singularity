@@ -1691,6 +1691,25 @@ export interface TripActivity {
     weekday_text?: string[];
   };
   photos_fetched?: boolean;
+  // Extended Google Places attributes
+  google_editorial_summary?: string;
+  outdoor_seating?: boolean;
+  dine_in?: boolean;
+  takeout?: boolean;
+  delivery?: boolean;
+  reservable?: boolean;
+  good_for_children?: boolean;
+  good_for_groups?: boolean;
+  serves_breakfast?: boolean;
+  serves_lunch?: boolean;
+  serves_dinner?: boolean;
+  serves_brunch?: boolean;
+  serves_vegetarian?: boolean;
+  serves_beer?: boolean;
+  serves_wine?: boolean;
+  serves_cocktails?: boolean;
+  live_music?: boolean;
+  allows_dogs?: boolean;
   // Rich content fields
   estimated_duration_minutes?: number;
   practical_details?: {
@@ -2381,6 +2400,7 @@ export interface SignatureDish {
   description: string;
   price?: string;
   kid_friendly?: boolean;
+  is_local_specialty?: boolean;
   // Source of recommendation: 'ai_review_analysis' (auto-extracted from Google reviews) or 'imported' (from Claude research)
   source?: 'ai_review_analysis' | 'imported';
 }
@@ -2395,6 +2415,10 @@ export interface RestaurantDetails {
   kids_menu: boolean;
   dietary_options: string[];
   reservation_tips: string;
+  local_insight?: string;
+  timing_tips?: string;
+  things_to_know?: string;
+  family_tips?: string;
 }
 
 export interface BeachDetails {

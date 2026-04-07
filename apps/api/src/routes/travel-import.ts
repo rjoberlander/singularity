@@ -812,6 +812,15 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
                   activityData.address = matchedResearch.location.address;
                   activityData.google_maps_url = matchedResearch.location.google_maps_url;
                 }
+                // Build restaurant_details from research item's flat fields
+                if (matchedResearch.cuisine_type || matchedResearch.signature_dishes || matchedResearch.ambience || matchedResearch.dietary_options) {
+                  activityData.restaurant_details = {
+                    ...(matchedResearch.cuisine_type ? { cuisine_type: matchedResearch.cuisine_type } : {}),
+                    ...(matchedResearch.signature_dishes ? { signature_dishes: matchedResearch.signature_dishes.map((d: string) => ({ name: d, description: '', source: 'imported' as const })) } : {}),
+                    ...(matchedResearch.ambience ? { ambience: matchedResearch.ambience } : {}),
+                    ...(matchedResearch.dietary_options ? { dietary_options: matchedResearch.dietary_options } : {}),
+                  };
+                }
               }
 
               return activityData;
