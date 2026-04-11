@@ -2330,6 +2330,51 @@ IMPORTANT:
       });
     }
 
+    // Ground-truth the hotel location via Google Places Text Search.
+    // LLMs hallucinate coordinates and addresses, so we always overwrite
+    // those fields with authoritative Google data when available.
+    const placesKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (placesKey && hotelData?.name) {
+      try {
+        const textQuery = `${hotelData.name} ${hotelData.address || ''}`.trim();
+        const placesResp = await fetch('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': placesKey,
+            'X-Goog-FieldMask':
+              'places.id,places.displayName,places.formattedAddress,places.location,places.websiteUri,places.internationalPhoneNumber,places.rating,places.userRatingCount',
+          },
+          body: JSON.stringify({ textQuery, maxResultCount: 1 }),
+        });
+        if (placesResp.ok) {
+          const placesData = (await placesResp.json()) as { places?: GooglePlaceResult[] };
+          const place = placesData.places?.[0];
+          if (place?.location) {
+            hotelData.latitude = place.location.latitude;
+            hotelData.longitude = place.location.longitude;
+            if (place.formattedAddress) hotelData.address = place.formattedAddress;
+            if (place.id) hotelData.google_place_id = place.id;
+            if (place.displayName?.text) hotelData.name = place.displayName.text;
+            if (place.websiteUri && !hotelData.website) hotelData.website = place.websiteUri;
+            if ((place as any).internationalPhoneNumber && !hotelData.phone) {
+              hotelData.phone = (place as any).internationalPhoneNumber;
+            }
+            if (place.rating) hotelData.google_rating = place.rating;
+            hotelData.grounded_by_google = true;
+          } else {
+            hotelData.grounded_by_google = false;
+          }
+        } else {
+          console.error('Google Places lookup failed in /lookup-hotel:', placesResp.status);
+          hotelData.grounded_by_google = false;
+        }
+      } catch (gErr) {
+        console.error('Google Places grounding error in /lookup-hotel:', gErr);
+        hotelData.grounded_by_google = false;
+      }
+    }
+
     res.json({
       success: true,
       data: hotelData,
@@ -2679,20 +2724,22 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
       photos_fetched: true
     };
 
-    // Add address if not already set
-    if (!accommodation.address && place.formattedAddress) {
+    // Google Places is ground truth for location data — always overwrite.
+    // Accommodations are frequently seeded via the LLM-based /lookup-hotel
+    // endpoint, which can hallucinate coordinates and addresses. Once we've
+    // matched the row to a real Google place, its lat/lng/formatted address
+    // are authoritative and must win.
+    if (place.formattedAddress) {
       updateData.address = place.formattedAddress;
     }
-
-    // Add website if not already set
-    if (!accommodation.website && place.websiteUri) {
-      updateData.website = place.websiteUri;
-    }
-
-    // Add lat/lng if not already set
-    if (!accommodation.latitude && place.location) {
+    if (place.location) {
       updateData.latitude = place.location.latitude;
       updateData.longitude = place.location.longitude;
+    }
+
+    // Website is additive — only set if the user didn't specify one.
+    if (!accommodation.website && place.websiteUri) {
+      updateData.website = place.websiteUri;
     }
 
     const { error: updateError } = await supabase
