@@ -8,6 +8,7 @@ import {
   useUpdateTrip,
   useDeleteTrip,
   useUpdateTripStatus,
+  useMakeTripPublic,
   getTripStatusColor,
   getTripStatusLabel,
   formatTripDateRange,
@@ -109,6 +110,8 @@ export default function TripDetailLayout({
   const deleteTrip = useDeleteTrip();
   const updateTrip = useUpdateTrip();
   const updateStatus = useUpdateTripStatus();
+  const makePublic = useMakeTripPublic();
+  const [isSharing, setIsSharing] = useState(false);
 
   const TRIP_STATUSES = ['planning', 'confirmed', 'in_progress', 'completed'] as const;
 
@@ -179,6 +182,48 @@ export default function TripDetailLayout({
       router.push("/travel");
     } catch (error) {
       toast.error("Failed to delete trip");
+    }
+  };
+
+  const handleShare = async () => {
+    if (!trip) return;
+    setIsSharing(true);
+    try {
+      // If trip already has a slug + is_public, reuse it. Otherwise create one.
+      let slug = trip.public_slug as string | undefined;
+      if (!slug || !trip.is_public) {
+        const result = await makePublic.mutateAsync({ tripId });
+        slug = (result as Trip).public_slug || undefined;
+      }
+      if (!slug) {
+        toast.error("Could not generate share link");
+        return;
+      }
+      const url = `${window.location.origin}/trip/${slug}`;
+      // Try the OS share sheet first (mobile / supported browsers)
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        try {
+          await navigator.share({
+            title: trip.name,
+            text: `Check out my trip: ${trip.name}`,
+            url,
+          });
+          return;
+        } catch (err) {
+          // User cancelled or share API failed — fall through to clipboard
+          if ((err as Error)?.name === "AbortError") return;
+        }
+      }
+      // Fallback: copy to clipboard
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied to clipboard", {
+        description: url,
+      });
+    } catch (err) {
+      console.error("Share failed", err);
+      toast.error("Failed to create share link");
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -446,8 +491,19 @@ export default function TripDetailLayout({
                   </>
                 ) : (
                   <>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <Share2 className="h-4 w-4" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={handleShare}
+                      disabled={isSharing}
+                      title="Share trip"
+                    >
+                      {isSharing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Share2 className="h-4 w-4" />
+                      )}
                     </Button>
                     <Button
                       variant="ghost"

@@ -125,6 +125,210 @@ function daysBetweenDateStrings(startStr: string, endStr: string): number {
 
 const router = Router();
 
+// =============================================
+// MAPS PROXY — Google Static Maps
+// =============================================
+//
+// Registered BEFORE travelImportRoutes because that sub-router applies a
+// blanket authenticateUser middleware. This endpoint is intentionally public
+// so <img src> tags on the browse page can load it without a bearer token.
+//
+/**
+ * GET /api/v1/travel/maps/static
+ * Proxies Google Static Maps API so the API key never leaves the server.
+ * Public endpoint — returns a PNG that can be used directly in <img src>.
+ *
+ * Accepted query params (allowlisted):
+ *   size    - e.g. "640x320" (required, max 640x640)
+ *   scale   - "1" or "2" (optional)
+ *   maptype - "roadmap" | "terrain" | "satellite" | "hybrid" (optional)
+ *   center  - "lat,lng" (optional)
+ *   zoom    - 0..21 (optional)
+ *   markers - marker spec, may repeat (e.g. "color:red|label:1|37.7,-122.4")
+ *   path    - path spec, may repeat (e.g. "color:0x0000ff80|weight:4|37.7,-122.4|37.8,-122.5")
+ */
+router.get('/maps/static', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ success: false, error: 'Maps key not configured' });
+    }
+
+    // ── Allowlist and validate params ────────────────────────────────
+    const sizeRaw = typeof req.query.size === 'string' ? req.query.size : '';
+    const sizeMatch = sizeRaw.match(/^(\d{2,3})x(\d{2,3})$/);
+    if (!sizeMatch) {
+      return res.status(400).json({ success: false, error: 'Invalid size (expected WxH)' });
+    }
+    const w = parseInt(sizeMatch[1], 10);
+    const h = parseInt(sizeMatch[2], 10);
+    if (w < 32 || h < 32 || w > 640 || h > 640) {
+      return res.status(400).json({ success: false, error: 'Size out of range (32..640)' });
+    }
+
+    const params = new URLSearchParams();
+    params.set('size', `${w}x${h}`);
+
+    const scale = typeof req.query.scale === 'string' ? req.query.scale : '';
+    if (scale === '1' || scale === '2') params.set('scale', scale);
+
+    const maptype = typeof req.query.maptype === 'string' ? req.query.maptype : '';
+    if (['roadmap', 'terrain', 'satellite', 'hybrid'].includes(maptype)) {
+      params.set('maptype', maptype);
+    }
+
+    const center = typeof req.query.center === 'string' ? req.query.center : '';
+    if (center && /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(center)) {
+      params.set('center', center);
+    }
+
+    const zoom = typeof req.query.zoom === 'string' ? req.query.zoom : '';
+    if (zoom && /^\d{1,2}$/.test(zoom) && parseInt(zoom, 10) <= 21) {
+      params.set('zoom', zoom);
+    }
+
+    // markers and path may repeat; express parses repeated params as string[]
+    const appendRepeatable = (key: 'markers' | 'path', max: number, maxLen: number) => {
+      const raw = req.query[key];
+      const values = Array.isArray(raw) ? raw : raw !== undefined ? [raw] : [];
+      let added = 0;
+      for (const v of values) {
+        if (added >= max) break;
+        if (typeof v !== 'string') continue;
+        if (v.length === 0 || v.length > maxLen) continue;
+        // Disallow anything that could inject a different query param
+        if (v.includes('&') || v.includes('?') || v.includes('\n')) continue;
+        params.append(key, v);
+        added++;
+      }
+    };
+    appendRepeatable('markers', 30, 2000);
+    appendRepeatable('path', 5, 4000);
+
+    // Require at least one of: markers, path, or center+zoom
+    if (!params.has('markers') && !params.has('path') && !params.has('center')) {
+      return res.status(400).json({ success: false, error: 'Need markers, path, or center' });
+    }
+
+    params.set('key', apiKey);
+
+    const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
+    const upstream = await fetch(url);
+    if (!upstream.ok) {
+      const body = await upstream.text();
+      console.error('Static Maps upstream error', upstream.status, body.slice(0, 500));
+      return res.status(502).json({ success: false, error: 'Upstream map error' });
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'image/png';
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    // Cache in browser and shared caches; the URL (minus key) is deterministic.
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, immutable');
+    // Override helmet's default CORP=same-origin so the <img> can be embedded
+    // cross-origin from the Next.js frontend on a different port/host.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    return res.status(200).send(buf);
+  } catch (error) {
+    console.error('GET /travel/maps/static error:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/v1/travel/public/:slug
+ * Public, unauthenticated read of a publicly-shared trip.
+ *
+ * Registered BEFORE travelImportRoutes because that sub-router applies a
+ * blanket authenticateUser middleware via `router.use(authenticateUser)`,
+ * which would otherwise reject this request with 401 before it ever reaches
+ * the handler defined later in this file. The handler logic itself lives
+ * further down (search for the second "/public/:slug" route); this entry
+ * is a thin wrapper that re-uses the same Supabase queries.
+ */
+router.get('/public/:slug', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { slug } = req.params;
+    const { password } = req.query;
+
+    const { data: trip, error } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('public_slug', slug)
+      .eq('is_public', true)
+      .single();
+
+    if (error || !trip) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trip not found or not public',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Optional password gate
+    if (trip.share_password_hash) {
+      if (!password) {
+        return res.status(401).json({
+          success: false,
+          error: 'Password required',
+          requires_password: true,
+          timestamp: new Date().toISOString()
+        });
+      }
+      const hashedPassword = crypto.createHash('sha256').update(password as string).digest('hex');
+      if (hashedPassword !== trip.share_password_hash) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid password',
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    const [
+      { data: flights },
+      { data: driving },
+      { data: segments },
+      { data: accommodations },
+      { data: days },
+      { data: activities },
+      { data: media }
+    ] = await Promise.all([
+      supabase.from('trip_flights').select('*').eq('trip_id', trip.id),
+      supabase.from('trip_driving').select('*').eq('trip_id', trip.id),
+      supabase.from('trip_segments').select('*').eq('trip_id', trip.id).order('sort_order'),
+      supabase.from('trip_accommodations').select('*').eq('trip_id', trip.id).order('check_in_date'),
+      supabase.from('trip_days').select('*').eq('trip_id', trip.id).order('date'),
+      supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('sort_order'),
+      supabase.from('trip_media').select('*').eq('trip_id', trip.id).order('sort_order').limit(5000)
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        ...trip,
+        share_password_hash: undefined,
+        flights: flights || [],
+        driving: driving || [],
+        segments: segments || [],
+        accommodations: accommodations || [],
+        days: days || [],
+        activities: activities || [],
+        media: media || []
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /travel/public/:slug (early) error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Mount travel import & settings routes (settings, import, research items)
 // See docs/travel-module-prd.md for the full workflow documentation
 router.use('/', travelImportRoutes);
@@ -3742,6 +3946,22 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       });
     }
 
+    // Skip enrichment for activity types that are not real points-of-interest.
+    // "Kids to bed", "Wake up", "REST/NAP", "Pool time", packing, etc. should not
+    // inherit Google Places metadata from the hotel they happen to be at.
+    const NON_ENRICHABLE_TYPES = new Set(['logistics', 'downtime', 'transport']);
+    const SKIP_NAME_PATTERNS = /\b(wake up|wake-up|kids to bed|bed time|bedtime|nap|rest\/nap|pool time|pack|packing|load car|check.?in|check.?out|free time|downtime|drive|depart|arrive|transfer)\b/i;
+    if (
+      NON_ENRICHABLE_TYPES.has(activity.activity_type) ||
+      SKIP_NAME_PATTERNS.test(activity.name || '')
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot fetch Google Places data for ${activity.activity_type || 'this'} activity type: "${activity.name}". Only real points-of-interest (restaurants, attractions, sightseeing) support Google enrichment.`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Build search query using activity name and location
     const searchQuery = activity.location_name
       ? `${activity.name} ${activity.location_name}`
@@ -3836,6 +4056,7 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
     }
 
     // Update activity with Google data
+    const isRestaurantActivity = activity.activity_type === 'restaurant';
     const updateData: Record<string, unknown> = {
       google_place_id: place.id,
       google_rating: place.rating,
@@ -3843,27 +4064,33 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       google_price_level: place.priceLevel ? priceLevelMap[place.priceLevel] : undefined,
       opening_hours: openingHours,
       photos_fetched: true,
-      // Extended Google Places fields
+      // Extended Google Places fields — available for all activity types
       google_editorial_summary: place.editorialSummary?.text,
       wheelchair_accessible: place.accessibilityOptions?.wheelchairAccessibleEntrance ?? place.accessibilityOptions?.wheelchairAccessibleSeating,
       good_for_children: place.goodForChildren,
       good_for_groups: place.goodForGroups,
-      reservable: place.reservable,
-      serves_breakfast: place.servesBreakfast,
-      serves_lunch: place.servesLunch,
-      serves_dinner: place.servesDinner,
-      serves_brunch: place.servesBrunch,
-      serves_vegetarian: place.servesVegetarianFood,
-      dine_in: place.dineIn,
-      takeout: place.takeout,
-      delivery: place.delivery,
-      outdoor_seating: place.outdoorSeating,
-      serves_beer: place.servesBeer,
-      serves_wine: place.servesWine,
-      serves_cocktails: place.servesCocktails,
-      live_music: place.liveMusic,
       allows_dogs: place.allowsDogs
     };
+    // Restaurant-only fields: only write these when the activity is actually a restaurant.
+    // Otherwise a museum/attraction/etc. would inherit the nearest place's reservation &
+    // menu attributes (and a hotel's in-room "activity" would inherit the hotel
+    // restaurant's wine/cocktail/outdoor-seating chips).
+    if (isRestaurantActivity) {
+      updateData.reservable = place.reservable;
+      updateData.serves_breakfast = place.servesBreakfast;
+      updateData.serves_lunch = place.servesLunch;
+      updateData.serves_dinner = place.servesDinner;
+      updateData.serves_brunch = place.servesBrunch;
+      updateData.serves_vegetarian = place.servesVegetarianFood;
+      updateData.dine_in = place.dineIn;
+      updateData.takeout = place.takeout;
+      updateData.delivery = place.delivery;
+      updateData.outdoor_seating = place.outdoorSeating;
+      updateData.serves_beer = place.servesBeer;
+      updateData.serves_wine = place.servesWine;
+      updateData.serves_cocktails = place.servesCocktails;
+      updateData.live_music = place.liveMusic;
+    }
 
     // Add optional fields if not already set
     if (!activity.address && place.formattedAddress) {
@@ -4977,7 +5204,7 @@ router.post('/trips/:tripId/sharing/public', authenticateUser, async (req: Reque
       success: true,
       data: {
         ...data,
-        share_url: `${process.env.FRONTEND_URL}/travel/public/${publicSlug}`
+        share_url: `${process.env.FRONTEND_URL || ''}/trip/${publicSlug}`
       },
       timestamp: new Date().toISOString()
     });
@@ -5048,94 +5275,9 @@ router.delete('/trips/:tripId/sharing/public', authenticateUser, async (req: Req
   }
 });
 
-/**
- * GET /api/v1/travel/public/:slug
- * Get a public trip by slug
- */
-router.get('/public/:slug', async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { slug } = req.params;
-    const { password } = req.query;
-
-    const { data: trip, error } = await supabase
-      .from('trips')
-      .select('*')
-      .eq('public_slug', slug)
-      .eq('is_public', true)
-      .single();
-
-    if (error || !trip) {
-      return res.status(404).json({
-        success: false,
-        error: 'Trip not found or not public',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Check password if required
-    if (trip.share_password_hash) {
-      if (!password) {
-        return res.status(401).json({
-          success: false,
-          error: 'Password required',
-          requires_password: true,
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const hashedPassword = crypto.createHash('sha256').update(password as string).digest('hex');
-      if (hashedPassword !== trip.share_password_hash) {
-        return res.status(401).json({
-          success: false,
-          error: 'Invalid password',
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-
-    // Get all related data
-    const [
-      { data: flights },
-      { data: driving },
-      { data: segments },
-      { data: accommodations },
-      { data: days },
-      { data: activities },
-      { data: media }
-    ] = await Promise.all([
-      supabase.from('trip_flights').select('*').eq('trip_id', trip.id),
-      supabase.from('trip_driving').select('*').eq('trip_id', trip.id),
-      supabase.from('trip_segments').select('*').eq('trip_id', trip.id).order('sort_order'),
-      supabase.from('trip_accommodations').select('*').eq('trip_id', trip.id).order('check_in_date'),
-      supabase.from('trip_days').select('*').eq('trip_id', trip.id).order('date'),
-      supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('sort_order'),
-      supabase.from('trip_media').select('*').eq('trip_id', trip.id).order('sort_order').limit(5000)
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        ...trip,
-        share_password_hash: undefined, // Never expose password
-        flights: flights || [],
-        driving: driving || [],
-        segments: segments || [],
-        accommodations: accommodations || [],
-        days: days || [],
-        activities: activities || [],
-        media: media || []
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('GET /travel/public/:slug error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+// (Public /public/:slug handler is registered earlier in this file,
+// before travelImportRoutes is mounted, so that the import sub-router's
+// blanket authenticateUser middleware doesn't reject the request.)
 
 // =============================================
 // PACKING

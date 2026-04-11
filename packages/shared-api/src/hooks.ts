@@ -2757,7 +2757,15 @@ export function usePublicTrip(slug: string, password?: string) {
     queryKey: ["travel", "public", slug],
     queryFn: async () => {
       const response = await travelApi.sharing.getPublic(slug, password);
-      return response.data.data as Trip;
+      return response.data.data as Trip & {
+        flights: TripFlight[];
+        driving: TripDriving[];
+        segments: TripSegment[];
+        accommodations: TripAccommodation[];
+        days: TripDay[];
+        activities: TripActivity[];
+        media: TripMedia[];
+      };
     },
     enabled: !!slug,
   });

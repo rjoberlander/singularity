@@ -735,9 +735,16 @@ export class ScheduleValidationService {
       /\b(back\s+to|to\s+the)\s+(hotel|airport|car|station|accommodation)\b/i,
     ];
 
-    // Generic meal names that should be skipped (at hotel, no specific restaurant)
+    // Generic meal names that should be skipped (at hotel, no specific restaurant).
+    // Matches bare meal names AND common modifiers ("Early dinner", "Quick breakfast",
+    // "Light lunch", "Full breakfast", etc.) so those don't get enriched to the hotel's
+    // rating just because the location_name happens to be the hotel.
+    const MEAL_WORDS = '(breakfast|lunch|dinner|supper|brunch)';
+    const MEAL_MODIFIERS = '(early|quick|light|big|full|easy|simple|late|fast|hotel|room|family|kids|kids?)';
     const GENERIC_MEAL_PATTERNS = [
-      /^breakfast$/i, /^lunch$/i, /^dinner$/i,
+      new RegExp(`^${MEAL_WORDS}$`, 'i'),
+      new RegExp(`^${MEAL_MODIFIERS}(\\s+${MEAL_MODIFIERS})?\\s+${MEAL_WORDS}$`, 'i'),
+      new RegExp(`^${MEAL_WORDS}\\s+(at|in)\\s+(hotel|accommodation|resort|room)`, 'i'),
       /^hotel breakfast$/i, /^breakfast at hotel$/i, /^breakfast at accommodation$/i,
       /breakfast \(at hotel\)/i, /lunch \(at hotel\)/i, /dinner \(at hotel\)/i,
       /room service/i,

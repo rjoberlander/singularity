@@ -610,15 +610,48 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
             const researchItems = payload.research_items || [];
 
             const activitiesData = scheduleItems.map((item: any, idx: number) => {
-              // Parse time like "9:20am" or "10:15am" to 24h format
+              // Parse time like "9:20am", "10:15am", "15:30", or "3:00" to 24h format.
+              // When the input omits am/pm, infer the period from:
+              //   1. 24-hour format (hours > 12): keep as-is
+              //   2. Activity-name heuristics: meals & afternoon keywords → PM; wake/breakfast → AM
+              //   3. Fallback: if 1 ≤ hours ≤ 7 and no morning keyword, assume PM (itineraries rarely schedule 1–7 AM)
               let startTime: string | null = null;
               const timeMatch = item.time?.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
               if (timeMatch) {
                 let hours = parseInt(timeMatch[1], 10);
                 const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
                 const period = timeMatch[3]?.toLowerCase();
-                if (period === 'pm' && hours !== 12) hours += 12;
-                if (period === 'am' && hours === 12) hours = 0;
+
+                if (period === 'pm' && hours !== 12) {
+                  hours += 12;
+                } else if (period === 'am' && hours === 12) {
+                  hours = 0;
+                } else if (!period && hours <= 12) {
+                  // Ambiguous 12-hour input — infer from activity name context.
+                  // (See also: scripts/fix-portugal-trip.mjs for the matching
+                  // data-cleanup rules applied to previously-imported trips.)
+                  const nameLower = (item.activity_name || '').toLowerCase();
+                  const isMorning =
+                    /\b(wake|breakfast|morning|sunrise|dawn|check.?out|checkout|depart|airport|flight|early|load\s+car|pack)\b/.test(nameLower);
+                  const isStrongEvening =
+                    /\b(dinner|supper|sunset|sundown|evening|night|bedtime|golden\s+hour|late\s+(cruise|dinner|lunch|walk))\b/.test(nameLower);
+                  const isAfternoon =
+                    /\b(lunch|afternoon|siesta|nap|rest|rest\/nap|check.?in|check-in|return\s+to|back\s+to\s+hotel)\b/.test(nameLower);
+
+                  if (isStrongEvening) {
+                    if (hours !== 12) hours += 12;
+                  } else if (isMorning) {
+                    if (hours === 12) hours = 0; // 12:xx AM → 00:xx
+                  } else if (isAfternoon && hours >= 1 && hours <= 7) {
+                    // Afternoon keyword only shifts hours 1-7; 8-11 are
+                    // ambiguous (9am pool / 9pm pool both plausible).
+                    hours += 12;
+                  } else if (hours >= 1 && hours <= 4) {
+                    // Hours 1-4 AM are essentially never scheduled — assume PM
+                    hours += 12;
+                  }
+                  // Otherwise (hours 5-11 with no evidence, or hours 12) leave as-is
+                }
                 startTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
               }
 
@@ -752,11 +785,30 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
                 return matchingWords.length >= minWords * 0.6;
               };
 
-              const matchedResearch = researchItems.find((r: any) => {
+              // Match against research items. Prefer activity-name matches.
+              // Location-based fallback is restricted to restaurant/meal activities,
+              // because transit/rest/sleep activities share location names with nearby
+              // points of interest (e.g. "Walk to Jerónimos" in "Belém" must NOT inherit
+              // the Tower of Belém's content, and "REST/NAP" at a Lagos hotel must NOT
+              // inherit a Benagil boat tour's content).
+              const mealNamePattern = /\b(lunch|dinner|breakfast|meal|snack|eat|restaurant|café|cafe|gelato|pastéis|pasteis|brunch|coffee)\b/i;
+              const isMealActivity =
+                item.activity_type === 'meal' ||
+                item.activity_type === 'restaurant' ||
+                mealNamePattern.test(item.activity_name || '');
+
+              // First pass: exact/fuzzy match on the activity name
+              let matchedResearch = researchItems.find((r: any) => {
                 const researchNameLower = (r.name || '').toLowerCase();
-                return fuzzyMatch(activityNameLower, researchNameLower) ||
-                       fuzzyMatch(locationLower, researchNameLower);
+                return activityNameLower && fuzzyMatch(activityNameLower, researchNameLower);
               });
+              // Second pass (meals only): allow location-based fallback
+              if (!matchedResearch && isMealActivity && locationLower) {
+                matchedResearch = researchItems.find((r: any) => {
+                  const researchNameLower = (r.name || '').toLowerCase();
+                  return fuzzyMatch(locationLower, researchNameLower);
+                });
+              }
 
               // Determine activity type - use explicit type, then infer from name
               let activityCategory: string;
