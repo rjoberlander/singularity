@@ -46,7 +46,14 @@ jobs:
             sudo fuser -k 3002/tcp 2>/dev/null || true
 
             sudo rm -rf apps/api/dist
-            NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
+            # Same npm optional-deps bug as the web deploy: git reset
+            # restores the Mac-generated lockfile, and npm install then
+            # prunes Linux-specific optional deps (sharp, rollup,
+            # esbuild). Remove the lockfile so npm regenerates it fresh
+            # on Linux with the correct platform binaries.
+            rm -f package-lock.json
+            rm -rf node_modules packages/shared-types/node_modules packages/shared-api/node_modules
+            NODE_OPTIONS="--max-old-space-size=512" npm install
 
             # Rebuild workspace packages so the API's tsc can resolve
             # types from @singularity/shared-types and shared-api.
