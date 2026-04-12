@@ -40,10 +40,15 @@ jobs:
             sudo mkdir -p /var/log/pm2
             sudo chown -R deploy:deploy /var/log/pm2
 
-            # Stop the API BEFORE building so crash-looping processes
-            # don't eat the droplet's memory during tsc compilation.
-            pm2 delete singularity-api || true
+            # Stop ALL pm2 processes before building. Prior deploys left
+            # zombie instances accumulating (ids 0,1,2,4,5,7...) and
+            # pm2 delete by name didn't reliably clear them all, causing
+            # EADDRINUSE on port 3002. Nuke everything — we'll restart
+            # both API and web after the build.
+            pm2 delete all || true
             sudo fuser -k 3002/tcp 2>/dev/null || true
+            sudo fuser -k 3000/tcp 2>/dev/null || true
+            sleep 2
 
             sudo rm -rf apps/api/dist
             # Same npm optional-deps bug as the web deploy: git reset
@@ -72,8 +77,9 @@ jobs:
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
 
-            # Start API fresh
+            # Start both API and web fresh (we killed everything above)
             pm2 start /var/www/singularity/apps/api/ecosystem.config.js --update-env
+            pm2 start /var/www/singularity/apps/web/ecosystem.config.js --update-env 2>/dev/null || true
             sleep 5
             echo "PM2 processes after restart:"
             pm2 list
