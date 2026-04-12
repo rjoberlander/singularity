@@ -83,7 +83,7 @@ jobs:
             pm2 logs singularity-api --nostream --lines 30 2>&1 || true
             pm2 save
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
-            # Always reload nginx — earlier deploys may have disrupted
-            # it or the config file may need re-reading.
             sudo nginx -t && sudo systemctl reload nginx
+            echo "=== nginx config ==="
+            sudo cat /etc/nginx/sites-available/singularity 2>/dev/null || echo "config not found"
             echo "API deployed at $(date)"
