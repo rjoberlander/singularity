@@ -88,6 +88,20 @@ jobs:
             cd apps/web
             npm run build
 
+            # Ensure nginx (running as www-data) can read the newly
+            # built static assets. Without this, `/_next/static/chunks/*`
+            # requests can return 500s because nginx hits a permission
+            # error reading the file produced by the deploy user.
+            chmod -R a+rX .next
+
+            # Debug: show what's actually in the build output so we can
+            # spot mismatches between the SSR-referenced chunk hashes
+            # and the files on disk.
+            echo "=== .next/static/chunks/ ==="
+            ls -la .next/static/chunks/ 2>&1 | head -20
+            echo "=== .next/ size ==="
+            du -sh .next/ 2>&1
+
             # Restart the web process cleanly. Earlier failed deploys
             # left pm2's dump pointing at a zombie "id 0" for
             # singularity-web, which made `pm2 restart singularity-web`
