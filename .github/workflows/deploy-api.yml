@@ -93,20 +93,11 @@ jobs:
             # singularity.boo config). Also add the /api location to
             # singularity.boo if it doesn't exist — previous deploys
             # only modified sites-available/singularity (not enabled).
-            sudo sed -i 's|proxy_pass http://localhost:3001;|proxy_pass http://localhost:3002;|g' /etc/nginx/sites-enabled/default 2>/dev/null || true
-            echo "=== singularity.boo content ==="
-            sudo cat /etc/nginx/sites-available/singularity.boo 2>&1 | head -60
-            echo "=== adding /api to ALL nginx configs that lack it ==="
-            for f in /etc/nginx/sites-available/singularity.boo /etc/nginx/sites-enabled/default; do
-              if sudo test -f "$f" && ! sudo grep -q 'location /api' "$f" 2>/dev/null; then
-                echo "  patching $f"
-                printf '\n    location /api {\n        proxy_pass http://localhost:3002;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_read_timeout 86400;\n    }\n' > /tmp/nginx-api.conf
-                sudo sed -i '/location \//r /tmp/nginx-api.conf' "$f" || echo "  sed failed on $f"
-                rm -f /tmp/nginx-api.conf
-              else
-                echo "  $f already has /api or doesn't exist"
-              fi
-            done
+            # Fix nginx /api proxy port in ALL config files. The SSL
+            # config (singularity.boo) has /api/ pointing to port 3001
+            # (old SlackKB port). The API runs on 3002.
+            sudo sed -i 's|proxy_pass http://localhost:3001|proxy_pass http://localhost:3002|g' /etc/nginx/sites-available/singularity.boo 2>/dev/null || true
+            sudo sed -i 's|proxy_pass http://localhost:3001|proxy_pass http://localhost:3002|g' /etc/nginx/sites-enabled/default 2>/dev/null || true
             sudo nginx -t && sudo systemctl reload nginx
             echo "=== verifying API via domain ==="
             curl -sS -o /dev/null -w "https domain API: HTTP %{http_code}\n" "https://singularity.boo/api/v1" || echo "curl failed"
