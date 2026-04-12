@@ -48,10 +48,13 @@ jobs:
             sudo rm -rf apps/api/dist
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/api
-            # Let tsc use the default V8 heap limit (~1.5 GB on 2 GB
-            # droplet) — earlier we set 1024 which was LESS than the
-            # default and caused repeated OOM.
-            npm run build
+            # tsc OOMs at the V8 default (~1.5 GB) on this codebase.
+            # The droplet has 2 GB RAM + 2 GB swap, so we can safely
+            # give tsc a 2 GB heap and let the OS page to swap as
+            # needed. Skip declarations + sourcemaps via CLI flags to
+            # further reduce memory pressure (API is not consumed as a
+            # library so .d.ts files aren't needed in prod).
+            NODE_OPTIONS="--max-old-space-size=2048" npx tsc --declaration false --declarationMap false --sourceMap false
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
 
