@@ -94,11 +94,34 @@ jobs:
             # error reading the file produced by the deploy user.
             chmod -R a+rX .next
 
-            # Debug: show what's actually in the build output so we can
-            # spot mismatches between the SSR-referenced chunk hashes
-            # and the files on disk.
-            echo "=== .next/static/chunks/ ==="
-            ls -la .next/static/chunks/ 2>&1 | head -20
+            # Debug: verify the chunks referenced by the built HTML
+            # actually exist on disk. Prior runs showed disk chunks with
+            # unusual "0-xxx~yyy" names while SSR HTML referenced plain
+            # hex hashes — we want to know whether those are different
+            # chunk tiers inside the same build or genuinely missing
+            # files.
+            echo "=== .next/static/chunks/ file count ==="
+            ls -1 .next/static/chunks/ 2>&1 | wc -l
+            echo "=== .next/static/chunks/ first 10 ==="
+            ls -1 .next/static/chunks/ 2>&1 | head -10
+            echo "=== chunks referenced by built /login HTML ==="
+            HTML_FILE=$(find .next/server/app -name 'login*.html' 2>/dev/null | head -1)
+            echo "HTML file: $HTML_FILE"
+            if [ -n "$HTML_FILE" ]; then
+              grep -oE 'chunks/[a-zA-Z0-9~_.-]+\.(js|css)' "$HTML_FILE" | sort -u | head -20
+              echo "=== existence check ==="
+              for f in $(grep -oE 'chunks/[a-zA-Z0-9~_.-]+\.(js|css)' "$HTML_FILE" | sort -u | head -5); do
+                if [ -f ".next/static/$f" ]; then
+                  echo "OK    $f"
+                else
+                  echo "MISS  $f"
+                fi
+              done
+            fi
+            echo "=== running processes on port 3000 ==="
+            sudo lsof -iTCP:3000 -sTCP:LISTEN 2>&1 || echo "(lsof output above)"
+            echo "=== all node processes ==="
+            ps aux | grep -E '[n]ode|[n]ext|[p]m2' | head -20
             echo "=== .next/ size ==="
             du -sh .next/ 2>&1
 
@@ -106,10 +129,14 @@ jobs:
             # left pm2's dump pointing at a zombie "id 0" for
             # singularity-web, which made `pm2 restart singularity-web`
             # fail with "Process 0 not found" AND crash pm2 internally
-            # with a TypeError on a subsequent speedList call. Deleting
-            # any existing entry (ignoring errors if there isn't one)
-            # before `pm2 start` guarantees a fresh, idempotent restart.
+            # with a TypeError on a subsequent speedList call. Also kill
+            # anything still listening on port 3000 — on some past runs
+            # the pm2 process got killed but its child node server kept
+            # running as an orphan and bound to the port, so the new
+            # process couldn't claim it.
             pm2 delete singularity-web || true
+            sudo fuser -k 3000/tcp 2>/dev/null || true
+            sleep 2
             pm2 start /var/www/singularity/apps/web/ecosystem.config.js
             pm2 save
             echo "Deployed at $(date)"
