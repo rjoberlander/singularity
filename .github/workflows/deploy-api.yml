@@ -72,6 +72,8 @@ jobs:
             pm2 list
             echo "API test response:"
             curl -s http://localhost:3002/api/v1 | head -c 500 || echo "API not responding"
+            echo "=== pm2 logs (last 30 lines) ==="
+            pm2 logs singularity-api --nostream --lines 30 2>&1 || true
             pm2 save
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
             echo "API deployed at $(date)"
