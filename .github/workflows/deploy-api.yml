@@ -58,18 +58,15 @@ jobs:
             ps aux | grep node | grep -v grep || echo "No node processes"
             echo "Process on port 3002:"
             sudo lsof -i :3002 2>/dev/null || echo "No lsof output"
-            # Stop ALL PM2 apps
-            pm2 kill
-            # Kill any node process running on port 3002
+            # Stop ONLY the API process — do NOT run pm2 kill which
+            # takes down the web server too and causes a full outage.
+            pm2 delete singularity-api || true
             sudo fuser -k 3002/tcp 2>/dev/null || true
             sleep 3
             echo "After killing, port 3002:"
             sudo lsof -i :3002 2>/dev/null || echo "Port 3002 is now free"
-            # Clear Node.js require cache by removing all cached modules
-            rm -rf /home/deploy/.pm2/logs/singularity-api* 2>/dev/null || true
-            # Start fresh - both API and web
+            # Start API fresh
             pm2 start /var/www/singularity/apps/api/ecosystem.config.js --update-env
-            pm2 start /var/www/singularity/apps/web/ecosystem.config.js --update-env 2>/dev/null || echo "Web ecosystem not found or already running"
             sleep 5
             echo "PM2 processes after restart:"
             pm2 list
