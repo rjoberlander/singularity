@@ -52,19 +52,25 @@ jobs:
             git fetch origin master
             git reset --hard origin/master
 
-            # Clean .next build cache + node_modules for a deterministic
-            # fresh install. Prior "incremental install" runs kept hitting
-            # https://github.com/npm/cli/issues/4828 — npm would skip
-            # platform-specific optional deps (rollup's / esbuild's /
-            # swc's linux-x64 native binaries), and tsup / next build
-            # would then fail with "Cannot find module @rollup/... or
-            # @esbuild/linux-x64". A clean install from lockfile is the
-            # only way to guarantee ALL optional deps get materialised,
-            # since whack-a-mole `npm install @foo/bar` workarounds keep
-            # uncovering the next missing binary.
+            # Clean .next build cache, all node_modules, AND the lockfile
+            # before reinstalling. The lockfile removal is load-bearing:
+            # https://github.com/npm/cli/issues/4828 — when a lockfile
+            # was last generated on a different platform (macOS, in our
+            # case), npm install on Linux silently prunes the platform-
+            # specific optional deps (rollup / esbuild / swc native
+            # binaries) even from a fully-clean node_modules. The rollup
+            # team's own error message says the ONLY reliable fix is
+            # removing BOTH package-lock.json and node_modules, then
+            # letting npm regenerate the lockfile fresh on Linux. Prior
+            # workarounds (clean node_modules only, explicit npm install
+            # @rollup/rollup-linux-x64-gnu) kept uncovering the next
+            # missing binary. This is the nuclear-but-actually-works
+            # option. The regenerated lockfile is ephemeral to the
+            # droplet and is not committed back to git.
             rm -rf apps/web/.next
             rm -rf node_modules apps/web/node_modules apps/api/node_modules \
                    packages/shared-api/node_modules packages/shared-types/node_modules
+            rm -f package-lock.json
 
             # Limit Node memory during install to prevent OOM. 2GB swap
             # should cover the clean install + build.
