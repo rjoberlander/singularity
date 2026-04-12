@@ -47,6 +47,13 @@ jobs:
 
             sudo rm -rf apps/api/dist
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
+
+            # Rebuild workspace packages so the API's tsc can resolve
+            # types from @singularity/shared-types and shared-api.
+            # dist/ is gitignored so it must be rebuilt on every deploy.
+            npm -w @singularity/shared-types run build || true
+            npm -w @singularity/shared-api run build || true
+
             cd apps/api
             # tsc OOMs at the V8 default (~1.5 GB) on this codebase.
             # The droplet has 2 GB RAM + 2 GB swap, so we can safely
