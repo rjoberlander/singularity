@@ -48,8 +48,10 @@ jobs:
             sudo rm -rf apps/api/dist
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/api
-            # tsc on the full API codebase needs more heap than install.
-            NODE_OPTIONS="--max-old-space-size=1024" npm run build
+            # Let tsc use the default V8 heap limit (~1.5 GB on 2 GB
+            # droplet) — earlier we set 1024 which was LESS than the
+            # default and caused repeated OOM.
+            npm run build
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
 
