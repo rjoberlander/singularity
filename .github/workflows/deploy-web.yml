@@ -125,18 +125,42 @@ jobs:
             echo "=== .next/ size ==="
             du -sh .next/ 2>&1
 
-            # Restart the web process cleanly. Earlier failed deploys
-            # left pm2's dump pointing at a zombie "id 0" for
-            # singularity-web, which made `pm2 restart singularity-web`
-            # fail with "Process 0 not found" AND crash pm2 internally
-            # with a TypeError on a subsequent speedList call. Also kill
-            # anything still listening on port 3000 — on some past runs
-            # the pm2 process got killed but its child node server kept
-            # running as an orphan and bound to the port, so the new
-            # process couldn't claim it.
+            # Restart the web process cleanly.
+            #
+            # Previous debug runs found a ROOT-owned `next-server
+            # (v16.1.1)` process that had been running since Apr 7,
+            # serving stale cached HTML (referencing chunk hashes that
+            # no longer exist on disk) while our pm2-managed process
+            # ran alongside. pm2 cannot delete or restart a root-owned
+            # orphan, so we need to explicitly kill ALL lingering
+            # next-server processes with sudo before starting ours.
+            # We also free port 3000 via fuser as a belt-and-suspenders
+            # check.
             pm2 delete singularity-web || true
+            sudo pkill -9 -f 'next-server' 2>/dev/null || true
+            sudo pkill -9 -f 'next/dist/bin/next' 2>/dev/null || true
             sudo fuser -k 3000/tcp 2>/dev/null || true
-            sleep 2
+            sleep 3
+
+            # Confirm port 3000 is free before starting; fail loudly
+            # otherwise so we don't ship against an orphan binding.
+            if sudo lsof -iTCP:3000 -sTCP:LISTEN 2>/dev/null | grep -q LISTEN; then
+              echo "ERROR: something is still listening on port 3000 after kill attempts"
+              sudo lsof -iTCP:3000 -sTCP:LISTEN
+              exit 1
+            fi
+
             pm2 start /var/www/singularity/apps/web/ecosystem.config.js
             pm2 save
+
+            # Wait briefly, then verify the new process is actually
+            # bound to port 3000 and responding.
+            sleep 5
+            echo "=== post-start pm2 list ==="
+            pm2 list
+            echo "=== post-start port 3000 ==="
+            sudo lsof -iTCP:3000 -sTCP:LISTEN 2>&1 || true
+            echo "=== post-start all node processes ==="
+            ps aux | grep -E '[n]ode|[n]ext|[p]m2' | head -20
+
             echo "Deployed at $(date)"
