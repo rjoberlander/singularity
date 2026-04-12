@@ -37,11 +37,14 @@ jobs:
             echo "Deployed commit: $(git rev-parse HEAD)"
             echo "Admin routes file exists: $(test -f apps/api/src/routes/admin.ts && echo 'yes' || echo 'no')"
             # Don't delete node_modules - let npm handle incremental updates to avoid OOM
+            sudo chown -R deploy:deploy /var/www/singularity
             sudo rm -rf apps/api/dist
             # Limit Node memory during install to prevent OOM
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/api
-            npm run build
+            # tsc on the full API codebase needs more heap than install.
+            # 512 MB caused repeated OOM (exit 134) on the 2 GB droplet.
+            NODE_OPTIONS="--max-old-space-size=1024" npm run build
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
             echo "Checking admin import in dist/index.js:"

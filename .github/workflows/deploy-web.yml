@@ -137,16 +137,10 @@ jobs:
             # We also free port 3000 via fuser as a belt-and-suspenders
             # check.
             pm2 delete singularity-web || true
-            # Kill root-owned pm2 processes on the droplet. An earlier
-            # manual session left a root pm2 god daemon managing its own
-            # set of next-server processes. Those are invisible to the
-            # deploy user's pm2 and can shadow port 3000.
-            # IMPORTANT: we cannot use `pkill -f 'next-server'` because
-            # -f matches the full command line, and THIS VERY SCRIPT is
-            # executed by bash -c with the full text as an argument — so
-            # pkill -f would match our own PID and kill the deploy! Use
-            # sudo pm2 (root's pm2) to clean up instead.
-            sudo pm2 kill 2>/dev/null || true
+            # Kill any orphan next-server on port 3000. We used to run
+            # `sudo pm2 kill` but that also took down root's pm2 daemon
+            # which manages the API server — causing a full API outage.
+            # Instead, surgically kill only processes listening on 3000.
             sudo fuser -k 3000/tcp 2>/dev/null || true
             sleep 3
 
