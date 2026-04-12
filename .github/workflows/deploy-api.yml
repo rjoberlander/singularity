@@ -73,7 +73,7 @@ jobs:
             # needed. Skip declarations + sourcemaps via CLI flags to
             # further reduce memory pressure (API is not consumed as a
             # library so .d.ts files aren't needed in prod).
-            NODE_OPTIONS="--max-old-space-size=2048" npx tsc --declaration false --declarationMap false --sourceMap false
+            NODE_OPTIONS="--max-old-space-size=2048" npm run build
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
 
