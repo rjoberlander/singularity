@@ -88,6 +88,14 @@ jobs:
             cd apps/web
             npm run build
 
-            pm2 restart singularity-web || pm2 start ecosystem.config.js
+            # Restart the web process cleanly. Earlier failed deploys
+            # left pm2's dump pointing at a zombie "id 0" for
+            # singularity-web, which made `pm2 restart singularity-web`
+            # fail with "Process 0 not found" AND crash pm2 internally
+            # with a TypeError on a subsequent speedList call. Deleting
+            # any existing entry (ignoring errors if there isn't one)
+            # before `pm2 start` guarantees a fresh, idempotent restart.
+            pm2 delete singularity-web || true
+            pm2 start /var/www/singularity/apps/web/ecosystem.config.js
             pm2 save
             echo "Deployed at $(date)"
