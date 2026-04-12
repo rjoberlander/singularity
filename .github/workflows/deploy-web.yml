@@ -58,6 +58,18 @@ jobs:
             # Limit Node memory during install to prevent OOM
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
 
+            # Workaround for https://github.com/npm/cli/issues/4828 —
+            # npm sometimes fails to materialise platform-specific
+            # optional deps (rollup's linux-x64-gnu binary in particular)
+            # when the lockfile was last generated on a different platform.
+            # tsup → rollup then explodes with "Cannot find module
+            # @rollup/rollup-linux-x64-gnu" during the shared-api build.
+            # Force-install the linux binary idempotently.
+            if [ ! -d node_modules/@rollup/rollup-linux-x64-gnu ]; then
+              echo "Missing @rollup/rollup-linux-x64-gnu — installing explicitly"
+              NODE_OPTIONS="--max-old-space-size=512" npm install --no-save --prefer-offline @rollup/rollup-linux-x64-gnu
+            fi
+
             # Rebuild workspace packages BEFORE building the web app.
             # apps/web imports from @singularity/shared-api via its dist/
             # output — `npm install` does NOT run their build scripts, so
