@@ -90,10 +90,11 @@ jobs:
             pm2 save
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
             sudo nginx -t && sudo systemctl reload nginx
-            echo "=== nginx config (server/location lines) ==="
-            sudo grep -n 'server\|location\|listen\|proxy_pass\|server_name' /etc/nginx/sites-available/singularity 2>/dev/null || echo "config not found"
-            echo "=== nginx test after all changes ==="
-            sudo nginx -t 2>&1
+            echo "=== nginx sites-enabled ==="
+            ls -la /etc/nginx/sites-enabled/ 2>&1
+            echo "=== all nginx configs with location/proxy ==="
+            sudo grep -rn 'location\|proxy_pass\|server_name\|listen' /etc/nginx/sites-enabled/ 2>&1 | head -40
             echo "=== verifying API via domain ==="
             curl -sS -o /dev/null -w "https domain API: HTTP %{http_code}\n" "https://singularity.boo/api/v1" || echo "curl failed"
+            curl -sS -o /dev/null -w "localhost API: HTTP %{http_code}\n" "http://localhost:3002/api/v1" || echo "localhost curl failed"
             echo "API deployed at $(date)"
