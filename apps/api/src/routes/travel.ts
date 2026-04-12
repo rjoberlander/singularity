@@ -5224,7 +5224,7 @@ router.post('/trips/:tripId/sharing/public', authenticateUser, async (req: Reque
       });
     }
 
-    const publicSlug = slug || trip.public_slug || crypto.randomBytes(8).toString('hex');
+    const publicSlug = slug || trip.public_slug || crypto.randomBytes(4).toString('hex');
     const hashedPassword = password ? crypto.createHash('sha256').update(password).digest('hex') : null;
 
     const { data, error } = await supabase
@@ -7101,6 +7101,110 @@ router.post('/trips/:tripId/suggest-restaurants', authenticateUser, async (req: 
       success: false,
       error: 'Internal server error',
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/segments/:segmentId/meal-research
+ * AI-powered meal research: Perplexity web search → Claude synthesis → Google Places grounding.
+ * Finds authentic, local restaurant picks to replace generic meal activities.
+ *
+ * Body (optional): { preferences?: MealResearchPreferences }
+ * Falls back to saved travel_settings.meal_preferences if no body prefs.
+ */
+router.post('/trips/:tripId/segments/:segmentId/meal-research', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  try {
+    const userId = req.user!.id;
+    const { tripId, segmentId } = req.params;
+
+    // Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    // Verify segment
+    const { data: segment, error: segError } = await supabase
+      .from('trip_segments')
+      .select('id, name')
+      .eq('id', segmentId)
+      .eq('trip_id', tripId)
+      .single();
+
+    if (segError || !segment) {
+      return res.status(404).json({ success: false, error: 'Segment not found', timestamp: new Date().toISOString() });
+    }
+
+    // Get API keys
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(500).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const perplexityKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'perplexity');
+    if (!perplexityKeyData) {
+      return res.status(400).json({ success: false, error: 'No Perplexity API key configured. Add one in Settings → API Keys.', timestamp: new Date().toISOString() });
+    }
+
+    const anthropicKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!anthropicKeyData) {
+      return res.status(400).json({ success: false, error: 'No Anthropic API key configured.', timestamp: new Date().toISOString() });
+    }
+
+    // Get meal preferences: body > saved > defaults
+    let preferences = req.body?.preferences;
+    if (!preferences) {
+      const { data: settings } = await supabase
+        .from('travel_settings')
+        .select('meal_preferences')
+        .eq('user_id', userId)
+        .single();
+      preferences = settings?.meal_preferences;
+    }
+    if (!preferences) {
+      preferences = {
+        dining_style: 'balanced',
+        priorities: ['authenticity', 'local_specialties'],
+        avoid: ['tourist_traps'],
+        cuisine_interests: ['regional_specialties'],
+        budget: 'moderate',
+        dietary_restrictions: [],
+      };
+    }
+
+    // Run meal research
+    const { researchMealsForSegment } = await import('../services/meal-research');
+    const result = await researchMealsForSegment(
+      tripId, segmentId, userId,
+      perplexityKeyData.api_key,
+      anthropicKeyData.api_key,
+      googleApiKey,
+      preferences,
+    );
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    res.json({
+      success: true,
+      message: `Meal research complete for ${segment.name}: ${result.mealsResearched} meals researched, ${result.placesGrounded} grounded with Google Places`,
+      data: result,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/segments/:segmentId/meal-research error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error',
+      timestamp: new Date().toISOString(),
     });
   }
 });

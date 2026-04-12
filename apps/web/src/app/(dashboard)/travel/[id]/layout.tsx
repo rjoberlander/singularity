@@ -200,25 +200,22 @@ export default function TripDetailLayout({
         return;
       }
       const url = `${window.location.origin}/trip/${slug}`;
-      // Try the OS share sheet first (mobile / supported browsers)
-      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      // Always copy to clipboard first so the user has the URL ready
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied!", { description: url });
+      // On mobile touch devices, also open the OS share sheet
+      const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      if (isTouchDevice && typeof navigator.share === "function") {
         try {
           await navigator.share({
             title: trip.name,
             text: `Check out my trip: ${trip.name}`,
             url,
           });
-          return;
-        } catch (err) {
-          // User cancelled or share API failed — fall through to clipboard
-          if ((err as Error)?.name === "AbortError") return;
+        } catch {
+          // User cancelled — link already copied, nothing to do
         }
       }
-      // Fallback: copy to clipboard
-      await navigator.clipboard.writeText(url);
-      toast.success("Share link copied to clipboard", {
-        description: url,
-      });
     } catch (err) {
       console.error("Share failed", err);
       toast.error("Failed to create share link");
