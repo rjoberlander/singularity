@@ -22,7 +22,15 @@ jobs:
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           command_timeout: 20m
           script: |
+            # Fail fast — earlier versions of this script ran the whole
+            # pipeline even when npm install / next build failed, causing
+            # pm2 to restart against a stale or broken .next while the
+            # workflow reported "success". Anything non-zero should now
+            # surface as a failed GitHub Action run.
+            set -e
+
             cd /var/www/singularity
+
             # Ensure swap exists to prevent OOM during npm install
             if [ ! -f /swapfile ]; then
               echo "Creating 2GB swap file..."
@@ -31,15 +39,37 @@ jobs:
               sudo mkswap /swapfile
               sudo swapon /swapfile
             fi
-            sudo chown -R deploy:deploy .git
+
+            # Chown EVERYTHING under /var/www/singularity to the deploy user.
+            # In the past, stray files (notably node_modules/@img/sharp-libvips-linux-x64,
+            # which gets unpacked with different ownership by some npm runs)
+            # caused `npm install` to abort with EACCES before any workspace
+            # package could be rebuilt. Chowning the whole tree on every
+            # deploy is cheap and guarantees the install + build steps can
+            # always rewrite files.
+            sudo chown -R deploy:deploy /var/www/singularity
+
             git fetch origin master
             git reset --hard origin/master
+
             # Only clean .next build cache, keep node_modules for incremental install
-            sudo rm -rf apps/web/.next
+            rm -rf apps/web/.next
+
             # Limit Node memory during install to prevent OOM
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
+
+            # Rebuild workspace packages BEFORE building the web app.
+            # apps/web imports from @singularity/shared-api via its dist/
+            # output — `npm install` does NOT run their build scripts, so
+            # without this step any change to packages/shared-api/src is
+            # invisible to apps/web and produces confusing type errors
+            # against stale declaration files.
+            npm -w @singularity/shared-types run build || true
+            npm -w @singularity/shared-api run build
+
             cd apps/web
             npm run build
+
             pm2 restart singularity-web || pm2 start ecosystem.config.js
             pm2 save
             echo "Deployed at $(date)"
