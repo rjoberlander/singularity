@@ -36,45 +36,30 @@ jobs:
             git reset --hard origin/master
             echo "Deployed commit: $(git rev-parse HEAD)"
             echo "Admin routes file exists: $(test -f apps/api/src/routes/admin.ts && echo 'yes' || echo 'no')"
-            # Don't delete node_modules - let npm handle incremental updates to avoid OOM
             sudo chown -R deploy:deploy /var/www/singularity
+            sudo mkdir -p /var/log/pm2
+            sudo chown -R deploy:deploy /var/log/pm2
+
+            # Stop the API BEFORE building so crash-looping processes
+            # don't eat the droplet's memory during tsc compilation.
+            pm2 delete singularity-api || true
+            sudo fuser -k 3002/tcp 2>/dev/null || true
+
             sudo rm -rf apps/api/dist
-            # Limit Node memory during install to prevent OOM
             NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
             cd apps/api
             # tsc on the full API codebase needs more heap than install.
-            # 512 MB caused repeated OOM (exit 134) on the 2 GB droplet.
             NODE_OPTIONS="--max-old-space-size=1024" npm run build
             echo "Checking dist/routes/admin.js exists:"
             ls -la dist/routes/admin.js 2>/dev/null || echo "ERROR: admin.js not found in dist!"
-            echo "Checking admin import in dist/index.js:"
-            grep -c "admin" dist/index.js || echo "ERROR: no admin references in dist/index.js!"
-            sudo mkdir -p /var/log/pm2
-            sudo chown -R deploy:deploy /var/log/pm2
-            # Show all PM2 processes and node processes
-            echo "All PM2 processes:"
-            pm2 list
-            echo "All Node.js processes:"
-            ps aux | grep node | grep -v grep || echo "No node processes"
-            echo "Process on port 3002:"
-            sudo lsof -i :3002 2>/dev/null || echo "No lsof output"
-            # Stop ONLY the API process — do NOT run pm2 kill which
-            # takes down the web server too and causes a full outage.
-            pm2 delete singularity-api || true
-            sudo fuser -k 3002/tcp 2>/dev/null || true
-            sleep 3
-            echo "After killing, port 3002:"
-            sudo lsof -i :3002 2>/dev/null || echo "Port 3002 is now free"
+
             # Start API fresh
             pm2 start /var/www/singularity/apps/api/ecosystem.config.js --update-env
             sleep 5
             echo "PM2 processes after restart:"
             pm2 list
-            echo "Checking port 3002 after start:"
-            lsof -i :3002 2>/dev/null || ss -tlnp 'sport = :3002' 2>/dev/null || echo "No process found"
             echo "API test response:"
             curl -s http://localhost:3002/api/v1 | head -c 500 || echo "API not responding"
             pm2 save
-            # Update nginx to proxy /api to Express backend
             bash /var/www/singularity/apps/api/deploy/update-nginx.sh
             echo "API deployed at $(date)"
