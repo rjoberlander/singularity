@@ -52,23 +52,23 @@ jobs:
             git fetch origin master
             git reset --hard origin/master
 
-            # Only clean .next build cache, keep node_modules for incremental install
+            # Clean .next build cache + node_modules for a deterministic
+            # fresh install. Prior "incremental install" runs kept hitting
+            # https://github.com/npm/cli/issues/4828 — npm would skip
+            # platform-specific optional deps (rollup's / esbuild's /
+            # swc's linux-x64 native binaries), and tsup / next build
+            # would then fail with "Cannot find module @rollup/... or
+            # @esbuild/linux-x64". A clean install from lockfile is the
+            # only way to guarantee ALL optional deps get materialised,
+            # since whack-a-mole `npm install @foo/bar` workarounds keep
+            # uncovering the next missing binary.
             rm -rf apps/web/.next
+            rm -rf node_modules apps/web/node_modules apps/api/node_modules \
+                   packages/shared-api/node_modules packages/shared-types/node_modules
 
-            # Limit Node memory during install to prevent OOM
-            NODE_OPTIONS="--max-old-space-size=512" npm install --prefer-offline
-
-            # Workaround for https://github.com/npm/cli/issues/4828 —
-            # npm sometimes fails to materialise platform-specific
-            # optional deps (rollup's linux-x64-gnu binary in particular)
-            # when the lockfile was last generated on a different platform.
-            # tsup → rollup then explodes with "Cannot find module
-            # @rollup/rollup-linux-x64-gnu" during the shared-api build.
-            # Force-install the linux binary idempotently.
-            if [ ! -d node_modules/@rollup/rollup-linux-x64-gnu ]; then
-              echo "Missing @rollup/rollup-linux-x64-gnu — installing explicitly"
-              NODE_OPTIONS="--max-old-space-size=512" npm install --no-save --prefer-offline @rollup/rollup-linux-x64-gnu
-            fi
+            # Limit Node memory during install to prevent OOM. 2GB swap
+            # should cover the clean install + build.
+            NODE_OPTIONS="--max-old-space-size=768" npm install
 
             # Rebuild workspace packages BEFORE building the web app.
             # apps/web imports from @singularity/shared-api via its dist/
