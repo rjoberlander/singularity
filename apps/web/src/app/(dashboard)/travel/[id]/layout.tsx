@@ -191,7 +191,7 @@ export default function TripDetailLayout({
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = async (view?: "browse" | "stories" | "details" | "video") => {
     if (!trip) return;
     setIsSharing(true);
     try {
@@ -205,10 +205,12 @@ export default function TripDetailLayout({
         toast.error("Could not generate share link");
         return;
       }
-      const url = `${window.location.origin}/trip/${slug}`;
+      const base = `${window.location.origin}/trip/${slug}`;
+      const url = view && view !== "browse" ? `${base}?view=${view}` : base;
+      const viewLabel = view === "stories" ? "Stories" : view === "details" ? "Details" : view === "video" ? "Video" : "Browse";
       // Always copy to clipboard first so the user has the URL ready
       await navigator.clipboard.writeText(url);
-      toast.success("Share link copied!", { description: url });
+      toast.success(`${viewLabel} link copied!`, { description: url });
       // On mobile touch devices, also open the OS share sheet
       const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
       if (isTouchDevice && typeof navigator.share === "function") {
@@ -494,20 +496,41 @@ export default function TripDetailLayout({
                   </>
                 ) : (
                   <>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={handleShare}
-                      disabled={isSharing}
-                      title="Share trip"
-                    >
-                      {isSharing ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Share2 className="h-4 w-4" />
-                      )}
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={isSharing}
+                          title="Share trip"
+                        >
+                          {isSharing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Share2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleShare("browse")}>
+                          <BookOpen className="h-4 w-4 mr-2" />
+                          Share Browse
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleShare("stories")}>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Share Stories
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleShare("details")}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          Share Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleShare("video")}>
+                          <PlayCircle className="h-4 w-4 mr-2" />
+                          Share Video
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       variant="ghost"
                       size="icon"

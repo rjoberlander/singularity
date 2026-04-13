@@ -1,12 +1,14 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   usePublicTrip,
   formatTripDateRange,
   formatTripDate,
 } from "@/lib/api";
 import { TripBrowseContent } from "@/components/travel/TripBrowseContent";
+import { StoryViewer } from "@/components/travel/stories/StoryViewer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,12 +25,15 @@ import {
   Clock,
   Image as ImageIcon,
   Layers,
+  Sparkles,
+  FileText,
+  PlayCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TripMedia } from "@singularity/shared-types";
 import Link from "next/link";
 
-type Tab = "browse" | "lodging";
+type Tab = "browse" | "lodging" | "stories" | "details" | "video";
 
 export default function PublicTripPage({
   params,
@@ -36,8 +41,17 @@ export default function PublicTripPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = use(params);
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("view") as Tab | null;
   const { data: trip, isLoading, error } = usePublicTrip(token);
   const [tab, setTab] = useState<Tab>("browse");
+
+  // Set initial tab from URL ?view= param
+  useEffect(() => {
+    if (viewParam && ["browse", "stories", "details", "video", "lodging"].includes(viewParam)) {
+      setTab(viewParam);
+    }
+  }, [viewParam]);
 
   if (isLoading) {
     return (
@@ -65,6 +79,11 @@ export default function PublicTripPage({
     );
   }
 
+  // Stories view is full-screen, no header/footer wrapper
+  if (tab === "stories") {
+    return <StoryViewer trip={trip as any} tripId={trip.id} />;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* ── Minimal hero ───────────────────────────────────────────── */}
@@ -90,36 +109,30 @@ export default function PublicTripPage({
             )}
           </div>
 
-          {/* Tabs: Browse (primary) + Lodging (secondary) */}
-          <div className="flex gap-1 mt-4 border-b -mb-4">
-            <button
-              type="button"
-              onClick={() => setTab("browse")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors",
-                tab === "browse"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              data-testid="public-tab-browse"
-            >
-              <BookOpen className="h-4 w-4" />
-              Browse
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("lodging")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors",
-                tab === "lodging"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-              data-testid="public-tab-lodging"
-            >
-              <Hotel className="h-4 w-4" />
-              Lodging
-            </button>
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4 border-b -mb-4 overflow-x-auto">
+            {([
+              { id: "browse" as const, label: "Browse", icon: BookOpen },
+              { id: "stories" as const, label: "Stories", icon: Sparkles },
+              { id: "details" as const, label: "Details", icon: FileText },
+              { id: "video" as const, label: "Video", icon: PlayCircle },
+              { id: "lodging" as const, label: "Lodging", icon: Hotel },
+            ]).map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                  tab === id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </header>
@@ -127,17 +140,11 @@ export default function PublicTripPage({
       {/* ── Body ───────────────────────────────────────────────────── */}
       <main className="pb-12">
         {tab === "browse" && (
-          <TripBrowseContent
-            trip={trip}
-            tripId={trip.id}
-            // In the public view, hotel references inside the browse content
-            // shouldn't deep-link to the dashboard lodging tab — let users
-            // switch tabs at the top instead. Empty string disables links.
-            lodgingHref=""
-          />
+          <TripBrowseContent trip={trip} tripId={trip.id} lodgingHref="" />
         )}
-
         {tab === "lodging" && <PublicLodgingView trip={trip} />}
+        {tab === "details" && <PublicDetailsView trip={trip} />}
+        {tab === "video" && <PublicVideoView trip={trip} />}
       </main>
 
       {/* ── Footer ─────────────────────────────────────────────────── */}
@@ -149,6 +156,59 @@ export default function PublicTripPage({
       </footer>
     </div>
   );
+}
+
+// ─── Details view (read-only) ─────────────────────────────────────
+function PublicDetailsView({
+  trip,
+}: {
+  trip: ReturnType<typeof usePublicTrip>["data"];
+}) {
+  if (!trip) return null;
+
+  // Lazy-load TripDetails2Content
+  const [Details2, setDetails2] = useState<React.ComponentType<any> | null>(null);
+  useEffect(() => {
+    import("@/components/travel/TripDetails2Content").then((m) =>
+      setDetails2(() => m.TripDetails2Content)
+    );
+  }, []);
+
+  if (!Details2) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 space-y-4">
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return <Details2 trip={trip} tripId={trip.id} />;
+}
+
+// ─── Video view (read-only) ──────────────────────────────────────
+function PublicVideoView({
+  trip,
+}: {
+  trip: ReturnType<typeof usePublicTrip>["data"];
+}) {
+  if (!trip) return null;
+
+  const [Videos, setVideos] = useState<React.ComponentType<any> | null>(null);
+  useEffect(() => {
+    import("@/components/travel/TripVideosContent").then((m) =>
+      setVideos(() => m.TripVideosContent)
+    );
+  }, []);
+
+  if (!Videos) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 space-y-4">
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return <Videos trip={trip} tripId={trip.id} />;
 }
 
 // ─── Lodging view (read-only) ──────────────────────────────────────
@@ -181,7 +241,7 @@ function PublicLodgingView({
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-      <h2 className="text-lg font-semibold">Where you'll stay</h2>
+      <h2 className="text-lg font-semibold">Where you&apos;ll stay</h2>
       <div className="grid gap-4">
         {accommodations.map((acc) => {
           const photos = mediaByAccommodation[acc.id] || [];
@@ -189,7 +249,6 @@ function PublicLodgingView({
           return (
             <Card key={acc.id} className="overflow-hidden">
               <div className="flex flex-col md:flex-row">
-                {/* Photos */}
                 {photos.length > 0 ? (
                   <div className="md:w-64 shrink-0 bg-muted">
                     <div className="grid grid-cols-2 gap-0.5 h-full min-h-[180px] aspect-[4/3] md:aspect-auto">
@@ -217,8 +276,6 @@ function PublicLodgingView({
                     <ImageIcon className="h-8 w-8 text-muted-foreground/30" />
                   </div>
                 )}
-
-                {/* Details */}
                 <CardContent className="flex-1 p-4">
                   <div className="space-y-1">
                     <h3 className="font-semibold text-base">{acc.name}</h3>
@@ -243,19 +300,15 @@ function PublicLodgingView({
                       )}
                     </div>
                   </div>
-
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3.5 w-3.5" />
                       {formatTripDate(acc.check_in_date)} — {formatTripDate(acc.check_out_date)}
                     </span>
                     {acc.nights ? (
-                      <span>
-                        {acc.nights} night{acc.nights !== 1 ? "s" : ""}
-                      </span>
+                      <span>{acc.nights} night{acc.nights !== 1 ? "s" : ""}</span>
                     ) : null}
                   </div>
-
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
                     {acc.check_in_time && (
                       <span className="flex items-center gap-1">
@@ -284,39 +337,25 @@ function PublicLodgingView({
                       >
                         <Globe className="h-3 w-3" />
                         {(() => {
-                          try {
-                            return new URL(acc.website).hostname;
-                          } catch {
-                            return "website";
-                          }
+                          try { return new URL(acc.website).hostname; }
+                          catch { return "website"; }
                         })()}
                       </a>
                     )}
                   </div>
-
                   {acc.amenities && acc.amenities.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-3">
                       {acc.amenities.slice(0, 8).map((a: string) => (
-                        <span
-                          key={a}
-                          className="text-[10px] bg-muted px-1.5 py-0.5 rounded"
-                        >
-                          {a}
-                        </span>
+                        <span key={a} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{a}</span>
                       ))}
                       {acc.amenities.length > 8 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          +{acc.amenities.length - 8} more
-                        </span>
+                        <span className="text-[10px] text-muted-foreground">+{acc.amenities.length - 8} more</span>
                       )}
                     </div>
                   )}
-
                   {acc.room_type && (
                     <div className="mt-3">
-                      <Badge variant="secondary" className="text-xs font-normal">
-                        {acc.room_type}
-                      </Badge>
+                      <Badge variant="secondary" className="text-xs font-normal">{acc.room_type}</Badge>
                     </div>
                   )}
                 </CardContent>
