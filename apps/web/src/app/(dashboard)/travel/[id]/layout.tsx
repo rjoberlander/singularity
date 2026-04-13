@@ -65,12 +65,16 @@ import {
   Check,
   ChevronDown,
   BookOpen,
+  LayoutDashboard,
+  Sparkles,
+  PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { value: "details", label: "Details", icon: FileText, href: "/details" },
+  { value: "details2", label: "Details 2", icon: LayoutDashboard, href: "/details2" },
   { value: "plan", label: "Plan", icon: ClipboardCheck, href: "/plan" },
   { value: "overview", label: "Overview", icon: Layers, href: "/overview" },
   { value: "itinerary", label: "Itinerary", icon: CalendarDays, href: "/itinerary" },
@@ -80,6 +84,8 @@ const TABS = [
   { value: "packing", label: "Packing", icon: ListTodo, href: "/packing" },
   { value: "media", label: "Media", icon: Images, href: "/media" },
   { value: "browse", label: "Browse", icon: BookOpen, href: "/browse" },
+  { value: "stories", label: "Stories", icon: Sparkles, href: "/stories" },
+  { value: "videos", label: "Videos", icon: PlayCircle, href: "/videos" },
 ];
 
 export default function TripDetailLayout({

@@ -35,11 +35,35 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+type StopCategory = 'lodging' | 'meal' | 'activity' | 'transport';
+
+const mealTypes = new Set(['dining', 'restaurant', 'cafe', 'breakfast', 'lunch', 'dinner', 'snack', 'coffee']);
+const lodgingPatterns = /hotel|hyatt|accommodation|resort|check.?in|check.?out|lodge|airbnb|apartment|cottage|house/i;
+
 type Stop = {
-  label: string; // "1", "2", …
+  label: string; // "1", "2", … or "" for no-location items
   name: string;
-  coords: { lat: number; lng: number };
+  coords: { lat: number; lng: number } | null;
   isTransport: boolean;
+  isRestaurant: boolean;
+  category: StopCategory;
+  hasOwnLocation: boolean; // true if activity has its own lat/lng (not hotel fallback)
+};
+
+// Map marker colors (Google Static Maps hex format, no # prefix)
+const MARKER_COLORS: Record<StopCategory, string> = {
+  lodging:  '0x8b5cf6', // purple
+  meal:     '0xea580c', // orange
+  activity: '0x2563eb', // blue
+  transport:'0x64748b', // slate
+};
+
+// Legend dot colors (Tailwind classes)
+const DOT_COLORS: Record<StopCategory, string> = {
+  lodging:  'bg-purple-500',
+  meal:     'bg-orange-600',
+  activity: 'bg-blue-600',
+  transport:'bg-slate-500',
 };
 
 export function DayRouteMap({
@@ -67,43 +91,76 @@ export function DayRouteMap({
     const out: Stop[] = [];
     let labelIdx = 0;
     for (const a of activities) {
-      if (a.is_backup) continue; // exclude alternates
-      const coords = getActivityCoords(a, accommodation);
-      if (!coords) continue;
-      // Skip consecutive duplicates (same lat/lng within ~20m)
-      const prev = out[out.length - 1];
-      if (prev) {
-        const dupDist = haversineKm(prev.coords, coords);
-        if (dupDist < 0.02) continue;
+      if (a.is_backup) continue;
+
+      const aType = (a.activity_type || '') as string;
+      const aName = a.name || '';
+      let category: StopCategory = 'activity';
+      if (aType === 'transport') category = 'transport';
+      else if (mealTypes.has(aType)) category = 'meal';
+      else if (aType === 'check_in' || aType === 'check_out' || lodgingPatterns.test(aName)) category = 'lodging';
+
+      // Check if this activity has its OWN coordinates
+      const hasOwn = a.latitude != null && a.longitude != null;
+      const coords = hasOwn
+        ? { lat: a.latitude!, lng: a.longitude! }
+        // Only use hotel fallback for actual lodging activities (check-in, check-out, hotel pool, etc.)
+        : (category === 'lodging' ? getActivityCoords(a, accommodation) : null);
+
+      // Skip consecutive duplicate coords on map
+      if (coords) {
+        const prevWithCoords = [...out].reverse().find(s => s.coords);
+        if (prevWithCoords?.coords && haversineKm(prevWithCoords.coords, coords) < 0.02) {
+          // Still add to legend but without map marker
+          out.push({
+            label: '',
+            name: a.name,
+            coords: null,
+            isTransport: category === 'transport',
+            isRestaurant: category === 'meal',
+            category,
+            hasOwnLocation: false,
+          });
+          continue;
+        }
       }
+
       labelIdx++;
       out.push({
-        label: String(labelIdx),
+        label: coords ? String(labelIdx) : '',
         name: a.name,
         coords,
-        isTransport: a.activity_type === "transport",
+        isTransport: category === 'transport',
+        isRestaurant: category === 'meal',
+        category,
+        hasOwnLocation: !!coords,
       });
+      // Don't increment label for items without location
+      if (!coords) labelIdx--;
     }
     return out;
   }, [activities, accommodation]);
 
+  const mappableStops = useMemo(() => stops.filter(s => s.coords && s.label), [stops]);
+
   const totalKm = useMemo(() => {
     let sum = 0;
-    for (let i = 1; i < stops.length; i++) {
-      sum += haversineKm(stops[i - 1].coords, stops[i].coords);
+    for (let i = 1; i < mappableStops.length; i++) {
+      sum += haversineKm(mappableStops[i - 1].coords!, mappableStops[i].coords!);
     }
     return sum;
-  }, [stops]);
+  }, [mappableStops]);
 
-  if (stops.length < 2) return null;
+  if (mappableStops.length < 2) return null;
 
   // ── Build Static Maps URL (via backend proxy) ──────────────────────
-  // size 640x280 with scale=2 for crispness
   const width = 640;
   const height = 260;
-
-  const markerParams = stops.map(
-    (s) => `color:0x2563eb|label:${s.label}|${s.coords.lat.toFixed(5)},${s.coords.lng.toFixed(5)}`,
+  const markerParams = mappableStops.map(
+    (s) => {
+      const color = MARKER_COLORS[s.category];
+      return `color:${color}|label:${s.label}|${s.coords!.lat.toFixed(5)},${s.coords!.lng.toFixed(5)}`;
+    },
   );
 
   const qs = new URLSearchParams();
@@ -116,11 +173,11 @@ export function DayRouteMap({
 
   // ── Build Google Maps directions URL (click-through) ──────────────
   // https://www.google.com/maps/dir/?api=1&origin=...&destination=...&waypoints=...&travelmode=driving
-  const origin = `${stops[0].coords.lat},${stops[0].coords.lng}`;
-  const destination = `${stops[stops.length - 1].coords.lat},${stops[stops.length - 1].coords.lng}`;
-  const waypoints = stops
+  const origin = `${mappableStops[0].coords!.lat},${mappableStops[0].coords!.lng}`;
+  const destination = `${mappableStops[mappableStops.length - 1].coords!.lat},${mappableStops[mappableStops.length - 1].coords!.lng}`;
+  const waypoints = mappableStops
     .slice(1, -1)
-    .map((s) => `${s.coords.lat},${s.coords.lng}`)
+    .map((s) => `${s.coords!.lat},${s.coords!.lng}`)
     .join("|");
   const dirUrl = new URL("https://www.google.com/maps/dir/");
   dirUrl.searchParams.set("api", "1");
@@ -129,9 +186,7 @@ export function DayRouteMap({
   if (waypoints) dirUrl.searchParams.set("waypoints", waypoints);
   dirUrl.searchParams.set("travelmode", "driving");
 
-  const missingCount = activities.filter(
-    (a) => !a.is_backup && !getActivityCoords(a, accommodation),
-  ).length;
+  const missingCount = stops.filter(s => !s.hasOwnLocation).length;
 
   return (
     <div
@@ -145,7 +200,7 @@ export function DayRouteMap({
           <span className="font-medium">Day route</span>
           <span className="text-muted-foreground">
             {" · "}
-            {stops.length} stops
+            {mappableStops.length} stops
             {totalKm > 0.2 && (
               <>
                 {" · "}~
@@ -180,13 +235,45 @@ export function DayRouteMap({
       </div>
 
       {expanded && (
-        <>
-          {/* Map image — also a link to Google Maps directions */}
+        <div className="md:flex">
+          {/* Left: Stop list (30%) */}
+          <ol className="px-3 py-2 text-xs space-y-1 md:w-[30%] md:border-r md:overflow-y-auto md:max-h-[300px] shrink-0" data-testid="day-route-stops">
+            {stops.map((s, i) => (
+              <li key={`${s.label || 'x'}-${i}`} className="flex items-start gap-2">
+                <span
+                  className={cn(
+                    "inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold shrink-0 mt-0.5",
+                    s.hasOwnLocation
+                      ? cn("text-white", DOT_COLORS[s.category])
+                      : "bg-muted text-muted-foreground/50 border border-border",
+                  )}
+                >
+                  {s.label || "·"}
+                </span>
+                {s.coords ? (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${s.coords.lat},${s.coords.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 min-w-0 truncate hover:underline text-foreground"
+                  >
+                    {s.name}
+                  </a>
+                ) : (
+                  <span className="flex-1 min-w-0 truncate text-muted-foreground/50">
+                    {s.name}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+
+          {/* Right: Map image (70%) */}
           <a
             href={dirUrl.toString()}
             target="_blank"
             rel="noopener noreferrer"
-            className="block relative group"
+            className="block relative group md:flex-1"
             title={dayTitle ? `Route for ${dayTitle}` : "Open route in Google Maps"}
           >
             <img
@@ -195,36 +282,12 @@ export function DayRouteMap({
               width={width}
               height={height}
               loading="lazy"
-              className="w-full h-auto block bg-muted"
+              className="w-full h-auto block bg-muted md:max-h-[300px] md:object-cover"
               style={{ aspectRatio: `${width} / ${height}` }}
             />
             <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors pointer-events-none" />
           </a>
-
-          {/* Stop list */}
-          <ol className="px-3 py-2 text-xs space-y-1" data-testid="day-route-stops">
-            {stops.map((s, i) => (
-              <li key={`${s.label}-${i}`} className="flex items-start gap-2">
-                <span
-                  className={cn(
-                    "inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold text-white shrink-0 mt-0.5",
-                    s.isTransport ? "bg-slate-500" : "bg-blue-600",
-                  )}
-                >
-                  {s.label}
-                </span>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${s.coords.lat},${s.coords.lng}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 min-w-0 truncate hover:underline text-foreground"
-                >
-                  {s.name}
-                </a>
-              </li>
-            ))}
-          </ol>
-        </>
+        </div>
       )}
     </div>
   );

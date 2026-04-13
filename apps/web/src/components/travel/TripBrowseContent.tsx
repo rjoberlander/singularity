@@ -59,6 +59,14 @@ import {
   BedDouble,
   ClipboardList,
   ArrowRight,
+  UtensilsCrossed,
+  Wine,
+  CookingPot,
+  Wifi,
+  Dumbbell,
+  Wind,
+  PawPrint,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -670,7 +678,52 @@ function BrowseActivityCard({
                     {accommodation.points_used && <span className="text-muted-foreground">{accommodation.points_used.toLocaleString()} pts</span>}
                   </div>
                 )}
-                {accommodation.amenities && accommodation.amenities.length > 0 && (
+                {/* Structured amenities from AI enrichment */}
+                {accommodation.amenities_structured && (() => {
+                  const am = accommodation.amenities_structured;
+                  const pk = accommodation.parking;
+                  const bf = accommodation.breakfast;
+                  const items: { icon: React.ReactNode; label: string; color: string; detail?: string }[] = [];
+
+                  if (am.pool?.exists) items.push({
+                    icon: <Waves className="h-3 w-3" />, label: 'Pool', color: 'text-blue-500',
+                    detail: [am.pool.type, am.pool.kid_pool ? 'kid pool' : null, am.pool.heated ? 'heated' : null].filter(Boolean).join(', ') || undefined,
+                  });
+                  if (bf?.included) items.push({
+                    icon: <Coffee className="h-3 w-3" />, label: 'Breakfast', color: 'text-amber-500',
+                    detail: bf.type && bf.type !== 'none' ? bf.type + (bf.hours ? ` (${bf.hours})` : '') : undefined,
+                  });
+                  if (am.restaurant_on_site) items.push({ icon: <UtensilsCrossed className="h-3 w-3" />, label: 'Restaurant', color: 'text-orange-500' });
+                  if (am.bar) items.push({ icon: <Wine className="h-3 w-3" />, label: 'Bar', color: 'text-purple-500' });
+                  if (am.kitchen?.type && am.kitchen.type !== 'none') items.push({
+                    icon: <CookingPot className="h-3 w-3" />, label: am.kitchen.type === 'full' ? 'Full kitchen' : 'Kitchenette', color: 'text-green-500',
+                  });
+                  if (pk?.available) items.push({
+                    icon: <Car className="h-3 w-3" />,
+                    label: pk.free ? 'Free parking' : 'Parking',
+                    color: pk.free ? 'text-green-500' : 'text-red-500',
+                    detail: !pk.free && pk.cost_per_day ? `${pk.currency || '€'}${pk.cost_per_day}/day` : pk.type || undefined,
+                  });
+                  if (am.wifi) items.push({ icon: <Wifi className="h-3 w-3" />, label: 'WiFi', color: 'text-sky-500' });
+                  if (am.gym) items.push({ icon: <Dumbbell className="h-3 w-3" />, label: 'Gym', color: 'text-red-500' });
+                  if (am.spa) items.push({ icon: <Sparkles className="h-3 w-3" />, label: 'Spa', color: 'text-pink-500' });
+                  if (am.air_conditioning) items.push({ icon: <Wind className="h-3 w-3" />, label: 'A/C', color: 'text-cyan-500' });
+                  if (am.pet_friendly) items.push({ icon: <PawPrint className="h-3 w-3" />, label: 'Pet friendly', color: 'text-amber-400' });
+
+                  return items.length > 0 ? (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      {items.map((item, i) => (
+                        <span key={i} className={cn("inline-flex items-center gap-1 text-xs", item.color)} title={item.detail}>
+                          {item.icon}
+                          <span>{item.label}</span>
+                          {item.detail && <span className="text-muted-foreground">({item.detail})</span>}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+                {/* Fallback: flat amenities list if no structured data */}
+                {!accommodation.amenities_structured && accommodation.amenities && accommodation.amenities.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {accommodation.amenities.map((a: string, i: number) => (
                       <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
@@ -967,8 +1020,11 @@ function BrowseActivityCard({
             {activity.activity_type === "restaurant" && activity.restaurant_details && (
               <div className="text-sm p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg space-y-2">
                 <div className="flex items-center gap-1.5 font-medium text-orange-800 dark:text-orange-300"><Utensils className="h-3.5 w-3.5" /> {activity.restaurant_details.cuisine_type || 'Restaurant'}</div>
-                {/* Existing badges */}
+                {/* Badges */}
                 <div className="flex gap-1.5 flex-wrap">
+                  {activity.restaurant_details.reservation_tips && /reserv(ation|e)\s*(required|recommended|needed|ahead)/i.test(activity.restaurant_details.reservation_tips) && (
+                    <Badge className="text-[10px] bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30">Reservation Needed</Badge>
+                  )}
                   {activity.restaurant_details.highchair && <Badge variant="secondary" className="text-[10px]">Highchair</Badge>}
                   {activity.restaurant_details.kids_menu && <Badge variant="secondary" className="text-[10px]">Kids Menu</Badge>}
                   {activity.restaurant_details.seating && <Badge variant="secondary" className="text-[10px]">{activity.restaurant_details.seating === 'both' ? 'Indoor & Outdoor' : activity.restaurant_details.seating === 'outdoor' ? 'Outdoor Seating' : 'Indoor'}</Badge>}
@@ -1219,8 +1275,23 @@ export function TripBrowseContent({
       if (!grouped[m.parent_id]) grouped[m.parent_id] = [];
       grouped[m.parent_id].push(m);
     }
+    // Fallback: activities sharing a google_place_id inherit photos from siblings
+    if (trip?.activities) {
+      const photosByPlaceId: Record<string, typeof trip.media> = {};
+      for (const a of trip.activities) {
+        if (a.google_place_id && grouped[a.id]?.length > 0 && !photosByPlaceId[a.google_place_id]) {
+          photosByPlaceId[a.google_place_id] = grouped[a.id];
+        }
+      }
+      for (const a of trip.activities) {
+        if (a.google_place_id && (!grouped[a.id] || grouped[a.id].length === 0)) {
+          const shared = photosByPlaceId[a.google_place_id];
+          if (shared) grouped[a.id] = shared;
+        }
+      }
+    }
     return grouped;
-  }, [trip?.media]);
+  }, [trip?.media, trip?.activities]);
 
   // Build alternatives lookup: activityId -> alternatives[]
   const alternativesByActivity = useMemo(() => {
