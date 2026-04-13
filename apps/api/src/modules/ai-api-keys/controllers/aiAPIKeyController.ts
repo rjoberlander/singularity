@@ -157,7 +157,7 @@ export class AIAPIKeyController {
         return;
       }
 
-      const validProviders = ['anthropic', 'openai', 'perplexity'];
+      const validProviders = ['anthropic', 'openai', 'perplexity', 'elevenlabs', 'google_ai'];
       if (!validProviders.includes(provider)) {
         res.status(400).json({ success: false, error: `Invalid provider. Must be one of: ${validProviders.join(', ')}` });
         return;

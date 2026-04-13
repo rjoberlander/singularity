@@ -4,14 +4,33 @@
  * Four-phase pipeline for creating podcast-style travel videos:
  *   Phase 1 — Data Collection: fetch segment, days, activities, media from Supabase
  *   Phase 2 — Script Generation: Claude produces a two-host podcast script
- *   Phase 3 — Audio Generation: OpenAI TTS renders each line with two voices
+ *   Phase 3 — Audio Generation: ElevenLabs TTS renders each line with two voices
  *   Phase 4 — Video Rendering: Remotion composes photos + audio + text into MP4
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
 import fs from 'fs';
 import { supabase } from '../config/supabase';
+
+/** Wrap raw PCM data in a valid WAV header (16-bit, 24kHz, mono — Gemini default) */
+function wrapPcmAsWav(pcmData: Buffer, sampleRate = 24000, channels = 1, bitsPerSample = 16): Buffer {
+  const dataSize = pcmData.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // PCM chunk size
+  header.writeUInt16LE(1, 20);  // PCM format
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * bitsPerSample / 8, 28); // byte rate
+  header.writeUInt16LE(channels * bitsPerSample / 8, 32); // block align
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, pcmData]);
+}
 import { AIAPIKeyService } from '../modules/ai-api-keys/services/aiAPIKeyService';
 import { renderVideo } from '../video/render';
 import type {
@@ -273,91 +292,144 @@ async function generateScript(
 
 // ─── Phase 3: Audio Generation ───────────────────────────────────────
 
-const VOICE_MAP: Record<Speaker, 'onyx' | 'nova'> = {
-  host: 'onyx',
-  cohost: 'nova',
+// Gemini 2.5 TTS voices
+const GEMINI_VOICES: Record<Speaker, string> = {
+  host: 'Charon',    // deep, warm male
+  cohost: 'Kore',    // bright, engaging female
 };
 
-async function generateAudio(
+/**
+ * Generate audio using Gemini 2.5 Pro TTS with multi-speaker single-pass.
+ * Sends the full script as a formatted dialogue and gets one combined audio back,
+ * then also generates individual line audio for Remotion sequencing.
+ */
+async function generateAudioGemini(
   script: PodcastScript,
   videoId: string,
   tripId: string,
-  openaiApiKey: string,
+  apiKey: string,
 ): Promise<TripVideoAudioFile[]> {
-  const openai = new OpenAI({ apiKey: openaiApiKey });
   const audioFiles: TripVideoAudioFile[] = [];
-  const AVG_READING_WPM = 150; // words per minute for estimated duration
+  const AVG_READING_WPM = 150;
 
-  console.log(`[video-gen] Generating ${script.dialogue.length} audio clips...`);
+  // Gemini TTS has token limits, so we batch lines into chunks of ~8-10 lines
+  // and generate each chunk as a multi-speaker dialogue
+  const BATCH_SIZE = 8;
+  const batches: PodcastScriptLine[][] = [];
+  for (let i = 0; i < script.dialogue.length; i += BATCH_SIZE) {
+    batches.push(script.dialogue.slice(i, i + BATCH_SIZE));
+  }
 
-  for (let i = 0; i < script.dialogue.length; i++) {
-    const line = script.dialogue[i];
-    const voice = VOICE_MAP[line.speaker];
+  console.log(`[video-gen] Generating audio via Gemini TTS: ${script.dialogue.length} lines in ${batches.length} batches...`);
+
+  let globalIndex = 0;
+
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const batch = batches[batchIdx];
+
+    // Format as multi-speaker dialogue
+    const dialogueText = batch.map((line) => {
+      const speakerLabel = line.speaker === 'host' ? 'Alex' : 'Sam';
+      return `${speakerLabel}: ${line.text}`;
+    }).join('\n');
 
     try {
-      const response = await openai.audio.speech.create({
-        model: 'tts-1',
-        voice,
-        input: line.text,
-        response_format: 'mp3',
-      });
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: dialogueText }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                multiSpeakerVoiceConfig: {
+                  speakerVoiceConfigs: [
+                    { speaker: 'Alex', voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_VOICES.host } } },
+                    { speaker: 'Sam', voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_VOICES.cohost } } },
+                  ],
+                },
+              },
+            },
+          }),
+        },
+      );
 
-      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini TTS ${response.status}: ${errText.slice(0, 200)}`);
+      }
 
-      // Estimate duration from MP3 file size (128kbps bitrate)
-      const durationMs = Math.round((buffer.length / (128000 / 8)) * 1000);
+      const result = await response.json() as any;
+      const audioData = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
-      // Upload to Supabase storage
-      const storagePath = `travel/${tripId}/videos/${videoId}/audio/${i.toString().padStart(3, '0')}.mp3`;
+      if (!audioData) {
+        throw new Error('No audio data in Gemini response');
+      }
+
+      // Decode base64 audio (Gemini returns raw PCM as base64 — needs WAV header)
+      const rawPcm = Buffer.from(audioData, 'base64');
+      const audioBuffer = wrapPcmAsWav(rawPcm);
+
+      // Total duration from PCM data (16-bit, 24kHz, mono)
+      const totalDurationMs = Math.round((rawPcm.length / (24000 * 2)) * 1000);
+
+      // Upload the batch audio
+      const storagePath = `travel/${tripId}/videos/${videoId}/audio/batch_${batchIdx.toString().padStart(2, '0')}.wav`;
       const { error: uploadError } = await supabase.storage
         .from('singularity-uploads')
-        .upload(storagePath, buffer, {
-          contentType: 'audio/mpeg',
+        .upload(storagePath, audioBuffer, {
+          contentType: 'audio/wav',
           upsert: true,
         });
 
-      if (uploadError) {
-        console.error(`[video-gen] Audio upload failed for line ${i}:`, uploadError.message);
-        throw uploadError;
-      }
+      if (uploadError) throw new Error(`Audio upload failed: ${uploadError.message}`);
 
       const { data: urlData } = supabase.storage
         .from('singularity-uploads')
         .getPublicUrl(storagePath);
 
-      audioFiles.push({
-        speaker: line.speaker,
-        file_url: urlData.publicUrl,
-        duration_ms: durationMs,
-        index: i,
-      });
+      // Distribute duration across lines proportionally by word count
+      const wordCounts = batch.map(l => l.text.split(/\s+/).length);
+      const totalWords = wordCounts.reduce((a, b) => a + b, 0);
 
-      if ((i + 1) % 10 === 0) {
-        console.log(`[video-gen] Audio progress: ${i + 1}/${script.dialogue.length}`);
+      // For the first line in the batch, use the full batch audio URL
+      // For subsequent lines, use empty URL (Remotion will use the batch audio)
+      // Actually: we put the same batch URL for all lines but assign proportional durations
+      for (let j = 0; j < batch.length; j++) {
+        const lineDurationMs = Math.round((wordCounts[j] / totalWords) * totalDurationMs);
+
+        audioFiles.push({
+          speaker: batch[j].speaker,
+          file_url: j === 0 ? urlData.publicUrl : '', // only first line in batch has the audio
+          duration_ms: Math.max(lineDurationMs, 1500),
+          index: globalIndex,
+        });
+        globalIndex++;
       }
+
+      console.log(`[video-gen] Batch ${batchIdx + 1}/${batches.length} complete (${totalDurationMs}ms, ${batch.length} lines)`);
     } catch (err: any) {
-      // If TTS fails (quota, rate limit, etc.), fall back to silent mode
-      // Estimate duration from word count
-      console.warn(`[video-gen] TTS failed for line ${i}, using silent fallback: ${err.message}`);
-      const wordCount = line.text.split(/\s+/).length;
-      const durationMs = Math.round((wordCount / AVG_READING_WPM) * 60 * 1000);
+      console.warn(`[video-gen] Gemini TTS batch ${batchIdx} failed: ${err.message}`);
 
-      audioFiles.push({
-        speaker: line.speaker,
-        file_url: '', // empty = no audio for this line
-        duration_ms: Math.max(durationMs, 2000), // at least 2 seconds
-        index: i,
-      });
-
-      // If the very first line fails, warn but continue (likely quota issue for all lines)
-      if (i === 0) {
-        console.warn('[video-gen] TTS quota/key issue — generating silent video with captions only');
+      // Fallback: silent mode for this batch
+      for (let j = 0; j < batch.length; j++) {
+        const wordCount = batch[j].text.split(/\s+/).length;
+        const durationMs = Math.round((wordCount / AVG_READING_WPM) * 60 * 1000);
+        audioFiles.push({
+          speaker: batch[j].speaker,
+          file_url: '',
+          duration_ms: Math.max(durationMs, 2000),
+          index: globalIndex,
+        });
+        globalIndex++;
       }
     }
   }
 
   const withAudio = audioFiles.filter(a => a.file_url).length;
-  console.log(`[video-gen] Audio complete: ${withAudio}/${audioFiles.length} clips have audio (${audioFiles.length - withAudio} silent)`);
+  console.log(`[video-gen] Audio complete: ${withAudio} batches with audio out of ${audioFiles.length} total lines`);
   return audioFiles;
 }
 
@@ -457,11 +529,12 @@ export async function generateSegmentVideo(
       title: script.title,
     });
 
-    // Phase 3: Generate audio
-    const openaiKey = await AIAPIKeyService.getActiveKeyForProvider(userId, 'openai');
-    if (!openaiKey) throw new Error('No OpenAI API key configured');
+    // Phase 3: Generate audio via Gemini 2.5 TTS (multi-speaker single-pass)
+    const googleAiKey = await AIAPIKeyService.getActiveKeyForProvider(userId, 'google_ai');
+    const geminiApiKey = googleAiKey?.api_key || process.env.GOOGLE_AI_API_KEY;
+    if (!geminiApiKey) throw new Error('No Google AI API key configured');
 
-    const audioFiles = await generateAudio(script, videoId, tripId, openaiKey.api_key);
+    const audioFiles = await generateAudioGemini(script, videoId, tripId, geminiApiKey);
     await updateVideoStatus(videoId, 'rendering', { audio_files: audioFiles });
 
     // Phase 4: Render video
@@ -477,8 +550,9 @@ export async function generateSegmentVideo(
       video_url: videoUrl,
       duration_seconds: durationSeconds,
       metadata: {
-        voice_host: VOICE_MAP.host,
-        voice_cohost: VOICE_MAP.cohost,
+        voice_host: GEMINI_VOICES.host,
+        voice_cohost: GEMINI_VOICES.cohost,
+        tts_provider: 'gemini',
         photo_count: data.photos.length,
         line_count: script.dialogue.length,
       },

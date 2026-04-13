@@ -52,6 +52,8 @@ const PROVIDERS = [
   { value: "anthropic", label: "Anthropic (Claude)" },
   { value: "openai", label: "OpenAI (GPT)" },
   { value: "perplexity", label: "Perplexity" },
+  { value: "elevenlabs", label: "ElevenLabs (TTS)" },
+  { value: "google_ai", label: "Google AI (Gemini)" },
 ];
 
 function getHealthBadge(status: string) {
@@ -76,6 +78,10 @@ function getProviderIcon(provider: string) {
       return "🧠";
     case "perplexity":
       return "🔍";
+    case "elevenlabs":
+      return "🎙️";
+    case "google_ai":
+      return "✨";
     default:
       return "🔑";
   }

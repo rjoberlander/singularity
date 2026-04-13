@@ -16,7 +16,7 @@ import { encryptAIAPIKey, decryptAIAPIKey, maskAPIKey } from '../utils/aiApiKeyE
 export interface AIAPIKey {
   id: string;
   user_id: string;
-  provider: 'anthropic' | 'openai' | 'perplexity';
+  provider: 'anthropic' | 'openai' | 'perplexity' | 'elevenlabs' | 'google_ai';
   key_name: string;
   api_key_encrypted: string;
   is_primary: boolean;
@@ -63,7 +63,7 @@ export class AIAPIKeyService {
    */
   static async getActiveKeyForProvider(
     userId: string,
-    provider: 'anthropic' | 'openai' | 'perplexity'
+    provider: 'anthropic' | 'openai' | 'perplexity' | 'elevenlabs' | 'google_ai'
   ): Promise<{ key_id: string; api_key: string; key_name: string } | null> {
     // Step 1: Try primary key
     const { data: primaryKey, error: primaryError } = await supabase
