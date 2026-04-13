@@ -2,14 +2,16 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { Check, CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2, Pencil, X, Wand2, Upload, FileUp, Sparkles, ImageIcon, Plane, ExternalLink, Lock, Timer, Plus } from "lucide-react";
+import { Check, CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2, Pencil, X, Wand2, Upload, FileUp, Sparkles, ImageIcon, Plane, ExternalLink, Lock, Timer, Plus, Search, Settings, FileText, Star, MapPin, Globe, Copy, Waves, Coffee, UtensilsCrossed, Wine, CookingPot, Car, Wifi, Dumbbell, PawPrint, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { useUpdateTrip } from "@/lib/api";
+import { useUpdateTrip, API_URL } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import type { PlanningStepId, StepCompletionStatus, PlanningStepConfig, SegmentInfo, SegmentAccommodationInfo, FlightInfo, SegmentEnrichmentStats } from "@/lib/travel-planning";
 import type { Trip, ValidationResult, ValidationIssue } from "@singularity/shared-types";
@@ -50,6 +52,15 @@ interface PlanStepCardProps {
   // Per-segment timing enrichment (phase 2)
   onTimingSegment?: (segmentId: string) => void;
   timingSegmentId?: string | null;
+  // Per-segment meal research
+  onMealResearch?: (segmentId: string) => void;
+  researchingSegmentId?: string | null;
+  // Meal preferences + PRD
+  onOpenMealPreferences?: () => void;
+  onOpenMealPRD?: () => void;
+  // Deep enrichment (step 6)
+  onDeepEnrich?: () => void;
+  isDeepEnriching?: boolean;
 }
 
 export function PlanStepCard({
@@ -74,6 +85,12 @@ export function PlanStepCard({
   enrichingSegmentId,
   onTimingSegment,
   timingSegmentId,
+  onMealResearch,
+  researchingSegmentId,
+  onOpenMealPreferences,
+  onOpenMealPRD,
+  onDeepEnrich,
+  isDeepEnriching,
 }: PlanStepCardProps) {
   const hasMissingItems = status.missingItems.length > 0;
   const isCompleted = status.completed;
@@ -89,6 +106,207 @@ export function PlanStepCard({
   const [transportationType, setTransportationType] = useState("");
   const [travelerCount, setTravelerCount] = useState(1);
   const [addHotelSegment, setAddHotelSegment] = useState<{ segmentId: string; segmentName: string; startDate: string; endDate: string } | null>(null);
+
+  // Inline URL editing state for accommodations
+  const [editingUrlAccId, setEditingUrlAccId] = useState<string | null>(null);
+  const [editingUrlValue, setEditingUrlValue] = useState("");
+  const [savingUrl, setSavingUrl] = useState(false);
+
+  // Inline confirmation # editing
+  const [editingConfAccId, setEditingConfAccId] = useState<string | null>(null);
+  const [editingConfValue, setEditingConfValue] = useState("");
+  const [savingConf, setSavingConf] = useState(false);
+
+  const handleSaveUrl = async (accommodationId: string) => {
+    const url = editingUrlValue.trim();
+    if (!url) return;
+    // Validate it's a real URL
+    try { new URL(url); } catch { toast.error("Invalid URL"); return; }
+    setSavingUrl(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+      const resp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ website: url }),
+      });
+      if (!resp.ok) throw new Error("Failed to save");
+      toast.success("URL saved");
+      setEditingUrlAccId(null);
+      setEditingUrlValue("");
+      // Force refresh — the parent query should refetch
+      window.location.reload();
+    } catch (err) {
+      toast.error("Failed to save URL");
+    } finally {
+      setSavingUrl(false);
+    }
+  };
+
+  const handleSaveConf = async (accommodationId: string) => {
+    const ref = editingConfValue.trim();
+    if (!ref) return;
+    setSavingConf(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+      const resp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ booking_reference: ref }),
+      });
+      if (!resp.ok) throw new Error("Failed to save");
+      toast.success("Confirmation # saved");
+      setEditingConfAccId(null);
+      setEditingConfValue("");
+      window.location.reload();
+    } catch (err) {
+      toast.error("Failed to save confirmation #");
+    } finally {
+      setSavingConf(false);
+    }
+  };
+
+  // Upload confirmation file
+  const [uploadingConfFileAccId, setUploadingConfFileAccId] = useState<string | null>(null);
+  const handleUploadConfirmation = async (accommodationId: string, file: File) => {
+    setUploadingConfFileAccId(accommodationId);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+      const resp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}/upload-confirmation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ file: base64, filename: file.name, mimeType: file.type }),
+      });
+      if (!resp.ok) throw new Error("Upload failed");
+      toast.success("Confirmation uploaded");
+      window.location.reload();
+    } catch {
+      toast.error("Failed to upload");
+    } finally {
+      setUploadingConfFileAccId(null);
+    }
+  };
+
+  // Enrich accommodation
+  const [enrichingAccId, setEnrichingAccId] = useState<string | null>(null);
+  const [enrichingAll, setEnrichingAll] = useState(false);
+  const [enrichAllProgress, setEnrichAllProgress] = useState("");
+
+  const handleEnrichAllAccommodations = async () => {
+    const accs = status.accommodationDetails?.filter(s => s.hasAccommodation && s.accommodationId) || [];
+    if (accs.length === 0) return;
+    setEnrichingAll(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+      const headers = {
+        "Content-Type": "application/json",
+        "apikey": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+        "Authorization": `Bearer ${session.access_token}`,
+      };
+      let done = 0;
+      for (const seg of accs) {
+        done++;
+        setEnrichAllProgress(`${done}/${accs.length}: ${seg.hotelName?.substring(0, 25) || "..."}`);
+        setEnrichingAccId(seg.accommodationId!);
+        try {
+          const isAirbnb = seg.propertyType === "vacation_rental" || !!(seg.website && /airbnb\.com\/rooms/i.test(seg.website));
+          if (isAirbnb && seg.website && /airbnb\.com\/rooms/i.test(seg.website)) {
+            // Airbnb: use dedicated Airbnb API for photos + data, then AI for structured amenities
+            await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${seg.accommodationId}/enrich-airbnb`, { method: "POST", headers });
+            await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${seg.accommodationId}/enrich-ai`, { method: "POST", headers });
+          } else if (!isAirbnb) {
+            // Hotels: Google Places for photos + data, then AI for structured amenities
+            await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${seg.accommodationId}/fetch-google`, { method: "POST", headers });
+            await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${seg.accommodationId}/enrich-ai`, { method: "POST", headers });
+          } else {
+            // Airbnb without listing URL: AI enrichment only
+            await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${seg.accommodationId}/enrich-ai`, { method: "POST", headers });
+          }
+        } catch (e) {
+          console.warn(`Failed to enrich ${seg.hotelName}:`, e);
+        }
+      }
+      toast.success(`Enriched ${done} accommodations`);
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err.message || "Enrichment failed");
+    } finally {
+      setEnrichingAll(false);
+      setEnrichingAccId(null);
+      setEnrichAllProgress("");
+    }
+  };
+
+  const handleEnrichAccommodation = async (accommodationId: string, isAirbnb?: boolean) => {
+    setEnrichingAccId(accommodationId);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+      const headers = {
+        "Content-Type": "application/json",
+        "apikey": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+        "Authorization": `Bearer ${session.access_token}`,
+      };
+      if (isAirbnb) {
+        // Airbnb: use dedicated Airbnb API for photos + data
+        const airbnbResp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}/enrich-airbnb`, {
+          method: "POST", headers,
+        });
+        if (!airbnbResp.ok) {
+          const err = await airbnbResp.json().catch(() => ({}));
+          console.warn("Airbnb enrich failed:", err);
+        }
+      } else {
+        // Hotels: Google Places for photos + data
+        const googleResp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}/fetch-google`, {
+          method: "POST", headers,
+        });
+        if (!googleResp.ok) {
+          const err = await googleResp.json().catch(() => ({}));
+          console.warn("Google fetch failed:", err);
+        }
+      }
+      const aiResp = await fetch(`${API_URL}/travel/trips/${tripId}/accommodations/${accommodationId}/enrich-ai`, {
+        method: "POST", headers,
+      });
+      if (!aiResp.ok) {
+        const err = await aiResp.json().catch(() => ({}));
+        throw new Error(err.error || "AI enrich failed");
+      }
+      toast.success("Enriched");
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err.message || "Enrichment failed");
+    } finally {
+      setEnrichingAccId(null);
+    }
+  };
 
   // Sync state with tripData when it loads or changes
   useEffect(() => {
@@ -144,13 +362,20 @@ export function PlanStepCard({
   };
 
   const isBasicsStep = step.id === "basics";
-  const isDaysActivitiesStep = step.id === "days_activities";
   const isSegmentsStep = step.id === "segments";
-  const isMealsStep = step.id === "meals";
   const isAccommodationsStep = step.id === "accommodations";
+  const isActivitiesStep = step.id === "activities";
+  const isMealsStep = step.id === "meals";
+  const isEnrichmentStep = step.id === "enrichment";
+  const isScheduleStep = step.id === "schedule";
   const canEdit = isBasicsStep && !isCompleted;
   const canImport = (isSegmentsStep || isAccommodationsStep || isMealsStep) && onImportResearch;
   const canImportSkeleton = isBasicsStep && onImportSkeleton;
+
+  // Are all accommodations fully enriched?
+  const allAccEnriched = isAccommodationsStep && status.accommodationDetails
+    ? status.accommodationDetails.every(s => !s.hasAccommodation || (s.hasGoogleEnrichment && s.hasAiEnrichment))
+    : false;
 
   // Determine if any drag-drop is enabled
   const canDrop = canImport || canImportSkeleton;
@@ -331,47 +556,111 @@ export function PlanStepCard({
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">{step.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {isAccommodationsStep && status.accommodationDetails
+                  ? `${status.accommodationDetails.filter(s => s.isComplete).length} of ${status.accommodationDetails.length} segments have accommodations`
+                  : step.description}
+              </p>
             </div>
           </div>
 
-          {/* Status badge + action buttons in header */}
-          <div className="flex items-center gap-1">
-            {isCompleted ? (
-              <>
-                <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Complete
-                </Badge>
-                <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={onUnmarkComplete} disabled={isLoading}>
-                  {isLoading && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                  Undo
-                </Button>
-              </>
-            ) : (
-              <>
-                {isAutoSuggested ? (
-                  <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Validated
-                  </Badge>
-                ) : hasMissingItems ? (
-                  <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30">
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    Incomplete
-                  </Badge>
-                ) : null}
-                <Button
-                  variant={isAutoSuggested ? "default" : "outline"}
-                  size="sm"
-                  className={cn("h-6 text-xs px-2", isAutoSuggested && "bg-green-600 hover:bg-green-700 text-white")}
-                  onClick={onMarkComplete}
-                  disabled={isLoading}
+          {/* Accommodations: Research instructions + import in header */}
+          {isAccommodationsStep && canImport && (
+            <div className="flex items-start gap-3 text-[11px] text-muted-foreground border border-border/40 rounded-md px-2.5 py-1.5 bg-muted/30">
+              <div className="space-y-0.5 shrink-0">
+                <p className="font-medium text-foreground text-xs">Research hotels:</p>
+                <ol className="list-decimal list-inside space-y-0">
+                  <li>Go to <span className="font-medium text-foreground">Claude Project</span></li>
+                  <li>Open <span className="font-medium text-foreground">Hotel Research</span></li>
+                  <li>Find hotels &amp; export JSON</li>
+                </ol>
+              </div>
+              <div>
+                <input type="file" id={`import-file-${step.id}`} className="hidden" accept=".json" onChange={handleFileSelect} />
+                <div
+                  className={cn(
+                    "border-2 border-dashed rounded-lg px-3 py-2 text-center cursor-pointer transition-colors",
+                    isDragging ? "border-purple-500 bg-purple-500/10" : "border-purple-500/30 hover:border-purple-500/50 hover:bg-purple-500/5"
+                  )}
+                  onClick={() => document.getElementById(`import-file-${step.id}`)?.click()}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  data-testid={`import-${step.id}-dropzone`}
                 >
-                  {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
-                  Done
-                </Button>
-              </>
+                  <Sparkles className="h-4 w-4 mx-auto mb-0.5 text-purple-500" />
+                  <p className="text-[10px] text-purple-600 dark:text-purple-400 whitespace-nowrap">
+                    {isDragging ? "Drop JSON" : "Drop or click to import"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Status badge + action buttons in header */}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-1">
+              {isCompleted ? (
+                <>
+                  <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Complete
+                  </Badge>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={onUnmarkComplete} disabled={isLoading}>
+                    {isLoading && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                    Undo
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {isAutoSuggested ? (
+                    <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Validated
+                    </Badge>
+                  ) : hasMissingItems ? (
+                    <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/30">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      Incomplete
+                    </Badge>
+                  ) : null}
+                  <Button
+                    variant={isAutoSuggested ? "default" : "outline"}
+                    size="sm"
+                    className={cn("h-6 text-xs px-2", isAutoSuggested && "bg-green-600 hover:bg-green-700 text-white")}
+                    onClick={onMarkComplete}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                    Done
+                  </Button>
+                </>
+              )}
+            </div>
+            {/* Enrich All button for accommodations — right under Done */}
+            {isAccommodationsStep && status.accommodationDetails && status.accommodationDetails.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "h-6 text-xs px-2",
+                  allAccEnriched
+                    ? "text-muted-foreground border-muted"
+                    : "text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                )}
+                disabled={allAccEnriched || enrichingAll}
+                title={allAccEnriched ? "All accommodations enriched" : "Enrich all accommodations (Google + AI)"}
+                onClick={handleEnrichAllAccommodations}
+              >
+                {enrichingAll ? (
+                  <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> {enrichAllProgress || "Enriching..."}</>
+                ) : allAccEnriched ? (
+                  <><CheckCircle2 className="h-3 w-3 mr-1" /> All Enriched</>
+                ) : (
+                  <><Wand2 className="h-3 w-3 mr-1" /> Enrich All</>
+                )}
+              </Button>
             )}
           </div>
         </div>
@@ -444,56 +733,74 @@ export function PlanStepCard({
               </Button>
             </div>
           </div>
-        ) : isDaysActivitiesStep && onAssembleSchedule ? (
-          /* Full-width layout for Days & Activities step */
+        ) : (isActivitiesStep || isEnrichmentStep || isScheduleStep) ? (
+          /* Full-width layout for Activities / Enrichment / Schedule steps */
           <div className="space-y-3">
-            <div className="text-xs text-muted-foreground">
-              <p className="font-medium text-foreground mb-2">Build itinerary:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
-                <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">1. Google Enrichment</p>
-                  <ul className="space-y-0.5 text-muted-foreground">
-                    <li>• Fetch Google Places data (opening hours, ratings)</li>
-                    <li>• Download photos</li>
-                    <li className="text-xs opacity-80 ml-2">↳ 20 primary, 10 alternates</li>
-                    <li>• Analyze reviews for dish recommendations</li>
-                    <li>• Fetch ticket prices for attractions</li>
-                    <li className="text-green-600 dark:text-green-400">• Skip already enriched</li>
-                  </ul>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">2. Timing & Restaurants</p>
-                  <ul className="space-y-0.5 text-muted-foreground">
-                    <li>• Replace generic meals with real restaurant suggestions</li>
-                    <li>• Compute drive/walk times between activities</li>
-                    <li>• Estimate activity durations</li>
-                    <li className="text-amber-600 dark:text-amber-400 mt-1">⚠ Requires: Google enrichment done + hotels/lodging set</li>
-                  </ul>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">3. Generate Schedule</p>
-                  <ul className="space-y-0.5 text-muted-foreground">
-                    <li>• AI creates 15-min precision times</li>
-                    <li>• Uses pre-computed travel times</li>
-                    <li>• Insert meals, check-in/out, buffers</li>
-                  </ul>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-2.5">
-                  <p className="font-medium text-foreground mb-1">4. Validate</p>
-                  <ul className="space-y-0.5 text-muted-foreground">
-                    <li>• Check opening hours conflicts</li>
-                    <li>• Verify hotel amenities</li>
-                    <li>• Flag bookings & duration issues</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
 
-            {/* Enrichment status by segment */}
+            {/* Step-specific description */}
+            {isActivitiesStep && (
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2.5">
+                <p className="font-medium text-foreground mb-1">Review & Enrich Activities</p>
+                <ul className="space-y-0.5">
+                  <li>• Verify all segments have imported activities</li>
+                  <li>• Google Places enrichment (photos, ratings, hours)</li>
+                  <li>• Auto-triggers AI deep content + restaurant review analysis</li>
+                  <li className="text-green-600 dark:text-green-400">• Gate check before meal research</li>
+                </ul>
+              </div>
+            )}
+            {isEnrichmentStep && (
+              <>
+                <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2.5">
+                  <p className="font-medium text-foreground mb-1">Gap-Filler & Deep Enrichment</p>
+                  <ul className="space-y-0.5">
+                    <li>• Fill activity deep_dive + practical_details gaps</li>
+                    <li>• Generate trip-level country overview</li>
+                    <li>• Synthesize segment narratives (accommodation + activities + meals)</li>
+                    <li>• Generate day-level tour guide narratives</li>
+                    <li className="text-blue-500 dark:text-blue-400">↳ Catches anything previous steps missed</li>
+                  </ul>
+                </div>
+                {/* Trip-level enrichment status — split into Location Details + Trip Details */}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Location details:</span>
+                    {status.summary?.some((s: string) => s.includes('Trip overview: ✓')) ? (
+                      <Badge variant="secondary" className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Generated</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">Not generated</Badge>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">(country history, culture, customs)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Trip details:</span>
+                    {status.summary?.some((s: string) => s.includes('Trip overview: ✓')) ? (
+                      <Badge variant="secondary" className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Generated</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">Not generated</Badge>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">(itinerary overview, route, pacing)</span>
+                  </div>
+                </div>
+              </>
+            )}
+            {isScheduleStep && (
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2.5">
+                <p className="font-medium text-foreground mb-1">Schedule & Validate</p>
+                <ul className="space-y-0.5">
+                  <li>• Compute drive/walk times between activities</li>
+                  <li>• AI creates 15-min precision schedule</li>
+                  <li>• Insert meals, check-in/out, buffers</li>
+                  <li>• Validate opening hours, bookings, durations</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Enrichment/activity status by segment */}
             {status.segmentDetails && status.segmentDetails.length > 0 && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium">Enrichment status:</p>
+                  <p className="text-xs font-medium">{isActivitiesStep ? 'Activity status:' : isEnrichmentStep ? 'Enrichment gaps:' : 'Segment status:'}</p>
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <span className="w-3 h-3 rounded-sm bg-purple-500" />
@@ -515,11 +822,17 @@ export function PlanStepCard({
                       <tr className="text-muted-foreground border-b border-border/50">
                         <th className="text-left py-1 pr-2 font-medium">#</th>
                         <th className="text-left py-1 pr-2 font-medium">Segment</th>
-                        <th className="text-left py-1 pr-2 font-medium">Dates</th>
-                        <th className="text-center py-1 px-1 font-medium">Places</th>
-                        <th className="text-center py-1 px-1 font-medium">Photos</th>
-                        <th className="text-center py-1 px-1 font-medium">Meals</th>
-                        <th className="text-left py-1 pr-2 font-medium">Days</th>
+                        {!isScheduleStep && <th className="text-left py-1 pr-2 font-medium">Dates</th>}
+                        {(isActivitiesStep || isScheduleStep) && <th className="text-center py-1 px-1 font-medium">Places</th>}
+                        {isActivitiesStep && <th className="text-center py-1 px-1 font-medium">Photos</th>}
+                        {isScheduleStep && <th className="text-center py-1 px-1 font-medium">Meals</th>}
+                        {(isActivitiesStep || isEnrichmentStep) && <th className="text-center py-1 px-1 font-medium">Details</th>}
+                        {isEnrichmentStep && <th className="text-center py-1 px-1 font-medium" title="Location history & culture (city_info)">Location</th>}
+                        {isEnrichmentStep && <th className="text-center py-1 px-1 font-medium" title="Trip narrative synthesis (what you're doing here)">Narrative</th>}
+                        {isEnrichmentStep && <th className="text-center py-1 px-1 font-medium" title="Day narratives">Day Stories</th>}
+                        {isScheduleStep && <th className="text-center py-1 px-1 font-medium" title="Schedule assembled">Assembled</th>}
+                        {isActivitiesStep && <th className="text-center py-1 px-1 font-medium text-muted-foreground/70">Skip</th>}
+                        {!isScheduleStep && !isEnrichmentStep && <th className="text-left py-1 pr-2 font-medium">Days</th>}
                         <th className="text-right py-1 font-medium" colSpan={2}></th>
                       </tr>
                     </thead>
@@ -534,120 +847,207 @@ export function PlanStepCard({
                           <tr key={seg.segmentId} className="border-b border-border/30 last:border-0">
                             <td className="py-1 pr-2 text-muted-foreground">{seg.segmentNumber || "-"}</td>
                             <td className="py-1 pr-2 font-medium">{seg.segmentName}</td>
-                            <td className="py-1 pr-2 text-muted-foreground whitespace-nowrap">
-                              {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
-                            </td>
-                            <td className="py-1 px-1 text-center">
-                              {stats ? (
-                                <span className={cn(
-                                  "whitespace-nowrap",
-                                  stats.placesTotal === 0 ? "text-muted-foreground" :
-                                  stats.placesEnriched === stats.placesTotal ? "text-green-600 dark:text-green-400" :
-                                  stats.placesEnriched > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
-                                )}>
-                                  {stats.placesEnriched}/{stats.placesTotal}
-                                </span>
-                              ) : "-"}
-                            </td>
-                            <td className="py-1 px-1 text-center">
-                              {stats ? (
-                                <span className={cn(
-                                  "whitespace-nowrap",
-                                  stats.photosExpected === 0 ? "text-muted-foreground" :
-                                  stats.photosActual >= stats.photosExpected ? "text-green-600 dark:text-green-400" :
-                                  stats.photosActual > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
-                                )}>
-                                  {stats.photosActual}/{stats.photosExpected}
-                                </span>
-                              ) : "-"}
-                            </td>
-                            <td className="py-1 px-1 text-center">
-                              {stats ? (
-                                <span className={cn(
-                                  "whitespace-nowrap",
-                                  stats.genericMealsTotal === 0 ? "text-muted-foreground" :
-                                  stats.mealsWithRestaurant === stats.genericMealsTotal ? "text-green-600 dark:text-green-400" :
-                                  stats.mealsWithRestaurant > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
-                                )}>
-                                  {stats.mealsWithRestaurant}/{stats.genericMealsTotal}
-                                </span>
-                              ) : "-"}
-                            </td>
-                            <td className="py-1 pr-2">
-                              <div className="flex items-center gap-0.5">
-                                {seg.days?.map((day) => {
-                                  const hasEnrichable = (day.totalEnrichable || 0) > 0;
-                                  const isComplete = day.enrichmentStatus === 'complete';
-                                  const isPartial = day.enrichmentStatus === 'partial';
-
-                                  return (
-                                    <div
-                                      key={`enrich-${day.date}`}
-                                      className={cn(
-                                        "w-4 h-4 rounded-sm text-[9px] flex items-center justify-center font-medium",
-                                        isComplete
-                                          ? "bg-purple-500 text-white"
-                                          : isPartial
-                                          ? "border-2 border-purple-500 text-purple-500"
-                                          : hasEnrichable
-                                          ? "bg-muted text-muted-foreground"
-                                          : "bg-muted/50 text-muted-foreground/50"
-                                      )}
-                                      title={
-                                        hasEnrichable
-                                          ? `${day.date}: ${day.enrichedCount || 0}/${day.totalEnrichable} enriched`
-                                          : `${day.date}: No enrichable activities`
-                                      }
-                                    >
-                                      {day.dayOfMonth}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </td>
-                            <td className="py-1 text-right">
-                              {onEnrichSegment && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 px-2 text-[10px]"
-                                  onClick={() => onEnrichSegment(seg.segmentId)}
-                                  disabled={!!enrichingSegmentId || !!timingSegmentId}
-                                >
-                                  {isEnrichingThis ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    "Enrich"
-                                  )}
-                                </Button>
-                              )}
-                            </td>
-                            <td className="py-1 pl-1 text-right">
-                              {onTimingSegment && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className={cn(
-                                    "h-6 px-2 text-[10px]",
-                                    !timingLocked && "border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
-                                  )}
-                                  onClick={() => onTimingSegment(seg.segmentId)}
-                                  disabled={timingLocked || !!enrichingSegmentId || !!timingSegmentId}
-                                  title={timingLocked ? "Requires: Google enrichment + hotels set" : "Run timing enrichment & restaurant suggestions"}
-                                >
-                                  {isTimingThis ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : timingLocked ? (
-                                    <Lock className="h-3 w-3" />
-                                  ) : (
-                                    <>
-                                      <Timer className="h-3 w-3 mr-0.5" />
-                                      Timing
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                            </td>
+                            {!isScheduleStep && (
+                              <td className="py-1 pr-2 text-muted-foreground whitespace-nowrap">
+                                {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
+                              </td>
+                            )}
+                            {(isActivitiesStep || isScheduleStep) && (
+                              <td className="py-1 px-1 text-center">
+                                {stats ? (
+                                  <span className={cn(
+                                    "whitespace-nowrap",
+                                    stats.placesTotal === 0 ? "text-muted-foreground" :
+                                    stats.placesEnriched === stats.placesTotal ? "text-green-600 dark:text-green-400" :
+                                    stats.placesEnriched > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                  )}>
+                                    {stats.placesEnriched}/{stats.placesTotal}
+                                  </span>
+                                ) : "-"}
+                              </td>
+                            )}
+                            {isActivitiesStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats ? (
+                                  <span className={cn(
+                                    "whitespace-nowrap",
+                                    stats.placesEnriched === 0 ? "text-muted-foreground" :
+                                    stats.placesWithPhotos >= stats.placesEnriched ? "text-green-600 dark:text-green-400" :
+                                    stats.placesWithPhotos > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                  )}>
+                                    {stats.placesWithPhotos}/{stats.placesEnriched}
+                                    <span className="text-muted-foreground/50 ml-0.5 text-[9px]">({stats.photosActual})</span>
+                                  </span>
+                                ) : "-"}
+                              </td>
+                            )}
+                            {isScheduleStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats ? (
+                                  <span className={cn(
+                                    "whitespace-nowrap",
+                                    stats.genericMealsTotal === 0 ? "text-muted-foreground" :
+                                    stats.mealsWithRestaurant === stats.genericMealsTotal ? "text-green-600 dark:text-green-400" :
+                                    stats.mealsWithRestaurant > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                  )}>
+                                    {stats.mealsWithRestaurant}/{stats.genericMealsTotal}
+                                  </span>
+                                ) : "-"}
+                              </td>
+                            )}
+                            {(isActivitiesStep || isEnrichmentStep) && (
+                              <td className="py-1 px-1 text-center">
+                                {stats ? (
+                                  <span className={cn(
+                                    "whitespace-nowrap",
+                                    stats.detailsTotal === 0 ? "text-muted-foreground" :
+                                    stats.detailsEnriched === stats.detailsTotal ? "text-green-600 dark:text-green-400" :
+                                    stats.detailsEnriched > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                  )}>
+                                    {stats.detailsEnriched}/{stats.detailsTotal}
+                                  </span>
+                                ) : "-"}
+                              </td>
+                            )}
+                            {isEnrichmentStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats?.hasSegmentLocationDetail ? (
+                                  <span className="text-green-600 dark:text-green-400">&#x2713;</span>
+                                ) : (
+                                  <span className="text-muted-foreground">&#x2717;</span>
+                                )}
+                              </td>
+                            )}
+                            {isEnrichmentStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats?.hasSegmentNarrative ? (
+                                  <span className="text-green-600 dark:text-green-400">&#x2713;</span>
+                                ) : (
+                                  <span className="text-muted-foreground">&#x2717;</span>
+                                )}
+                              </td>
+                            )}
+                            {isEnrichmentStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats ? (
+                                  <span className={cn(
+                                    "whitespace-nowrap",
+                                    stats.daysTotal === 0 ? "text-muted-foreground" :
+                                    stats.daysWithNarrative === stats.daysTotal ? "text-green-600 dark:text-green-400" :
+                                    stats.daysWithNarrative > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                  )}>
+                                    {stats.daysWithNarrative}/{stats.daysTotal}
+                                  </span>
+                                ) : "-"}
+                              </td>
+                            )}
+                            {isScheduleStep && (
+                              <td className="py-1 px-1 text-center">
+                                {seg.days?.some(d => (d as any).assemblyStatus === 'assembled') ? (
+                                  <span className="text-green-600 dark:text-green-400">&#x2713;</span>
+                                ) : (
+                                  <span className="text-muted-foreground">&#x2717;</span>
+                                )}
+                              </td>
+                            )}
+                            {isActivitiesStep && (
+                              <td className="py-1 px-1 text-center">
+                                {stats && stats.placesSkipped > 0 ? (
+                                  <span className="whitespace-nowrap text-muted-foreground/70">
+                                    {stats.placesSkipped}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground/40">-</span>
+                                )}
+                              </td>
+                            )}
+                            {!isScheduleStep && !isEnrichmentStep && (
+                              <td className="py-1 pr-2">
+                                <div className="flex items-center gap-0.5">
+                                  {seg.days?.map((day) => {
+                                    const hasEnrichable = (day.totalEnrichable || 0) > 0;
+                                    const isComplete = day.enrichmentStatus === 'complete';
+                                    const isPartial = day.enrichmentStatus === 'partial';
+                                    return (
+                                      <div
+                                        key={`enrich-${day.date}`}
+                                        className={cn(
+                                          "w-4 h-4 rounded-sm text-[9px] flex items-center justify-center font-medium",
+                                          isComplete ? "bg-purple-500 text-white"
+                                            : isPartial ? "border-2 border-purple-500 text-purple-500"
+                                            : hasEnrichable ? "bg-muted text-muted-foreground"
+                                            : "bg-muted/50 text-muted-foreground/50"
+                                        )}
+                                        title={hasEnrichable ? `${day.date}: ${day.enrichedCount || 0}/${day.totalEnrichable} enriched` : `${day.date}: No enrichable activities`}
+                                      >
+                                        {day.dayOfMonth}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            )}
+                            {/* Enrich button — Activities + Enrichment steps */}
+                            {(isActivitiesStep || isEnrichmentStep) && (() => {
+                              // Gray out when all enrichment is complete for this segment
+                              const segFullyEnriched = isEnrichmentStep && stats && (
+                                (stats.detailsTotal === 0 || stats.detailsEnriched === stats.detailsTotal) &&
+                                stats.hasSegmentNarrative &&
+                                stats.hasSegmentLocationDetail &&
+                                (stats.daysTotal === 0 || stats.daysWithNarrative === stats.daysTotal)
+                              );
+                              return (
+                              <td className="py-1 text-right" colSpan={2}>
+                                {onEnrichSegment && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className={cn("h-6 px-2 text-[10px]", segFullyEnriched && "opacity-40")}
+                                    onClick={() => onEnrichSegment(seg.segmentId)}
+                                    disabled={!!enrichingSegmentId || !!timingSegmentId}
+                                    title={segFullyEnriched ? "All enrichment complete for this segment" : "Run enrichment for this segment"}
+                                  >
+                                    {isEnrichingThis ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : segFullyEnriched ? (
+                                      "Done"
+                                    ) : (
+                                      "Enrich"
+                                    )}
+                                  </Button>
+                                )}
+                              </td>
+                              );
+                            })()}
+                            {/* Timing button — Schedule step */}
+                            {isScheduleStep && (
+                              <td className="py-1 pl-1 text-right" colSpan={2}>
+                                {onTimingSegment && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className={cn(
+                                      "h-6 px-2 text-[10px]",
+                                      !timingLocked && "border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
+                                    )}
+                                    onClick={() => onTimingSegment(seg.segmentId)}
+                                    disabled={timingLocked || !!enrichingSegmentId || !!timingSegmentId}
+                                    title={timingLocked ? "Requires: Google enrichment + hotels set" : "Run timing & compute travel times"}
+                                  >
+                                    {isTimingThis ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : timingLocked ? (
+                                      <Lock className="h-3 w-3" />
+                                    ) : (
+                                      <>
+                                        <Timer className="h-3 w-3 mr-0.5" />
+                                        Timing
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -657,45 +1057,63 @@ export function PlanStepCard({
               </div>
             )}
 
-            <div className="flex items-center gap-3">
-              <Button
-                variant="default"
-                size="lg"
-                className="flex-1 h-10 bg-purple-600 hover:bg-purple-700 text-white"
-                onClick={onAssembleSchedule}
-                disabled={isAssembling}
-                data-testid="assemble-schedule-button"
-              >
-                {isAssembling ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Sparkles className="h-5 w-5 mr-2" />}
-                {isAssembling ? "Enriching & Assembling..." : "Enrich Data & Assemble Schedule"}
-              </Button>
-            </div>
+            {/* Deep Enrichment button — Enrichment step only */}
+            {isEnrichmentStep && onDeepEnrich && (
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="default"
+                  size="lg"
+                  className="flex-1 h-10 bg-purple-600 hover:bg-purple-700 text-white"
+                  onClick={onDeepEnrich}
+                  disabled={isDeepEnriching}
+                >
+                  {isDeepEnriching ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Sparkles className="h-5 w-5 mr-2" />}
+                  {isDeepEnriching ? "Running Deep Enrichment..." : "Run Deep Enrichment"}
+                </Button>
+              </div>
+            )}
 
-            {/* Links to results */}
-            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-              <span>Results:</span>
-              <Link
-                href={`/travel/${tripId}/itinerary`}
-                className="text-purple-500 hover:text-purple-600 underline inline-flex items-center gap-1"
-              >
-                Itinerary
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-              <Link
-                href={`/travel/${tripId}/validation`}
-                className="text-purple-500 hover:text-purple-600 underline inline-flex items-center gap-1"
-              >
-                Validation Report
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            </div>
+            {/* Assemble Schedule — Schedule step only */}
+            {isScheduleStep && onAssembleSchedule && (
+              <>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="default"
+                    size="lg"
+                    className="flex-1 h-10 bg-purple-600 hover:bg-purple-700 text-white"
+                    onClick={onAssembleSchedule}
+                    disabled={isAssembling}
+                    data-testid="assemble-schedule-button"
+                  >
+                    {isAssembling ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Sparkles className="h-5 w-5 mr-2" />}
+                    {isAssembling ? "Assembling Schedule..." : "Assemble Schedule"}
+                  </Button>
+                </div>
 
-            {/* Pre-validation Issues */}
-            <PreValidationIssues status={status} />
+                <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+                  <span>Results:</span>
+                  <Link
+                    href={`/travel/${tripId}/itinerary`}
+                    className="text-purple-500 hover:text-purple-600 underline inline-flex items-center gap-1"
+                  >
+                    Itinerary
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                  <Link
+                    href={`/travel/${tripId}/validation`}
+                    className="text-purple-500 hover:text-purple-600 underline inline-flex items-center gap-1"
+                  >
+                    Validation Report
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
 
-            {/* Validation Results (if any) */}
-            {validationResult && validationResult.issues.length > 0 && (
-              <ValidationResultsDisplay validation={validationResult} />
+                <PreValidationIssues status={status} />
+
+                {validationResult && validationResult.issues.length > 0 && (
+                  <ValidationResultsDisplay validation={validationResult} />
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -773,30 +1191,177 @@ export function PlanStepCard({
 
               {/* Accommodations Table (for Accommodations step) */}
               {isAccommodationsStep && status.accommodationDetails && status.accommodationDetails.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium">
-                    {status.accommodationDetails.filter(s => s.hasAccommodation).length} of {status.accommodationDetails.length} segments have accommodations
-                  </p>
+                <div>
                   <table className="text-xs w-full">
                     <thead>
-                      <tr className="text-muted-foreground border-b border-border/50">
-                        <th className="text-left py-1 pr-2 font-medium">#</th>
-                        <th className="text-left py-1 pr-2 font-medium">Segment</th>
-                        <th className="text-left py-1 pr-2 font-medium">Dates</th>
-                        <th className="text-left py-1 pr-2 font-medium">Hotel</th>
-                        <th className="text-center py-1 font-medium">Status</th>
+                      <tr className="text-muted-foreground border-b border-border/50 text-[10px]">
+                        <th className="text-left py-1 pr-1.5 font-medium">#</th>
+                        <th className="text-left py-1 pr-1.5 font-medium">Segment</th>
+                        <th className="text-left py-1 pr-1.5 font-medium">Hotel</th>
+                        <th className="text-center py-1 px-1 font-medium">Photos</th>
+                        <th className="text-left py-1 px-1 font-medium">Booking Ref</th>
+                        <th className={cn("text-right py-1 pl-1 font-medium", allAccEnriched ? "text-green-600" : "text-purple-600")}>
+                          {allAccEnriched ? "All enriched" : "Enrich"}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {status.accommodationDetails.map((seg) => (
-                        <tr key={seg.segmentId} className="border-b border-border/30 last:border-0">
-                          <td className="py-0.5 pr-2 text-muted-foreground">{seg.segmentNumber || "-"}</td>
-                          <td className="py-0.5 pr-2">{seg.segmentName}</td>
-                          <td className="py-0.5 pr-2 text-muted-foreground">
-                            {formatDateCompact(seg.startDate)} - {formatDateCompact(seg.endDate)}
+                        <tr key={seg.segmentId} className={cn(
+                          "border-b border-border/30 last:border-0",
+                          !seg.hasAccommodation && "bg-red-500/5"
+                        )}>
+                          <td className="py-1.5 pr-1.5 text-muted-foreground align-top">{seg.segmentNumber || "-"}</td>
+                          <td className="py-1.5 pr-1.5 align-top whitespace-nowrap">
+                            <div className="font-medium">{seg.segmentName}</div>
+                            <div className="text-[10px] text-muted-foreground">{formatDateCompact(seg.startDate)} – {formatDateCompact(seg.endDate)}</div>
                           </td>
-                          <td className="py-0.5 pr-2">
-                            {seg.hotelName || (
+                          <td className="py-1.5 pr-1.5 align-top">
+                            {seg.hasAccommodation ? (
+                              <div className="space-y-0.5">
+                                {/* Line 1: Name + rating + type badge — single row, truncate */}
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="truncate shrink min-w-0">{seg.hotelName}</span>
+                                  {seg.googleRating != null && (() => {
+                                    const googleUrl = seg.googlePlaceId
+                                      ? `https://www.google.com/maps/place/?q=place_id:${seg.googlePlaceId}`
+                                      : null;
+                                    const ratingContent = (
+                                      <>
+                                        <Star className="h-2.5 w-2.5 text-amber-500 fill-amber-500" />
+                                        {seg.googleRating}
+                                        {seg.googleReviewCount != null && (
+                                          <span className="text-muted-foreground">({seg.googleReviewCount.toLocaleString()})</span>
+                                        )}
+                                      </>
+                                    );
+                                    return googleUrl ? (
+                                      <a
+                                        href={googleUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-0.5 text-[10px] hover:underline shrink-0"
+                                      >
+                                        {ratingContent}
+                                      </a>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-0.5 text-[10px] shrink-0">
+                                        {ratingContent}
+                                      </span>
+                                    );
+                                  })()}
+                                  {seg.propertyType && (() => {
+                                    const isAirbnb = seg.propertyType === "vacation_rental";
+                                    const label = isAirbnb ? "Airbnb" : seg.propertyType;
+                                    const hasLink = seg.website && seg.hasSpecificUrl;
+                                    const badgeClass = cn(
+                                      "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap border cursor-pointer",
+                                      hasLink
+                                        ? "bg-green-500/10 text-green-700 border-green-500/30 dark:text-green-400 hover:bg-green-500/20"
+                                        : "bg-red-500/10 text-red-600 border-red-500/30 dark:text-red-400 hover:bg-red-500/20"
+                                    );
+                                    return hasLink ? (
+                                      <a href={seg.website!} target="_blank" rel="noopener noreferrer" className={badgeClass}>
+                                        {label} <ExternalLink className="h-2 w-2 ml-0.5" />
+                                      </a>
+                                    ) : (
+                                      <button
+                                        className={badgeClass}
+                                        onClick={() => {
+                                          if (seg.accommodationId) {
+                                            setEditingUrlAccId(seg.accommodationId);
+                                            setEditingUrlValue(seg.website || "");
+                                          }
+                                        }}
+                                        title="Click to add listing URL"
+                                      >
+                                        {label} <Plus className="h-2 w-2 ml-0.5" />
+                                      </button>
+                                    );
+                                  })()}
+                                  {/* Amenity icons — inline after badge */}
+                                  {seg.hasAiEnrichment && (() => {
+                                    const icons: { icon: React.ReactNode; tip: string; color: string }[] = [];
+                                    if (seg.hasPool) icons.push({ icon: <Waves className="h-2.5 w-2.5" />, tip: `Pool${seg.poolType ? ` (${seg.poolType})` : ''}${seg.hasKidPool ? ' + kid pool' : ''}`, color: 'text-blue-400' });
+                                    if (seg.breakfastIncluded) icons.push({ icon: <Coffee className="h-2.5 w-2.5" />, tip: `Breakfast${seg.breakfastType && seg.breakfastType !== 'none' ? `: ${seg.breakfastType}` : ' included'}`, color: 'text-amber-400' });
+                                    if (seg.hasRestaurant) icons.push({ icon: <UtensilsCrossed className="h-2.5 w-2.5" />, tip: 'Restaurant on-site', color: 'text-orange-400' });
+                                    if (seg.hasBar) icons.push({ icon: <Wine className="h-2.5 w-2.5" />, tip: 'Bar', color: 'text-purple-400' });
+                                    if (seg.kitchenType && seg.kitchenType !== 'none') icons.push({ icon: <CookingPot className="h-2.5 w-2.5" />, tip: seg.kitchenType === 'full' ? 'Full kitchen' : 'Kitchenette', color: 'text-green-400' });
+                                    if (seg.hasParking) icons.push({
+                                      icon: <Car className="h-2.5 w-2.5" />,
+                                      tip: seg.parkingFree ? 'Free parking' : seg.parkingCost ? `Parking: ${seg.parkingCurrency || '€'}${seg.parkingCost}/day` : 'Paid parking',
+                                      color: seg.parkingFree ? 'text-green-400' : 'text-red-400',
+                                    });
+                                    if (seg.hasWifi) icons.push({ icon: <Wifi className="h-2.5 w-2.5" />, tip: 'WiFi', color: 'text-sky-400' });
+                                    if (seg.hasGym) icons.push({ icon: <Dumbbell className="h-2.5 w-2.5" />, tip: 'Gym', color: 'text-red-400' });
+                                    if (seg.hasSpa) icons.push({ icon: <Sparkles className="h-2.5 w-2.5" />, tip: 'Spa', color: 'text-pink-400' });
+                                    if (seg.hasAC) icons.push({ icon: <Wind className="h-2.5 w-2.5" />, tip: 'Air conditioning', color: 'text-cyan-400' });
+                                    if (seg.hasPetFriendly) icons.push({ icon: <PawPrint className="h-2.5 w-2.5" />, tip: 'Pet friendly', color: 'text-amber-300' });
+                                    return icons.length > 0 ? (
+                                      <span className="inline-flex items-center gap-1 ml-1 shrink-0">
+                                        {icons.map((ic, i) => (
+                                          <span key={i} className={ic.color} title={ic.tip}>{ic.icon}</span>
+                                        ))}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </div>
+                                {/* Inline URL editor */}
+                                {editingUrlAccId === seg.accommodationId && (
+                                  <div className="flex items-center gap-1 mt-0.5">
+                                    <Input
+                                      value={editingUrlValue}
+                                      onChange={(e) => setEditingUrlValue(e.target.value)}
+                                      placeholder={seg.propertyType === "vacation_rental" ? "Paste Airbnb listing URL..." : "Paste hotel URL..."}
+                                      className="h-6 text-[10px] flex-1"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveUrl(seg.accommodationId!);
+                                        if (e.key === "Escape") setEditingUrlAccId(null);
+                                      }}
+                                    />
+                                    <Button
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      disabled={savingUrl || !editingUrlValue.trim()}
+                                      onClick={() => handleSaveUrl(seg.accommodationId!)}
+                                    >
+                                      {savingUrl ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                                    </Button>
+                                    <button
+                                      onClick={() => setEditingUrlAccId(null)}
+                                      className="text-muted-foreground hover:text-foreground"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                )}
+                                {/* Line 2: Address + copy button */}
+                                <div className="flex items-center gap-1 text-[10px]">
+                                  {seg.address ? (
+                                    <>
+                                      <MapPin className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                      <span className="text-muted-foreground">{seg.address}</span>
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(seg.address!);
+                                          toast.success("Address copied");
+                                        }}
+                                        className="text-muted-foreground hover:text-foreground shrink-0 ml-0.5"
+                                        title="Copy address"
+                                      >
+                                        <Copy className="h-2.5 w-2.5" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 text-amber-600">
+                                      <MapPin className="h-2.5 w-2.5" />
+                                      No address
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
                               <button
                                 onClick={() => setAddHotelSegment({
                                   segmentId: seg.segmentId,
@@ -804,19 +1369,133 @@ export function PlanStepCard({
                                   startDate: seg.startDate,
                                   endDate: seg.endDate,
                                 })}
-                                className="inline-flex items-center gap-0.5 text-purple-500 hover:text-purple-600 text-xs font-medium"
+                                className="inline-flex items-center gap-0.5 text-purple-500 hover:text-purple-600 font-medium"
                               >
                                 <Plus className="h-3 w-3" />
                                 Add
                               </button>
                             )}
                           </td>
-                          <td className="py-0.5 text-center">
-                            {seg.hasAccommodation ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mx-auto" />
-                            ) : (
-                              <AlertCircle className="h-3.5 w-3.5 text-red-500 mx-auto" />
+                          <td className="py-1.5 px-1 text-center align-top">
+                            {seg.hasAccommodation && (
+                              seg.photoCount > 0
+                                ? <span className="text-green-600 font-medium text-[10px]">{seg.photoCount}</span>
+                                : <AlertCircle className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />
                             )}
+                          </td>
+                          <td className="py-1.5 px-1 align-top min-w-[100px]">
+                            {seg.hasAccommodation && seg.accommodationId && (
+                              <div className="space-y-0.5">
+                                {/* Booking reference — inline editable */}
+                                {editingConfAccId === seg.accommodationId ? (
+                                  <div className="flex items-center gap-0.5">
+                                    <Input
+                                      value={editingConfValue}
+                                      onChange={(e) => setEditingConfValue(e.target.value)}
+                                      placeholder="e.g. 10216568"
+                                      className="h-5 text-[10px] w-[80px] px-1"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveConf(seg.accommodationId!);
+                                        if (e.key === "Escape") setEditingConfAccId(null);
+                                      }}
+                                      onBlur={() => {
+                                        if (editingConfValue.trim()) {
+                                          handleSaveConf(seg.accommodationId!);
+                                        } else {
+                                          setEditingConfAccId(null);
+                                        }
+                                      }}
+                                    />
+                                    {savingConf && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditingConfAccId(seg.accommodationId!);
+                                      setEditingConfValue(seg.bookingReference || "");
+                                    }}
+                                    className={cn(
+                                      "text-[10px] truncate max-w-[100px] block",
+                                      seg.bookingReference
+                                        ? "text-green-600 dark:text-green-400 hover:underline"
+                                        : seg.confirmationFileUrl
+                                          ? "text-green-600/60 dark:text-green-400/60 hover:underline"
+                                          : "text-muted-foreground/40 hover:text-muted-foreground"
+                                    )}
+                                    title={seg.bookingReference || (seg.confirmationFileUrl ? "Confirmed — click to add ref #" : "Click to add booking reference")}
+                                  >
+                                    {seg.bookingReference
+                                      ? seg.bookingReference
+                                      : seg.confirmationFileUrl
+                                        ? "Confirmed"
+                                        : <span className="text-red-500/70 font-medium">MISSING</span>
+                                    }
+                                  </button>
+                                )}
+                                {/* Confirmation file — upload or view */}
+                                {seg.confirmationFileUrl ? (
+                                  <a
+                                    href={seg.confirmationFileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-0.5 text-[9px] text-blue-500 hover:underline truncate max-w-[100px]"
+                                    title={seg.confirmationFileName}
+                                  >
+                                    <FileText className="h-2.5 w-2.5 shrink-0" />
+                                    <span className="truncate">{seg.confirmationFileName}</span>
+                                  </a>
+                                ) : (
+                                  <label className="flex items-center gap-0.5 text-[9px] text-muted-foreground/40 hover:text-muted-foreground cursor-pointer">
+                                    {uploadingConfFileAccId === seg.accommodationId ? (
+                                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Upload className="h-2.5 w-2.5" />
+                                        <span>Upload</span>
+                                      </>
+                                    )}
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/*,.pdf"
+                                      disabled={uploadingConfFileAccId === seg.accommodationId}
+                                      onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        if (f) handleUploadConfirmation(seg.accommodationId!, f);
+                                        e.target.value = "";
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-1.5 pl-1 text-right align-top">
+                            {seg.hasAccommodation && seg.accommodationId && (() => {
+                              const rowEnriched = seg.hasGoogleEnrichment && seg.hasAiEnrichment;
+                              return (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className={cn(
+                                    "h-5 px-1.5 text-[10px]",
+                                    rowEnriched
+                                      ? "text-muted-foreground/40"
+                                      : "text-purple-600 hover:text-purple-700 hover:bg-purple-500/10"
+                                  )}
+                                  disabled={rowEnriched || enrichingAccId === seg.accommodationId}
+                                  title={rowEnriched ? "Already enriched" : "Enrich (Google + AI)"}
+                                  onClick={() => handleEnrichAccommodation(seg.accommodationId!, seg.propertyType === "vacation_rental" || !!(seg.website && /airbnb\.com/i.test(seg.website)))}
+                                >
+                                  {enrichingAccId === seg.accommodationId ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Wand2 className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -833,43 +1512,132 @@ export function PlanStepCard({
                 </div>
               )}
 
-              {/* Meals Table (for Meals step) */}
-              {isMealsStep && status.mealDetails && status.mealDetails.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium">
-                    {status.mealDetails.filter(m => !m.needsResearch).length} of {status.mealDetails.length} meals researched
-                  </p>
-                  <div className="max-h-48 overflow-y-auto">
+              {/* Meal Research Table (per-segment, for Meals step) */}
+              {isMealsStep && status.segmentDetails && status.segmentDetails.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium">
+                      {status.mealDetails ? `${status.mealDetails.filter(m => !m.needsResearch).length} of ${status.mealDetails.length} meals researched` : 'Meal research status'}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      {onOpenMealPRD && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                          onClick={onOpenMealPRD}
+                          title="View meal research specification"
+                        >
+                          <FileText className="h-3 w-3 mr-1" />
+                          PRD
+                        </Button>
+                      )}
+                      {onOpenMealPreferences && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                          onClick={onOpenMealPreferences}
+                          title="Meal research preferences"
+                        >
+                          <Settings className="h-3 w-3 mr-1" />
+                          Preferences
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
                     <table className="text-xs w-full">
-                      <thead className="sticky top-0 bg-card">
+                      <thead>
                         <tr className="text-muted-foreground border-b border-border/50">
-                          <th className="text-left py-1 pr-2 font-medium">Date</th>
-                          <th className="text-left py-1 pr-2 font-medium">Meal</th>
-                          <th className="text-center py-1 font-medium">Status</th>
+                          <th className="text-left py-1 pr-2 font-medium">#</th>
+                          <th className="text-left py-1 pr-2 font-medium">Segment</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Days in segment">Days</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Restaurants found via Perplexity + Claude web research">Restaurants</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Google Places verified (rating, coords, hours)">Google</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Restaurant photos from Google Places">Photos</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Restaurants with specific dish recommendations">Dishes</th>
+                          <th className="text-center py-1 px-1 font-medium" title="Restaurants needing reservation">Rsvp</th>
+                          <th className="text-right py-1 font-medium"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {status.mealDetails.map((meal) => (
-                          <tr key={meal.activityId} className="border-b border-border/30 last:border-0">
-                            <td className="py-0.5 pr-2 text-muted-foreground whitespace-nowrap">
-                              {meal.date ? formatDateCompact(meal.date) : "-"}
-                            </td>
-                            <td className="py-0.5 pr-2 max-w-[200px] truncate" title={meal.name}>
-                              {meal.name}
-                            </td>
-                            <td className="py-0.5 text-center">
-                              {meal.needsResearch ? (
-                                <span title="Needs research">
-                                  <AlertCircle className="h-3.5 w-3.5 text-amber-500 mx-auto" />
+                        {status.segmentDetails.map((seg) => {
+                          const stats = seg.enrichmentStats;
+                          const days = seg.days?.length || 0;
+                          const expectedMeals = days * 3;
+                          const researched = stats?.mealsWithRestaurant || 0;
+                          const placesGrounded = stats?.genericMealsTotal || 0; // repurposed: web_research meals with google_place_id
+                          const photosCount = stats?.mealPhotosActual || 0;
+                          const dishesCount = stats?.reviewsAnalyzed || 0;
+                          const restaurantTotal = stats?.reviewsTotal || 0;
+                          const reservations = stats?.mealsNeedReservation || 0;
+                          const isResearchingThis = researchingSegmentId === seg.segmentId;
+
+                          const colorFor = (val: number, total: number) =>
+                            total === 0 ? "text-muted-foreground" :
+                            val >= total ? "text-green-600 dark:text-green-400" :
+                            val > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground";
+
+                          return (
+                            <tr key={seg.segmentId} className="border-b border-border/30 last:border-0">
+                              <td className="py-1 pr-2 text-muted-foreground">{seg.segmentNumber || "-"}</td>
+                              <td className="py-1 pr-2 font-medium">{seg.segmentName}</td>
+                              <td className="py-1 px-1 text-center text-muted-foreground">{days}</td>
+                              <td className="py-1 px-1 text-center">
+                                <span className={cn("whitespace-nowrap", colorFor(researched, expectedMeals))}>
+                                  {researched}/{expectedMeals}
                                 </span>
-                              ) : (
-                                <span title="Researched">
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mx-auto" />
+                              </td>
+                              <td className="py-1 px-1 text-center">
+                                <span className={cn("whitespace-nowrap", colorFor(placesGrounded, expectedMeals))}>
+                                  {placesGrounded}/{expectedMeals}
                                 </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="py-1 px-1 text-center">
+                                <span className={cn("whitespace-nowrap", colorFor(photosCount, researched * 10))}>
+                                  {photosCount}/{researched * 10}
+                                </span>
+                              </td>
+                              <td className="py-1 px-1 text-center">
+                                <span className={cn("whitespace-nowrap", colorFor(dishesCount, restaurantTotal))}>
+                                  {dishesCount}/{restaurantTotal}
+                                </span>
+                              </td>
+                              <td className="py-1 px-1 text-center">
+                                <span className={cn("whitespace-nowrap", reservations > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                                  {reservations > 0 ? reservations : '-'}
+                                </span>
+                              </td>
+                              <td className="py-1 text-right">
+                                {onMealResearch && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950"
+                                    onClick={() => {
+                                      if (!seg.hasHotel) {
+                                        if (!window.confirm(`${seg.segmentName} has no lodging set. Meal research works best with lodging location for proximity. Proceed anyway?`)) return;
+                                      }
+                                      onMealResearch(seg.segmentId);
+                                    }}
+                                    disabled={!!researchingSegmentId}
+                                    title="Research authentic local restaurants using AI web search"
+                                  >
+                                    {isResearchingThis ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Search className="h-3 w-3 mr-0.5" />
+                                        Research
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -994,16 +1762,48 @@ export function PlanStepCard({
                           )}
                         </div>
 
-                        {flight.layovers && flight.layovers.length > 0 && (
+                        {/* Per-segment breakdown for connecting flights */}
+                        {flight.flightSegments && flight.flightSegments.length > 1 ? (
+                          <div className="text-[9px] text-muted-foreground mt-0.5 space-y-0.5">
+                            {flight.flightSegments.map((seg, i) => (
+                              <div key={i} className="flex items-center gap-1">
+                                <span className="font-mono">{seg.flight_number || ""}</span>
+                                <span>{seg.departure_airport}→{seg.arrival_airport}</span>
+                                {seg.duration_minutes != null && (
+                                  <span className="text-foreground font-medium">
+                                    {Math.floor(seg.duration_minutes / 60)}h{seg.duration_minutes % 60 > 0 ? ` ${seg.duration_minutes % 60}m` : ""}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {flight.layovers && flight.layovers.length > 0 && (
+                              <div className="text-muted-foreground/70">
+                                Layover: {flight.layovers.map(l => `${l.airport} ${l.duration}`).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        ) : flight.layovers && flight.layovers.length > 0 ? (
                           <div className="text-[9px] text-muted-foreground mt-0.5">
                             Via: {flight.layovers.map(l => `${l.airport} (${l.duration})`).join(", ")}
                           </div>
-                        )}
-                        {flight.bookingReference && (
-                          <div className="text-[9px] text-muted-foreground">
-                            Ref: {flight.bookingReference}
-                          </div>
-                        )}
+                        ) : null}
+                        {/* Booking ref + confirmation */}
+                        <div className="flex items-center gap-1 text-[9px] text-muted-foreground mt-0.5 flex-wrap">
+                          {flight.bookingReference && (
+                            <span>Ref: {flight.bookingReference}</span>
+                          )}
+                          {flight.confirmationFileUrl && (
+                            <a
+                              href={flight.confirmationFileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline inline-flex items-center gap-0.5"
+                            >
+                              <FileText className="h-2.5 w-2.5" />
+                              PDF
+                            </a>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1088,37 +1888,7 @@ export function PlanStepCard({
                 </>
               )}
 
-              {/* Accommodations - Hotel research import */}
-              {isAccommodationsStep && canImport && (
-                <>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p className="font-medium text-foreground">Research hotels:</p>
-                    <ol className="list-decimal list-inside space-y-0.5 text-[11px]">
-                      <li>Go to <span className="font-medium text-foreground">Claude Project</span></li>
-                      <li>Open <span className="font-medium text-foreground">Hotel Research</span></li>
-                      <li>Find hotels &amp; export JSON</li>
-                    </ol>
-                  </div>
-                  <input type="file" id={`import-file-${step.id}`} className="hidden" accept=".json" onChange={handleFileSelect} />
-                  <div
-                    className={cn(
-                      "border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors",
-                      isDragging ? "border-purple-500 bg-purple-500/10" : "border-purple-500/30 hover:border-purple-500/50 hover:bg-purple-500/5"
-                    )}
-                    onClick={() => document.getElementById(`import-file-${step.id}`)?.click()}
-                    onDragEnter={handleDragEnter}
-                    onDragLeave={handleDragLeave}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                    data-testid={`import-${step.id}-dropzone`}
-                  >
-                    <Sparkles className="h-4 w-4 mx-auto mb-1 text-purple-500" />
-                    <p className="text-[11px] text-purple-600 dark:text-purple-400">
-                      {isDragging ? "Drop hotel JSON" : "Drop or click to import"}
-                    </p>
-                  </div>
-                </>
-              )}
+              {/* Accommodations import is in the CardHeader */}
 
               {/* Segments - Segment research import */}
               {isSegmentsStep && canImport && (

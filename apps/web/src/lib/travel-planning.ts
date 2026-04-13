@@ -11,7 +11,7 @@ import type {
   PlanningStepProgress,
 } from "@singularity/shared-types";
 
-export type PlanningStepId = "basics" | "accommodations" | "segments" | "meals" | "days_activities";
+export type PlanningStepId = "basics" | "segments" | "accommodations" | "activities" | "meals" | "enrichment" | "schedule";
 
 export interface PlanningStepConfig {
   id: PlanningStepId;
@@ -28,27 +28,39 @@ export const PLANNING_STEPS: PlanningStepConfig[] = [
     tabHref: "/details",
   },
   {
-    id: "accommodations",
-    title: "Accommodations",
-    description: "Add hotels or lodging for each segment",
-    tabHref: "/lodging",
-  },
-  {
     id: "segments",
     title: "Segments",
     description: "Organize your trip into regional groupings covering all dates",
     tabHref: "/overview",
   },
   {
-    id: "meals",
-    title: "Meals",
-    description: "Research and plan restaurants for each meal",
+    id: "accommodations",
+    title: "Accommodations",
+    description: "Add hotels or lodging for each segment",
+    tabHref: "/lodging",
+  },
+  {
+    id: "activities",
+    title: "Activities",
+    description: "Review imported activities and verify coverage before meal research",
     tabHref: "/itinerary",
   },
   {
-    id: "days_activities",
-    title: "Days & Activities",
-    description: "Plan your detailed daily itinerary",
+    id: "meals",
+    title: "Meal Research",
+    description: "Research authentic local restaurants using AI-powered web search",
+    tabHref: "/itinerary",
+  },
+  {
+    id: "enrichment",
+    title: "Enrichment",
+    description: "Fill gaps in activity details, reviews, and generate trip narratives",
+    tabHref: "/itinerary",
+  },
+  {
+    id: "schedule",
+    title: "Schedule & Timing",
+    description: "Compute travel times, assemble daily schedule, and validate",
     tabHref: "/itinerary",
   },
 ];
@@ -66,14 +78,26 @@ export interface TripFullData extends Trip {
 export interface SegmentEnrichmentStats {
   placesEnriched: number;
   placesTotal: number;
+  placesSkipped: number;
+  placesWithPhotos: number;
   photosActual: number;
   photosExpected: number;
+  mealPhotosActual: number;
+  mealsNeedReservation: number;
   mealsResearched: number;
   mealsTotal: number;
   genericMealsTotal: number;
   mealsWithRestaurant: number;
   reviewsAnalyzed: number;
   reviewsTotal: number;
+  detailsEnriched: number;
+  detailsTotal: number;
+  // Deep enrichment status
+  hasSegmentNarrative: boolean;
+  hasSegmentLocationDetail: boolean;
+  daysWithNarrative: number;
+  daysTotal: number;
+  hasSegmentGoogleData: boolean;
   isFullyEnriched: boolean;
 }
 
@@ -87,7 +111,22 @@ export interface FlightInfo {
   departureDatetime?: string;
   arrivalDatetime?: string;
   bookingReference?: string;
+  agencyReference?: string;
+  cost?: number;
+  currency?: string;
+  pointsUsed?: number;
   layovers?: Array<{ airport: string; duration: string }>;
+  flightSegments?: Array<{
+    flight_number?: string;
+    departure_airport: string;
+    arrival_airport: string;
+    departure_datetime?: string;
+    arrival_datetime?: string;
+    duration_minutes?: number;
+  }>;
+  seatAssignments?: Array<{ name: string; seat: string }>;
+  confirmationFileUrl?: string;
+  confirmationFileName?: string;
 }
 
 export interface StepCompletionStatus {
@@ -176,6 +215,17 @@ export function computeStepAutoSuggestion(
         dateGaps: result.dateGaps,
       };
     }
+    case "activities": {
+      const result = computeActivitiesCompletion(trip);
+      const segmentsResult = computeSegmentsCompletion(trip);
+      return {
+        shouldSuggest: result.shouldSuggest,
+        summary: result.summary,
+        missingItems: result.missingItems,
+        warnings: [],
+        segmentDetails: segmentsResult.segmentDetails,
+      };
+    }
     case "meals": {
       const result = computeMealsCompletion(trip);
       const segmentsResult = computeSegmentsCompletion(trip);
@@ -188,11 +238,20 @@ export function computeStepAutoSuggestion(
         mealDetails: result.mealDetails,
       };
     }
-    case "days_activities": {
-      const result = computeDaysActivitiesCompletion(trip);
-      // Also get segment details with enrichment data
+    case "enrichment": {
+      const result = computeEnrichmentCompletion(trip);
       const segmentsResult = computeSegmentsCompletion(trip);
-      // Also get accommodation details for pre-validation checks
+      return {
+        shouldSuggest: result.shouldSuggest,
+        summary: result.summary,
+        missingItems: result.missingItems,
+        warnings: [],
+        segmentDetails: segmentsResult.segmentDetails,
+      };
+    }
+    case "schedule": {
+      const result = computeDaysActivitiesCompletion(trip);
+      const segmentsResult = computeSegmentsCompletion(trip);
       const accommodationsResult = computeAccommodationsCompletion(trip);
       return {
         ...result,
@@ -253,18 +312,37 @@ function computeBasicsCompletion(trip: TripFullData): {
     const flights = trip.flights || [];
     if (flights.length > 0) {
       summary.push(`✓ ${flights.length} flight${flights.length !== 1 ? "s" : ""} booked`);
-      flightDetails = flights.map(f => ({
-        id: f.id,
-        direction: f.direction,
-        airline: f.airline,
-        flightNumber: f.flight_number,
-        departureAirport: f.departure_airport,
-        arrivalAirport: f.arrival_airport,
-        departureDatetime: f.departure_datetime,
-        arrivalDatetime: f.arrival_datetime,
-        bookingReference: f.booking_reference,
-        layovers: f.layovers,
-      }));
+      // Build confirmation file map from media
+      const flightConfirmations = new Map<string, { url: string; name: string }>();
+      for (const m of (trip.media || [])) {
+        if (m.parent_type === "flight" && m.media_type === "document" && m.parent_id) {
+          flightConfirmations.set(m.parent_id, { url: m.file_url, name: m.original_filename || "Confirmation" });
+        }
+      }
+
+      flightDetails = flights.map(f => {
+        const conf = flightConfirmations.get(f.id);
+        return {
+          id: f.id,
+          direction: f.direction,
+          airline: f.airline,
+          flightNumber: f.flight_number,
+          departureAirport: f.departure_airport,
+          arrivalAirport: f.arrival_airport,
+          departureDatetime: f.departure_datetime,
+          arrivalDatetime: f.arrival_datetime,
+          bookingReference: f.booking_reference,
+          agencyReference: f.agency_reference,
+          cost: f.cost,
+          currency: f.currency,
+          pointsUsed: f.points_used,
+          layovers: f.layovers,
+          flightSegments: f.flight_segments,
+          seatAssignments: f.seat_assignments,
+          confirmationFileUrl: conf?.url,
+          confirmationFileName: conf?.name,
+        };
+      });
 
       // Store flight info for segment validation later
       const outboundFlight = flights.find(f => f.direction === "outbound");
@@ -429,6 +507,44 @@ export interface SegmentAccommodationInfo {
   endDate: string;
   hotelName?: string;
   hasAccommodation: boolean;
+  isComplete: boolean;  // false for vacation_rentals without a listing URL
+  accommodationId?: string;
+  missingFields?: string[];
+  // Rich detail fields for plan page display
+  propertyType?: string;
+  address?: string;
+  website?: string;
+  hasSpecificUrl: boolean;
+  googleRating?: number;
+  googleReviewCount?: number;
+  googlePlaceId?: string;
+  bookingReference?: string;  // only set if real (not "Airbnb booking" etc.)
+  photoCount: number;
+  hasGoogleEnrichment: boolean;
+  hasAiEnrichment: boolean;
+  // Confirmation document
+  confirmationFileUrl?: string;
+  confirmationFileName?: string;
+  // Amenity data from AI enrichment
+  hasPool?: boolean;
+  poolType?: string;
+  hasKidPool?: boolean;
+  hasRestaurant?: boolean;
+  hasBar?: boolean;
+  kitchenType?: string;
+  hasWifi?: boolean;
+  hasAC?: boolean;
+  hasGym?: boolean;
+  hasSpa?: boolean;
+  hasParking?: boolean;
+  parkingFree?: boolean;
+  parkingCost?: number;
+  parkingCurrency?: string;
+  breakfastIncluded?: boolean;
+  breakfastType?: string;
+  hasPetFriendly?: boolean;
+  hasLaundry?: boolean;
+  neighborhood?: string;
 }
 
 function computeAccommodationsCompletion(trip: TripFullData): {
@@ -442,17 +558,169 @@ function computeAccommodationsCompletion(trip: TripFullData): {
 
   const accommodations = trip.accommodations || [];
   const segments = trip.segments || [];
+  const media = trip.media || [];
 
   if (segments.length === 0) {
-    missingItems.push("Create segments first (Step 3)");
+    missingItems.push("Create segments first (Step 2)");
     return { shouldSuggest: false, summary, missingItems };
   }
 
-  // Build a map of segment_id -> accommodation info
-  const accommodationsBySegment = new Map<string, { name: string }>();
+  // Build photos-per-accommodation map + confirmation file map
+  const photosByAccommodation = new Map<string, number>();
+  const confirmationByAccommodation = new Map<string, { url: string; name: string }>();
+  for (const m of media) {
+    if (m.parent_type === "accommodation" && m.parent_id) {
+      if ((m.media_type as string) === "document") {
+        confirmationByAccommodation.set(m.parent_id, {
+          url: m.file_url,
+          name: m.original_filename || "Confirmation",
+        });
+      } else {
+        photosByAccommodation.set(
+          m.parent_id,
+          (photosByAccommodation.get(m.parent_id) || 0) + 1
+        );
+      }
+    }
+  }
+
+  // Helper: detect if a URL is a specific property listing vs just a generic domain
+  function isSpecificUrl(url: string): boolean {
+    try {
+      const u = new URL(url);
+      const path = u.pathname.replace(/\/+$/, "");
+      if (path.length <= 1) return false; // just "/"
+      const host = u.hostname.replace("www.", "");
+      // Booking platforms need a real listing path
+      if (host.startsWith("airbnb") && !path.match(/\/rooms\/\d+/)) return false;
+      if (host === "vrbo.com" && !path.match(/\/\d+/)) return false;
+      if (host === "booking.com" && !path.match(/\/hotel\//)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Helper: detect if booking reference is generic/placeholder
+  function isRealBookingRef(ref: string | undefined): boolean {
+    if (!ref) return false;
+    const lower = ref.toLowerCase().trim();
+    // Generic placeholders like "Airbnb booking", "booking", "TBD", "N/A"
+    if (/^(airbnb|booking|vrbo|tbd|n\/?a|pending|none)\b/i.test(lower)) return false;
+    if (lower.length < 4) return false;
+    return true;
+  }
+
+  // Build a map of segment_id -> full accommodation detail
+  interface AccDetail {
+    id: string;
+    name: string;
+    missingFields: string[];
+    propertyType?: string;
+    address?: string;
+    website?: string;
+    hasSpecificUrl: boolean;
+    googleRating?: number;
+    googleReviewCount?: number;
+    googlePlaceId?: string;
+    bookingReference?: string;
+    photoCount: number;
+    hasGoogleEnrichment: boolean;
+    hasAiEnrichment: boolean;
+    confirmationFileUrl?: string;
+    confirmationFileName?: string;
+    // Amenity data
+    hasPool?: boolean;
+    poolType?: string;
+    hasKidPool?: boolean;
+    hasRestaurant?: boolean;
+    hasBar?: boolean;
+    kitchenType?: string;
+    hasWifi?: boolean;
+    hasAC?: boolean;
+    hasGym?: boolean;
+    hasSpa?: boolean;
+    hasParking?: boolean;
+    parkingFree?: boolean;
+    parkingCost?: number;
+    parkingCurrency?: string;
+    breakfastIncluded?: boolean;
+    breakfastType?: string;
+    hasPetFriendly?: boolean;
+    hasLaundry?: boolean;
+    neighborhood?: string;
+  }
+  const accommodationsBySegment = new Map<string, AccDetail>();
   for (const acc of accommodations) {
     if (acc.segment_id) {
-      accommodationsBySegment.set(acc.segment_id, { name: acc.name || "Hotel" });
+      const missing: string[] = [];
+      if (!acc.address) missing.push("Address");
+      const urlSpecific = acc.website ? isSpecificUrl(acc.website) : false;
+      if (!acc.website) {
+        missing.push("Listing URL");
+      } else if (!urlSpecific) {
+        missing.push("Specific listing URL (only has generic domain)");
+      }
+      if (!acc.enriched_at) missing.push("Not enriched");
+      const hasConfirmationFile = confirmationByAccommodation.has(acc.id);
+      if (!isRealBookingRef(acc.booking_reference) && !hasConfirmationFile) missing.push("Confirmation #");
+      const accPhotos = photosByAccommodation.get(acc.id) || 0;
+      if (accPhotos === 0) missing.push("Photos");
+
+      // For vacation_rentals (Airbnb), Google Places finds a random nearby
+      // property — not the actual listing — so ALL Google-sourced data is
+      // unreliable: rating, address, place_id, and any AI enrichment based
+      // on that Google data. Only trust data if we have the actual listing URL.
+      const isVacationRental = acc.property_type === "vacation_rental";
+      const airbnbWithoutListing = isVacationRental && !urlSpecific;
+
+      // Determine enrichment types present
+      // For Airbnbs without a listing URL, Google/AI enrichment is bogus
+      const hasGoogle = airbnbWithoutListing ? false : !!(acc.google_place_id || acc.google_rating);
+      const hasAi = airbnbWithoutListing ? false : !!(acc.parking || acc.breakfast || acc.amenities_structured || acc.neighborhood);
+
+      // Extract amenity data (only if AI enrichment is trustworthy)
+      const am = hasAi ? acc.amenities_structured : undefined;
+      const pk = hasAi ? acc.parking : undefined;
+      const bf = hasAi ? acc.breakfast : undefined;
+
+      accommodationsBySegment.set(acc.segment_id, {
+        id: acc.id,
+        name: acc.name || "Hotel",
+        missingFields: missing,
+        propertyType: acc.property_type,
+        address: airbnbWithoutListing ? undefined : acc.address,
+        website: acc.website,
+        hasSpecificUrl: urlSpecific,
+        googleRating: isVacationRental ? undefined : (acc.google_rating ?? undefined),
+        googleReviewCount: isVacationRental ? undefined : (acc.google_review_count ?? undefined),
+        googlePlaceId: isVacationRental ? undefined : (acc.google_place_id ?? undefined),
+        bookingReference: isRealBookingRef(acc.booking_reference) ? acc.booking_reference : undefined,
+        photoCount: accPhotos,
+        hasGoogleEnrichment: hasGoogle,
+        hasAiEnrichment: hasAi,
+        confirmationFileUrl: confirmationByAccommodation.get(acc.id)?.url,
+        confirmationFileName: confirmationByAccommodation.get(acc.id)?.name,
+        hasPool: am?.pool?.exists ?? undefined,
+        poolType: am?.pool?.type ?? undefined,
+        hasKidPool: am?.pool?.kid_pool ?? undefined,
+        hasRestaurant: am?.restaurant_on_site ?? undefined,
+        hasBar: am?.bar ?? undefined,
+        kitchenType: am?.kitchen?.type ?? undefined,
+        hasWifi: am?.wifi ?? undefined,
+        hasAC: am?.air_conditioning ?? undefined,
+        hasGym: am?.gym ?? undefined,
+        hasSpa: am?.spa ?? undefined,
+        hasParking: pk?.available ?? undefined,
+        parkingFree: pk?.free ?? undefined,
+        parkingCost: pk?.cost_per_day ?? undefined,
+        parkingCurrency: pk?.currency ?? undefined,
+        breakfastIncluded: bf?.included ?? undefined,
+        breakfastType: bf?.type ?? undefined,
+        hasPetFriendly: am?.pet_friendly ?? undefined,
+        hasLaundry: am?.laundry ?? undefined,
+        neighborhood: hasAi ? (acc as any).neighborhood : undefined,
+      });
     }
   }
 
@@ -478,23 +746,73 @@ function computeAccommodationsCompletion(trip: TripFullData): {
       endDate: seg.end_date,
       hotelName: acc?.name,
       hasAccommodation: !!acc,
+      // Vacation rentals without a specific listing URL don't count as complete
+      isComplete: acc ? !(acc.propertyType === "vacation_rental" && !acc.hasSpecificUrl) : false,
+      accommodationId: acc?.id,
+      missingFields: acc?.missingFields,
+      propertyType: acc?.propertyType,
+      address: acc?.address,
+      website: acc?.website,
+      hasSpecificUrl: acc?.hasSpecificUrl ?? false,
+      googleRating: acc?.googleRating,
+      googleReviewCount: acc?.googleReviewCount,
+      googlePlaceId: acc?.googlePlaceId,
+      bookingReference: acc?.bookingReference,
+      photoCount: acc?.photoCount ?? 0,
+      hasGoogleEnrichment: acc?.hasGoogleEnrichment ?? false,
+      hasAiEnrichment: acc?.hasAiEnrichment ?? false,
+      confirmationFileUrl: acc?.confirmationFileUrl,
+      confirmationFileName: acc?.confirmationFileName,
+      hasPool: acc?.hasPool,
+      poolType: acc?.poolType,
+      hasKidPool: acc?.hasKidPool,
+      hasRestaurant: acc?.hasRestaurant,
+      hasBar: acc?.hasBar,
+      kitchenType: acc?.kitchenType,
+      hasWifi: acc?.hasWifi,
+      hasAC: acc?.hasAC,
+      hasGym: acc?.hasGym,
+      hasSpa: acc?.hasSpa,
+      hasParking: acc?.hasParking,
+      parkingFree: acc?.parkingFree,
+      parkingCost: acc?.parkingCost,
+      parkingCurrency: acc?.parkingCurrency,
+      breakfastIncluded: acc?.breakfastIncluded,
+      breakfastType: acc?.breakfastType,
+      hasPetFriendly: acc?.hasPetFriendly,
+      hasLaundry: acc?.hasLaundry,
+      neighborhood: acc?.neighborhood,
     };
   });
 
   const totalNeeded = segmentsNeedingAccommodation.length;
-  const totalCovered = segmentDetails.filter(s => s.hasAccommodation).length;
+  // Use isComplete for counting — vacation_rentals without listing URL don't count
+  const totalCovered = segmentDetails.filter(s => s.isComplete).length;
 
   summary.push(`${totalCovered} of ${totalNeeded} segments have accommodations`);
 
-  // List segments missing accommodations
-  const missingSegments = segmentDetails.filter(s => !s.hasAccommodation);
+  // List segments missing accommodations (no record at all or incomplete vacation_rental)
+  const missingSegments = segmentDetails.filter(s => !s.isComplete);
 
   if (missingSegments.length > 0) {
     missingItems.push(`${missingSegments.length} segments need accommodations`);
   }
 
-  // Auto-suggest if all segments that need accommodation have one
-  const shouldSuggest = totalNeeded > 0 && totalCovered === totalNeeded;
+  // Check for accommodations with missing critical fields
+  const incompleteAccommodations = segmentDetails.filter(
+    s => s.isComplete && s.missingFields && s.missingFields.length > 0
+  );
+  if (incompleteAccommodations.length > 0) {
+    missingItems.push(
+      `${incompleteAccommodations.length} accommodation${incompleteAccommodations.length > 1 ? "s" : ""} missing data (${incompleteAccommodations.map(a => a.segmentName).join(", ")})`
+    );
+  }
+
+  // Auto-suggest only if all segments are complete AND all are fully enriched
+  const allFullyEnriched = segmentDetails.every(
+    s => s.isComplete && (!s.missingFields || s.missingFields.length === 0)
+  );
+  const shouldSuggest = totalNeeded > 0 && totalCovered === totalNeeded && allFullyEnriched;
 
   return { shouldSuggest, summary, missingItems, segmentDetails };
 }
@@ -584,8 +902,10 @@ function computeSegmentsCompletion(trip: TripFullData): {
   }
 
   // Build a map of date -> activities for enrichment calculation
+  // Exclude backup/alternate activities so they don't inflate day-level enrichment status
   const activitiesByDate = new Map<string, TripActivity[]>();
   for (const activity of activities) {
+    if (activity.is_backup) continue;
     let dateStr: string | undefined;
     if (activity.date) {
       dateStr = activity.date.split('T')[0];
@@ -618,10 +938,13 @@ function computeSegmentsCompletion(trip: TripFullData): {
 
   // Activities that don't need a location/enrichment (based on name patterns)
   const noLocationNeededPatterns = [
-    /wake\s*up/i, /sleep/i, /bed/i, /pack/i, /rest/i, /pool\s*time/i,
+    /wake\s*up/i, /sleep/i, /bed/i, /pack/i, /rest\b/i, /pool\s*(time|and|day)/i,
     /check\s*-?\s*(in|out)/i, /checkout/i, /checkin/i,
     /luggage/i, /nap/i, /relax/i, /free\s*time/i,
-    /kids?\s*to\s*bed/i, /early\s*night/i
+    /kids?\s*to\s*bed/i, /early\s*night/i,
+    /siesta/i, /settle\s+in/i, /wind\s+down/i,
+    /\bfinal\b.*\bmoments?\b/i, /\bflexible\s+(afternoon|morning|evening|day|time)\b/i,
+    /^pick\s+up\s+(rental\s+)?car\b/i,
   ];
 
   // Transit name patterns — activities that are travel TO a destination, not the destination
@@ -683,6 +1006,16 @@ function computeSegmentsCompletion(trip: TripFullData): {
     }
   }
 
+  // Pre-compute which google_place_ids have photos (across ANY activity, including backups)
+  // This handles cases where multiple activities share a place and photos are linked to just one
+  const placeHasPhotos = new Set<string>();
+  for (const activity of activities) {
+    const placeId = activity.google_place_id;
+    if (placeId && (mediaCountByActivity.get(activity.id) || 0) > 0) {
+      placeHasPhotos.add(placeId);
+    }
+  }
+
   // Build a map of segment_id -> activities for enrichment stats (exclude backups)
   const activitiesBySegment = new Map<string, TripActivity[]>();
   for (const activity of activities) {
@@ -736,12 +1069,14 @@ function computeSegmentsCompletion(trip: TripFullData): {
 
           for (const activity of activitiesNeedingEnrichment) {
             // An activity is considered enriched if it has google_place_id AND
-            // at least one of: google_rating, opening_hours, or photos_fetched
+            // at least one of: google_rating, opening_hours, or actual photos stored
             // Note: Supabase returns null (not undefined) for missing values
+            const activityPhotos = mediaCountByActivity.get(activity.id) || 0;
+            const placePhotosExist = activity.google_place_id ? placeHasPhotos.has(activity.google_place_id) : false;
             const hasGoogleData = activity.google_place_id && (
               (activity.google_rating !== undefined && activity.google_rating !== null) ||
               (activity.opening_hours !== undefined && activity.opening_hours !== null) ||
-              activity.photos_fetched === true
+              (activity.photos_fetched === true && (activityPhotos > 0 || placePhotosExist))
             );
             if (hasGoogleData) {
               enrichedCount++;
@@ -749,7 +1084,9 @@ function computeSegmentsCompletion(trip: TripFullData): {
               // Track why this activity isn't enriched - this is a research gap
               let reason = 'needs research';
               if (activity.google_place_id) {
-                reason = 'missing Google data';
+                reason = activity.photos_fetched && activityPhotos === 0 && !placePhotosExist
+                  ? 'enriched but missing photos'
+                  : 'missing Google data';
               }
               unenrichedActivities.push({
                 name: activity.name || 'Unnamed',
@@ -801,30 +1138,52 @@ function computeSegmentsCompletion(trip: TripFullData): {
     const segActivities = activitiesBySegment.get(seg.id) || [];
     let placesEnriched = 0;
     let placesTotal = 0;
+    let placesSkipped = 0;
+    let placesWithPhotos = 0;
     let photosActual = 0;
+    let mealPhotosActual = 0;
+    let mealsNeedReservation = 0;
     let mealsResearched = 0;
     let mealsTotal = 0;
     let genericMealsTotal = 0;
     let mealsWithRestaurant = 0;
     let reviewsAnalyzed = 0;
     let reviewsTotal = 0;
+    let detailsEnriched = 0;
+    let detailsTotal = 0;
 
     for (const a of segActivities) {
       const aType = a.activity_type || '';
       const aName = a.name || '';
-      if (!activityNeedsEnrichment(aName, aType)) continue;
+      if (!activityNeedsEnrichment(aName, aType)) {
+        // Count skipped activities that have an enrichable type but are excluded by name/pattern
+        if (enrichableTypes.has(aType)) placesSkipped++;
+        continue;
+      }
+
+      // Details: activities with Google data that should have deep_dive content
+      if (enrichableTypes.has(aType) && a.google_place_id) {
+        detailsTotal++;
+        const dd = (a as any).deep_dive;
+        if (dd && typeof dd === 'object' && Object.keys(dd).length > 2) {
+          detailsEnriched++;
+        }
+      }
 
       // Places: enrichable activities with Google data
       if (enrichableTypes.has(aType)) {
         placesTotal++;
+        const activityPhotos = mediaCountByActivity.get(a.id) || 0;
+        // Check if this place has photos under ANY activity (handles shared google_place_ids)
+        const placePhotosExist = a.google_place_id ? placeHasPhotos.has(a.google_place_id) : false;
         const hasGoogleData = a.google_place_id && (
           (a.google_rating !== undefined && a.google_rating !== null) ||
           (a.opening_hours !== undefined && a.opening_hours !== null) ||
-          a.photos_fetched === true
+          (a.photos_fetched === true && (activityPhotos > 0 || placePhotosExist))
         );
         if (hasGoogleData) placesEnriched++;
-        // Photos count from media
-        photosActual += mediaCountByActivity.get(a.id) || 0;
+        if (activityPhotos > 0 || placePhotosExist) placesWithPhotos++;
+        photosActual += activityPhotos;
       }
 
       // Meals: non-generic meal names
@@ -833,40 +1192,64 @@ function computeSegmentsCompletion(trip: TripFullData): {
         if (!isGenericMealName(aName)) mealsResearched++;
       }
 
-      // Generic meal replacement tracking: count meals that are (or were) generic
-      // A meal is "generic" if it still has a generic name, or if it was replaced (has restaurant_suggestion_source)
-      if (mealTypes.has(aType) || aType === 'restaurant') {
-        const isGeneric = isGenericMealName(aName);
-        const wasReplaced = !!(a as any).restaurant_suggestion_source;
-        if (isGeneric || wasReplaced) {
-          genericMealsTotal++;
-          if (wasReplaced) mealsWithRestaurant++;
-        }
-      }
-
-      // Reviews: restaurants/dining with signature_dishes from review analysis
+      // Meal research stats: ONLY count web_research sourced restaurants
+      // All columns (Restaurants, Places, Photos, Dishes) use the same base set
       if (['dining', 'restaurant', 'cafe'].includes(aType)) {
-        reviewsTotal++;
-        const rd = a.restaurant_details as { signature_dishes?: unknown[] } | undefined;
-        if (rd?.signature_dishes && rd.signature_dishes.length > 0) {
-          reviewsAnalyzed++;
+        const isWebResearched = (a as any).restaurant_suggestion_source === 'web_research';
+        if (isWebResearched) {
+          // Count as researched restaurant
+          mealsWithRestaurant++;
+          // Count if grounded with Google Places
+          if (a.google_place_id) genericMealsTotal++; // reusing as "placesGrounded" for meals
+          // Count meal-specific photos
+          mealPhotosActual += mediaCountByActivity.get(a.id) || 0;
+          // Count reservations needed
+          const rdRes = a.restaurant_details as { reservation_tips?: string } | undefined;
+          if (rdRes?.reservation_tips && /reserv(ation|e)\s*(required|recommended|needed|ahead)/i.test(rdRes.reservation_tips)) {
+            mealsNeedReservation++;
+          }
+          // Count if has dish recommendations
+          reviewsTotal++;
+          const rd = a.restaurant_details as { signature_dishes?: unknown[] } | undefined;
+          if (rd?.signature_dishes && rd.signature_dishes.length > 0) {
+            reviewsAnalyzed++;
+          }
         }
       }
     }
 
-    const photosExpected = placesTotal * 10; // Google Places API hard limit: 10 photo refs per place
+    // Photos: count how many enriched places have at least 1 photo
+    // (total photo count is photosActual, shown as a simple number)
+    const photosExpected = placesEnriched; // denominator = enriched places that SHOULD have photos
     const placesOk = placesTotal === 0 || placesEnriched === placesTotal;
-    const photosOk = photosExpected === 0 || photosActual >= photosExpected;
+    const photosOk = placesEnriched === 0 || placesWithPhotos >= placesEnriched;
     const mealsOk = mealsTotal === 0 || mealsResearched === mealsTotal;
     const reviewsOk = reviewsTotal === 0 || reviewsAnalyzed === reviewsTotal;
 
+    const detailsOk = detailsTotal === 0 || detailsEnriched >= detailsTotal * 0.8; // 80% threshold
+
+    // Deep enrichment: segment narrative + day narratives
+    const hasSegmentNarrative = !!(seg as any).segment_narrative;
+    const hasSegmentLocationDetail = !!(seg.city_info && (seg.city_info as any).deep_history);
+    const hasSegmentGoogleData = !!(seg.google_place_id || seg.google_rating);
+    const segDaysList = days.filter(d => d.segment_id === seg.id);
+    const segDaysTotal = segDaysList.length;
+    const segDaysWithNarrative = segDaysList.filter(d => !!(d as any).day_narrative).length;
+
     const enrichmentStats: SegmentEnrichmentStats = {
-      placesEnriched, placesTotal,
+      placesEnriched, placesTotal, placesSkipped, placesWithPhotos,
       photosActual, photosExpected,
+      mealPhotosActual, mealsNeedReservation,
       mealsResearched, mealsTotal,
       genericMealsTotal, mealsWithRestaurant,
       reviewsAnalyzed, reviewsTotal,
-      isFullyEnriched: placesOk && photosOk && mealsOk && reviewsOk,
+      detailsEnriched, detailsTotal,
+      hasSegmentNarrative,
+      hasSegmentLocationDetail,
+      daysWithNarrative: segDaysWithNarrative,
+      daysTotal: segDaysTotal,
+      hasSegmentGoogleData,
+      isFullyEnriched: placesOk && photosOk && mealsOk && reviewsOk && detailsOk,
     };
 
     return {
@@ -1084,6 +1467,113 @@ function computeMealsCompletion(trip: TripFullData): {
   return { shouldSuggest, summary, missingItems, mealDetails };
 }
 
+function computeActivitiesCompletion(trip: TripFullData): {
+  shouldSuggest: boolean;
+  summary: string[];
+  missingItems: string[];
+} {
+  const summary: string[] = [];
+  const missingItems: string[] = [];
+  const segments = trip.segments || [];
+  const activities = trip.activities || [];
+
+  if (segments.length === 0) {
+    missingItems.push("Create segments first (Step 2)");
+    return { shouldSuggest: false, summary, missingItems };
+  }
+
+  // Count activities per segment
+  const activitiesBySegment = new Map<string, number>();
+  const withPlaceIdBySegment = new Map<string, number>();
+  for (const a of activities) {
+    if (a.is_backup) continue;
+    const segId = (a as any).segment_id;
+    if (!segId) continue;
+    activitiesBySegment.set(segId, (activitiesBySegment.get(segId) || 0) + 1);
+    if (a.google_place_id) {
+      withPlaceIdBySegment.set(segId, (withPlaceIdBySegment.get(segId) || 0) + 1);
+    }
+  }
+
+  let allHaveActivities = true;
+  for (const seg of segments) {
+    const count = activitiesBySegment.get(seg.id) || 0;
+    const withPlace = withPlaceIdBySegment.get(seg.id) || 0;
+    if (count === 0) {
+      allHaveActivities = false;
+      missingItems.push(`${seg.name}: No activities imported`);
+    }
+  }
+
+  const totalActivities = activities.filter(a => !a.is_backup).length;
+  const totalWithPlace = activities.filter(a => !a.is_backup && a.google_place_id).length;
+
+  if (totalActivities > 0) {
+    summary.push(`${totalActivities} activities across ${segments.length} segments`);
+    summary.push(`${totalWithPlace} with Google Place IDs`);
+  }
+
+  return { shouldSuggest: allHaveActivities && totalActivities > 0, summary, missingItems };
+}
+
+function computeEnrichmentCompletion(trip: TripFullData): {
+  shouldSuggest: boolean;
+  summary: string[];
+  missingItems: string[];
+} {
+  const summary: string[] = [];
+  const missingItems: string[] = [];
+  const activities = trip.activities || [];
+  const segments = trip.segments || [];
+  const days = trip.days || [];
+
+  // Activity deep_dive coverage
+  const skipTypes = new Set(['transport', 'logistics', 'downtime']);
+  const enrichable = activities.filter(a =>
+    !skipTypes.has(a.activity_type || '') && a.google_place_id && !a.is_backup
+  );
+  const withDeepDive = enrichable.filter(a => {
+    const dd = (a as any).deep_dive;
+    return dd && typeof dd === 'object' && Object.keys(dd).length > 2;
+  });
+  const detailsPct = enrichable.length > 0 ? Math.round(100 * withDeepDive.length / enrichable.length) : 100;
+  summary.push(`Activity details: ${withDeepDive.length}/${enrichable.length} (${detailsPct}%)`);
+  if (detailsPct < 80) missingItems.push(`${enrichable.length - withDeepDive.length} activities need deep content`);
+
+  // Restaurant review coverage
+  const restaurants = activities.filter(a =>
+    a.activity_type === 'restaurant' || ['breakfast', 'lunch', 'dinner', 'snack', 'coffee'].includes((a as any).activity_sub_type || '')
+  );
+  const withDishes = restaurants.filter(a => {
+    const rd = a.restaurant_details as any;
+    return rd?.signature_dishes?.length > 0;
+  });
+  if (restaurants.length > 0) {
+    summary.push(`Restaurant reviews: ${withDishes.length}/${restaurants.length}`);
+    if (withDishes.length < restaurants.length) {
+      missingItems.push(`${restaurants.length - withDishes.length} restaurants need review analysis`);
+    }
+  }
+
+  // Trip overview
+  const hasOverview = !!(trip as any).deep_overview;
+  summary.push(`Trip overview: ${hasOverview ? '✓' : 'Not generated'}`);
+  if (!hasOverview) missingItems.push('Trip deep overview not generated');
+
+  // Segment narratives
+  const segWithNarrative = segments.filter(s => !!(s as any).segment_narrative).length;
+  summary.push(`Segment narratives: ${segWithNarrative}/${segments.length}`);
+  if (segWithNarrative < segments.length) missingItems.push(`${segments.length - segWithNarrative} segments need narrative`);
+
+  // Day narratives
+  const daysWithNarrative = days.filter(d => !!(d as any).day_narrative).length;
+  summary.push(`Day narratives: ${daysWithNarrative}/${days.length}`);
+  if (daysWithNarrative < days.length) missingItems.push(`${days.length - daysWithNarrative} days need narrative`);
+
+  const shouldSuggest = detailsPct >= 80 && hasOverview && segWithNarrative >= segments.length && daysWithNarrative >= days.length * 0.8;
+  return { shouldSuggest, summary, missingItems };
+}
+
 function computeDaysActivitiesCompletion(trip: TripFullData): {
   shouldSuggest: boolean;
   summary: string[];
@@ -1208,11 +1698,30 @@ export function getCurrentStepIndex(
 export function getDefaultPlanningProgress(): TripPlanningProgress {
   return {
     basics: { auto_suggested: false, completed: false },
-    accommodations: { auto_suggested: false, completed: false },
     segments: { auto_suggested: false, completed: false },
+    accommodations: { auto_suggested: false, completed: false },
+    activities: { auto_suggested: false, completed: false },
     meals: { auto_suggested: false, completed: false },
-    days_activities: { auto_suggested: false, completed: false },
+    enrichment: { auto_suggested: false, completed: false },
+    schedule: { auto_suggested: false, completed: false },
   };
+}
+
+/** Migrate old 5-key planning progress to new 7-key format */
+export function migratePlanningProgress(stored: Record<string, any>): TripPlanningProgress {
+  const defaults = getDefaultPlanningProgress();
+  const result = { ...defaults };
+  // Copy over any existing step progress
+  for (const key of Object.keys(defaults) as PlanningStepId[]) {
+    if (stored[key]) {
+      result[key] = stored[key];
+    }
+  }
+  // Map old days_activities → schedule if schedule not set
+  if (stored.days_activities?.completed && !stored.schedule?.completed) {
+    result.schedule = stored.days_activities;
+  }
+  return result;
 }
 
 // Helper functions

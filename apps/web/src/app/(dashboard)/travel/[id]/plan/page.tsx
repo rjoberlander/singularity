@@ -10,12 +10,16 @@ import {
   getStepCompletionStatus,
   getCurrentStepIndex,
   getDefaultPlanningProgress,
+  migratePlanningProgress,
   type PlanningStepId,
   type StepCompletionStatus,
   type TripFullData,
 } from "@/lib/travel-planning";
 import { PlanStepper } from "@/components/travel/PlanStepper";
 import { PlanStepCard } from "@/components/travel/PlanStepCard";
+import { MealPreferencesDialog } from "@/components/travel/MealPreferencesDialog";
+import { MealResearchPRDDialog } from "@/components/travel/MealResearchPRDDialog";
+import { TripPlanningPRDDialog } from "@/components/travel/TripPlanningPRDDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Wand2, Loader2, AlertTriangle } from "lucide-react";
+import { Wand2, Loader2, AlertTriangle, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO, addDays, differenceInDays } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -71,6 +75,11 @@ export default function TripPlanPage() {
   // Per-segment enrichment state
   const [enrichingSegmentId, setEnrichingSegmentId] = useState<string | null>(null);
   const [timingSegmentId, setTimingSegmentId] = useState<string | null>(null);
+  const [researchingSegmentId, setResearchingSegmentId] = useState<string | null>(null);
+  const [showMealPreferences, setShowMealPreferences] = useState(false);
+  const [showMealPRD, setShowMealPRD] = useState(false);
+  const [showPlanningPRD, setShowPlanningPRD] = useState(false);
+  const [isDeepEnriching, setIsDeepEnriching] = useState(false);
 
   // Import dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -104,14 +113,18 @@ export default function TripPlanPage() {
     }
 
     const tripData = trip as TripFullData;
-    const storedProgress = trip.planning_progress || getDefaultPlanningProgress();
+    const storedProgress = trip.planning_progress
+      ? migratePlanningProgress(trip.planning_progress as Record<string, any>)
+      : getDefaultPlanningProgress();
 
     const statuses: Record<PlanningStepId, StepCompletionStatus> = {
       basics: getStepCompletionStatus("basics", tripData, storedProgress),
-      accommodations: getStepCompletionStatus("accommodations", tripData, storedProgress),
       segments: getStepCompletionStatus("segments", tripData, storedProgress),
+      accommodations: getStepCompletionStatus("accommodations", tripData, storedProgress),
+      activities: getStepCompletionStatus("activities", tripData, storedProgress),
       meals: getStepCompletionStatus("meals", tripData, storedProgress),
-      days_activities: getStepCompletionStatus("days_activities", tripData, storedProgress),
+      enrichment: getStepCompletionStatus("enrichment", tripData, storedProgress),
+      schedule: getStepCompletionStatus("schedule", tripData, storedProgress),
     };
 
     return statuses;
@@ -291,6 +304,99 @@ export default function TripPlanPage() {
       setTimingSegmentId(null);
     }
   }, [tripId, queryClient]);
+
+  const handleDeepEnrich = useCallback(async () => {
+    setIsDeepEnriching(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/trips/${tripId}/deep-enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to run deep enrichment");
+      }
+
+      const result = await response.json();
+      const data = result.data;
+
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
+
+      toast.success(
+        `Deep enrichment complete: ` +
+        `${data.activities_enriched} activities, ` +
+        `${data.segments_enriched}/${data.segments_total} segments, ` +
+        `${data.days_enriched}/${data.days_total} days` +
+        (data.trip_overview ? ', trip overview' : '')
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to run deep enrichment");
+    } finally {
+      setIsDeepEnriching(false);
+    }
+  }, [tripId, queryClient]);
+
+  const handleMealResearch = useCallback(async (segmentId: string) => {
+    setResearchingSegmentId(segmentId);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${API_URL}/travel/trips/${tripId}/segments/${segmentId}/meal-research`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to research meals");
+      }
+
+      const result = await response.json();
+      const data = result.data;
+
+      queryClient.invalidateQueries({ queryKey: ["travel", "trips", tripId, "full"] });
+
+      toast.success(
+        `Meal research complete: ${data.mealsResearched} meals researched` +
+        (data.placesGrounded > 0 ? `, ${data.placesGrounded} grounded` : '') +
+        (data.alternatesCreated > 0 ? `, ${data.alternatesCreated} alternates` : '') +
+        (data.photosAdded > 0 ? `, ${data.photosAdded} photos` : '')
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to research meals");
+    } finally {
+      setResearchingSegmentId(null);
+    }
+  }, [tripId, queryClient]);
+
+  const handleSaveMealPreferences = useCallback(async (preferences: any) => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const response = await fetch(`${API_URL}/travel/settings/meal-preferences`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      },
+      body: JSON.stringify({ meal_preferences: preferences }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to save preferences");
+    }
+  }, []);
 
   // Import research handler - called from PlanStepCard drag-drop or button
   const handleImportResearch = useCallback(async (type: "segment" | "hotel", file?: File) => {
@@ -832,7 +938,18 @@ export default function TripPlanPage() {
     <div className="py-4">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold">Trip Planning Guide</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold">Trip Planning Guide</h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setShowPlanningPRD(true)}
+          >
+            <BookOpen className="h-3.5 w-3.5 mr-1" />
+            View Guide
+          </Button>
+        </div>
         <p className="text-muted-foreground text-sm">
           Follow these steps to plan your trip. You can jump between steps at any time.
         </p>
@@ -886,18 +1003,24 @@ export default function TripPlanPage() {
                 transportation_type: trip.transportation_type,
                 traveler_count: trip.traveler_count,
               } : undefined}
-              onAssembleSchedule={step.id === "days_activities" ? () => setShowAssembleDialog(true) : undefined}
-              isAssembling={step.id === "days_activities" ? isAssembling : undefined}
-              onEnrichSegment={step.id === "days_activities" ? handleEnrichSegment : undefined}
-              enrichingSegmentId={step.id === "days_activities" ? enrichingSegmentId : undefined}
-              onTimingSegment={step.id === "days_activities" ? handleTimingSegment : undefined}
-              timingSegmentId={step.id === "days_activities" ? timingSegmentId : undefined}
+              onAssembleSchedule={step.id === "schedule" ? () => setShowAssembleDialog(true) : undefined}
+              isAssembling={step.id === "schedule" ? isAssembling : undefined}
+              onEnrichSegment={(step.id === "activities" || step.id === "enrichment") ? handleEnrichSegment : undefined}
+              enrichingSegmentId={(step.id === "activities" || step.id === "enrichment") ? enrichingSegmentId : undefined}
+              onTimingSegment={step.id === "schedule" ? handleTimingSegment : undefined}
+              timingSegmentId={step.id === "schedule" ? timingSegmentId : undefined}
+              onMealResearch={step.id === "meals" ? handleMealResearch : undefined}
+              researchingSegmentId={step.id === "meals" ? researchingSegmentId : undefined}
+              onOpenMealPreferences={step.id === "meals" ? () => setShowMealPreferences(true) : undefined}
+              onOpenMealPRD={step.id === "meals" ? () => setShowMealPRD(true) : undefined}
               onImportResearch={(step.id === "segments" || step.id === "accommodations") ? handleImportResearch : undefined}
               onImportSkeleton={step.id === "basics" ? handleImportSkeleton : undefined}
               onImportFlightImage={step.id === "basics" ? handleImportFlightImage : undefined}
               isExtractingFlight={step.id === "basics" ? isExtractingFlight : undefined}
               hasSegments={step.id === "basics" ? hasSegments : undefined}
-              validationResult={step.id === "days_activities" ? lastValidation : undefined}
+              validationResult={step.id === "schedule" ? lastValidation : undefined}
+              onDeepEnrich={step.id === "enrichment" ? handleDeepEnrich : undefined}
+              isDeepEnriching={step.id === "enrichment" ? isDeepEnriching : undefined}
             />
           ))}
         </div>
@@ -1174,6 +1297,24 @@ export default function TripPlanPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Meal Preferences Dialog */}
+      <MealPreferencesDialog
+        open={showMealPreferences}
+        onOpenChange={setShowMealPreferences}
+        initialPreferences={null}
+        onSave={handleSaveMealPreferences}
+      />
+
+      {/* Meal Research PRD Dialog */}
+      <MealResearchPRDDialog
+        open={showMealPRD}
+        onOpenChange={setShowMealPRD}
+      />
+      <TripPlanningPRDDialog
+        open={showPlanningPRD}
+        onOpenChange={setShowPlanningPRD}
+      />
     </div>
   );
 }
