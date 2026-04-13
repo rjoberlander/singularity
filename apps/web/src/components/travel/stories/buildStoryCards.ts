@@ -57,6 +57,27 @@ function normalizeKidEngagement(ke: unknown): KidEngagement | undefined {
   return items.length > 0 ? { general: items } : undefined;
 }
 
+/** Build per-child breakdown from kid_engagement { parker: { scripts, activities }, ... } */
+function buildKidBreakdown(ke: unknown): Array<{ name: string; script: string; activities?: string[] }> | undefined {
+  if (!ke || typeof ke !== "object") return undefined;
+  const obj = ke as Record<string, unknown>;
+  // Only works with child-name format (not age-based)
+  if (obj.age_7 || obj.age_5 || obj.age_3 || obj.general) return undefined;
+
+  const kids: Array<{ name: string; script: string; activities?: string[] }> = [];
+  for (const [name, data] of Object.entries(obj)) {
+    if (!data || typeof data !== "object") continue;
+    const d = data as { scripts?: string[]; activities?: string[] };
+    if (!d.scripts?.length) continue;
+    kids.push({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      script: d.scripts[0],
+      activities: d.activities,
+    });
+  }
+  return kids.length > 0 ? kids : undefined;
+}
+
 // ─── Photo helpers ─────────────────────────────────────────────────
 
 /** Filter media to usable images (exclude documents + rejected google photos) */
@@ -581,6 +602,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             googleRating: activity.google_rating,
             funFact,
             kidEngagement: normalizeKidEngagement(activity.kid_engagement),
+            kidBreakdown: buildKidBreakdown(activity.kid_engagement),
             photoUrl,
             photoUrls: actPhotos,
           });

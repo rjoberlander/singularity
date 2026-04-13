@@ -104,23 +104,19 @@ function TimelineBar({
         <span>NOON</span>
         <span>10 PM</span>
       </div>
-      {/* Date + time range */}
-      <div className="flex items-center justify-center gap-1 text-[10px] text-white/50 mt-0.5">
+      {/* Date + time range — larger, more readable */}
+      <div className="flex items-center justify-center gap-1.5 text-xs text-white/70 mt-1">
         {dayDate && (
           <>
-            <Calendar className="h-2.5 w-2.5" />
-            <span>{formatDayDate(dayDate)}</span>
-            <span className="text-white/25">|</span>
+            <Calendar className="h-3 w-3" />
+            <span className="font-medium">{formatDayDate(dayDate)}</span>
+            <span className="text-white/30">|</span>
           </>
         )}
-        <Clock className="h-2.5 w-2.5" />
-        <span>{formatTime(startTime)}</span>
+        <Clock className="h-3 w-3" />
+        <span className="font-medium">{formatTime(startTime)}</span>
         {durationMinutes && (
-          <>
-            <span>-</span>
-            <span>{formatTime(addMinutes(startTime, durationMinutes))}</span>
-            <span className="text-white/30">({formatDuration(durationMinutes)})</span>
-          </>
+          <span className="text-white/50 font-medium">({formatDuration(durationMinutes)})</span>
         )}
       </div>
     </div>
@@ -215,62 +211,52 @@ function splitText(text: unknown, maxLen = 200): string[] {
   return chunks.filter(c => c.length > 0);
 }
 
-/* ── Build activity sections (spread across slides) ─────────────── */
+/* ── Build activity sections (1 topic per slide, max variety) ────── */
+
+/** Truncate text to ~2 sentences for a slide-friendly length */
+function truncate(text: unknown, maxLen = 250): string {
+  if (typeof text !== "string" || !text) return "";
+  if (text.length <= maxLen) return text;
+  // Cut at last sentence boundary before maxLen
+  const trimmed = text.slice(0, maxLen);
+  const lastDot = Math.max(trimmed.lastIndexOf(". "), trimmed.lastIndexOf("! "), trimmed.lastIndexOf("? "));
+  return lastDot > maxLen * 0.4 ? trimmed.slice(0, lastDot + 1) : trimmed + "...";
+}
 
 function buildActivitySections(card: ActivityStoryCard): ReactNode[] {
   const sections: ReactNode[] = [];
 
-  // 1. Why Visit (whyItsGreat takes priority, description as separate if both exist)
-  if (card.whyItsGreat) {
-    for (const [i, chunk] of splitText(card.whyItsGreat).entries()) {
-      sections.push(
-        <div key={`why-${i}`}>
-          {i === 0 && <SectionLabel icon={<Star className="h-3 w-3" />} label="Why Visit" />}
-          <p className="text-sm text-white/85 leading-relaxed">{chunk}</p>
-        </div>
-      );
-    }
+  // 1. Why Visit
+  if (card.whyItsGreat || card.description) {
+    sections.push(
+      <div key="why">
+        <SectionLabel icon={<Star className="h-3 w-3" />} label="Why Visit" />
+        <p className="text-sm text-white/85 leading-relaxed">{truncate(card.whyItsGreat || card.description)}</p>
+      </div>
+    );
   }
 
-  // 2. Description (shown as "Overview" if whyItsGreat also exists, or as "Why Visit" if alone)
-  if (card.description && card.description !== card.whyItsGreat) {
-    const label = card.whyItsGreat ? "Overview" : "Why Visit";
-    const icon = card.whyItsGreat ? <Compass className="h-3 w-3" /> : <Star className="h-3 w-3" />;
-    for (const [i, chunk] of splitText(card.description).entries()) {
-      sections.push(
-        <div key={`desc-${i}`}>
-          {i === 0 && <SectionLabel icon={icon} label={label} />}
-          <p className="text-sm text-white/85 leading-relaxed">{chunk}</p>
-        </div>
-      );
-    }
-  }
-
-  // 3. About This Place (deep_dive.what_it_is or deep_dive_content fallback)
+  // 2. About This Place
   if (card.deepDiveSnippet) {
-    for (const [i, chunk] of splitText(card.deepDiveSnippet).entries()) {
-      sections.push(
-        <div key={`deep-${i}`}>
-          {i === 0 && <SectionLabel icon={<BookOpen className="h-3 w-3" />} label="About This Place" />}
-          <p className="text-sm text-white/85 leading-relaxed">{chunk}</p>
-        </div>
-      );
-    }
+    sections.push(
+      <div key="about">
+        <SectionLabel icon={<BookOpen className="h-3 w-3" />} label="About This Place" />
+        <p className="text-sm text-white/85 leading-relaxed">{truncate(card.deepDiveSnippet)}</p>
+      </div>
+    );
   }
 
-  // 4. The Story (deep_dive.the_story — history/culture)
+  // 3. The Story
   if (card.deepDiveStory) {
-    for (const [i, chunk] of splitText(card.deepDiveStory).entries()) {
-      sections.push(
-        <div key={`story-${i}`}>
-          {i === 0 && <SectionLabel icon={<Compass className="h-3 w-3" />} label="The Story" />}
-          <p className="text-sm text-white/85 leading-relaxed">{chunk}</p>
-        </div>
-      );
-    }
+    sections.push(
+      <div key="story">
+        <SectionLabel icon={<Compass className="h-3 w-3" />} label="The Story" />
+        <p className="text-sm text-white/85 leading-relaxed">{truncate(card.deepDiveStory)}</p>
+      </div>
+    );
   }
 
-  // 5. What You'll See
+  // 4. What You'll See
   if (card.whatYoullSee && card.whatYoullSee.length > 0) {
     sections.push(
       <div key="see">
@@ -279,9 +265,7 @@ function buildActivitySections(card: ActivityStoryCard): ReactNode[] {
           {card.whatYoullSee.slice(0, 5).map((item, i) => (
             <div key={i} className="text-sm">
               <span className="font-medium text-white/90">{item.name}</span>
-              {item.description && (
-                <span className="text-white/60 ml-1.5">— {item.description}</span>
-              )}
+              {item.description && <span className="text-white/60 ml-1.5">— {item.description}</span>}
             </div>
           ))}
         </div>
@@ -289,7 +273,7 @@ function buildActivitySections(card: ActivityStoryCard): ReactNode[] {
     );
   }
 
-  // 6. Fun Fact
+  // 5. Fun Fact
   if (card.funFact) {
     sections.push(
       <div key="fact">
@@ -306,7 +290,7 @@ function buildActivitySections(card: ActivityStoryCard): ReactNode[] {
     );
   }
 
-  // 7. Photo Spots
+  // 6. Photo Spots
   if (card.photoSpots && card.photoSpots.length > 0) {
     sections.push(
       <div key="photos">
@@ -323,65 +307,49 @@ function buildActivitySections(card: ActivityStoryCard): ReactNode[] {
     );
   }
 
-  // 8. Practical Tips (best times, getting there, combo tickets)
+  // 7. Practical Tips
   if (card.practicalTips) {
-    for (const [i, chunk] of splitText(card.practicalTips).entries()) {
-      sections.push(
-        <div key={`tips-${i}`}>
-          {i === 0 && <SectionLabel icon={<Navigation className="h-3 w-3" />} label="Practical Tips" />}
-          <p className="text-sm text-white/85 leading-relaxed">{chunk}</p>
-        </div>
-      );
-    }
+    sections.push(
+      <div key="tips">
+        <SectionLabel icon={<Navigation className="h-3 w-3" />} label="Practical Tips" />
+        <p className="text-sm text-white/85 leading-relaxed">{truncate(card.practicalTips)}</p>
+      </div>
+    );
   }
 
-  // 9. Quick stats (rating + duration) — only if not already obvious from timeline
-  if (card.googleRating) {
+  // 8. Per-child kid breakdown (Parker, Charlotte, Xander)
+  if (card.kidBreakdown && card.kidBreakdown.length > 0) {
     sections.push(
-      <div key="stats">
-        <SectionLabel icon={<MapPin className="h-3 w-3" />} label="Quick Info" />
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="flex items-center gap-1 text-amber-300 text-sm">
-            <Star className="h-3.5 w-3.5 fill-amber-300" />
-            {card.googleRating.toFixed(1)}
-          </span>
-          {card.durationMinutes && (
-            <span className="flex items-center gap-1 text-white/70 text-sm">
-              <Clock className="h-3.5 w-3.5" />
-              ~{formatDuration(card.durationMinutes)}
-            </span>
-          )}
+      <div key="kid-breakdown">
+        <SectionLabel icon={<Baby className="h-3 w-3 text-pink-300" />} label="For the Kids" />
+        <div className="space-y-3">
+          {card.kidBreakdown.map((kid, i) => (
+            <div key={i} className="flex gap-2.5">
+              <div className="w-6 h-6 rounded-full bg-pink-500/80 flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5">
+                {kid.name.charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-white/90">{kid.name}</p>
+                <p className="text-xs text-white/70 leading-snug">{truncate(kid.script, 120)}</p>
+                {kid.activities && kid.activities.length > 0 && (
+                  <p className="text-[10px] text-white/50 mt-0.5">{kid.activities.join(" · ")}</p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
-  // 10. Kid engagement
-  if (card.kidEngagement) {
-    const entries = [
-      { label: "Age 7+", items: card.kidEngagement.age_7 },
-      { label: "Age 5+", items: card.kidEngagement.age_5 },
-      { label: "Age 3+", items: card.kidEngagement.age_3 },
-      { label: "Kids",   items: card.kidEngagement.general },
-    ].filter(e => e.items && e.items.length > 0);
-    if (entries.length > 0) {
-      sections.push(
-        <div key="kids">
-          <SectionLabel icon={<Baby className="h-3 w-3 text-pink-300" />} label="For the Kids" />
-          <div className="space-y-1.5">
-            {entries.map((e, i) => (
-              <div key={i} className="flex items-start gap-2 text-white/80">
-                <Baby className="h-4 w-4 mt-0.5 shrink-0 text-pink-300" />
-                <div>
-                  <span className="text-xs text-white/50 font-semibold">{e.label}: </span>
-                  <span className="text-xs">{e.items![0]}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
+  // 9. Description as extra slide (only if whyItsGreat exists AND description is different)
+  if (card.description && card.whyItsGreat && card.description !== card.whyItsGreat) {
+    sections.push(
+      <div key="desc">
+        <SectionLabel icon={<Compass className="h-3 w-3" />} label="Good to Know" />
+        <p className="text-sm text-white/85 leading-relaxed">{truncate(card.description)}</p>
+      </div>
+    );
   }
 
   return sections;
@@ -539,6 +507,15 @@ export function ActivityCard({ card, isActive }: Props): React.ReactElement {
                 {isRestaurant && <span className="mr-1.5">🍽</span>}
                 {card.name}
               </h3>
+              {card.googleRating && (
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="flex items-center gap-0.5 text-amber-300 text-xs">
+                    <Star className="h-3 w-3 fill-amber-300" />
+                    {card.googleRating.toFixed(1)}
+                  </span>
+                  <span className="text-white/40 text-xs">{card.segmentName}</span>
+                </div>
+              )}
             </div>
 
             {/* Spacer pushes content to bottom */}

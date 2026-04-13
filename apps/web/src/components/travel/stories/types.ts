@@ -143,6 +143,7 @@ export interface ActivityStoryCard extends StoryCardBase {
     age_3?: string[];
     general?: string[];
   };
+  kidBreakdown?: Array<{ name: string; script: string; activities?: string[] }>;
 }
 
 export interface RestaurantStoryCard extends StoryCardBase {
