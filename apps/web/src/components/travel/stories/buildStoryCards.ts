@@ -202,15 +202,34 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
   }
 
   // ─── Helper: collect thumbnail photos across a segment's activities ──
+  // Spreads across ALL activities (1 per activity first, then extras)
+  // so the mosaic represents the whole segment, not just the first few stops.
   function getSegmentActivityThumbnails(segmentId: string, max = 32): string[] {
-    const urls: string[] = [];
     const segDays = daysBySegment[segmentId] || [];
+    // Collect all activity photo sets
+    const photoSets: string[][] = [];
     for (const day of segDays) {
       for (const act of activitiesByDay[day.id] || []) {
         const photos = filterPhotos(mediaByActivity[act.id]);
-        for (let p = 0; p < Math.min(photos.length, 3); p++) {
-          urls.push(photos[p].thumbnail_url || photos[p].file_url);
-          if (urls.length >= max) return urls;
+        if (photos.length > 0) {
+          photoSets.push(photos.map(p => p.thumbnail_url || p.file_url));
+        }
+      }
+    }
+    // Pass 1: pick 1 photo from each activity (spread across segment)
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    for (const set of photoSets) {
+      if (urls.length >= max) break;
+      const url = set[0];
+      if (url && !seen.has(url)) { urls.push(url); seen.add(url); }
+    }
+    // Pass 2+: fill remaining slots with additional photos from each activity
+    for (let pass = 1; pass < 4 && urls.length < max; pass++) {
+      for (const set of photoSets) {
+        if (urls.length >= max) break;
+        if (set[pass] && !seen.has(set[pass])) {
+          urls.push(set[pass]); seen.add(set[pass]);
         }
       }
     }
