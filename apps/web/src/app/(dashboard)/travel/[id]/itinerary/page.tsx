@@ -17,12 +17,19 @@ import {
 import { ActivityDetailPanel } from "@/components/travel/ActivityDetailPanel";
 import { SegmentDetailPanel } from "@/components/travel/SegmentDetailPanel";
 import { CalendarWeekView } from "@/components/travel/CalendarWeekView";
+import { buildGoogleCalendarUrl, downloadIcsFile } from "@/lib/google-calendar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -46,6 +53,8 @@ import {
   Wand2,
   Loader2,
   Sparkles,
+  Download,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -162,6 +171,61 @@ export default function TripItineraryPage() {
       toast.success("Days generated from trip dates");
     } catch (error) {
       toast.error("Failed to generate days");
+    }
+  };
+
+  // Detect destination timezone for calendar exports (best effort from destination)
+  const tripTimezone = useMemo(() => {
+    const dest = trip?.destination?.toLowerCase() || "";
+    if (dest.includes("portugal") || dest.includes("lisbon")) return "Europe/Lisbon";
+    if (dest.includes("spain") || dest.includes("madrid")) return "Europe/Madrid";
+    if (dest.includes("france") || dest.includes("paris")) return "Europe/Paris";
+    if (dest.includes("italy") || dest.includes("rome")) return "Europe/Rome";
+    if (dest.includes("uk") || dest.includes("london")) return "Europe/London";
+    if (dest.includes("japan") || dest.includes("tokyo")) return "Asia/Tokyo";
+    // Fall back to browser timezone
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }, [trip?.destination]);
+
+  const handleExportIcs = () => {
+    if (calendarEvents.length === 0) {
+      toast.error("No scheduled events to export");
+      return;
+    }
+    const icsEvents = calendarEvents.map((e) => ({
+      title: e.title,
+      date: e.date,
+      startTime: e.time_start,
+      endTime: e.time_end,
+      location: e.location_name,
+      description: e.description,
+      timezone: tripTimezone,
+    }));
+    const filename = `${(trip?.name || "trip").replace(/[^a-zA-Z0-9]/g, "_")}_itinerary.ics`;
+    downloadIcsFile(icsEvents, filename, trip?.name);
+    toast.success(`Exported ${icsEvents.length} events to ${filename}`);
+  };
+
+  const handleExportGoogleCalendar = () => {
+    if (calendarEvents.length === 0) {
+      toast.error("No scheduled events to export");
+      return;
+    }
+    // Open Google Calendar with each event - for bulk, we use ICS.
+    // For a quick single-page approach, open the first few events.
+    const icsEvents = calendarEvents.slice(0, 1).map((e) => ({
+      title: e.title,
+      date: e.date,
+      startTime: e.time_start,
+      endTime: e.time_end,
+      location: e.location_name,
+      description: e.description,
+      timezone: tripTimezone,
+    }));
+    const url = buildGoogleCalendarUrl(icsEvents[0]);
+    window.open(url, "_blank");
+    if (calendarEvents.length > 1) {
+      toast.info("Tip: Use 'Download ICS File' to export all events at once and import into Google Calendar.");
     }
   };
 
@@ -284,38 +348,58 @@ export default function TripItineraryPage() {
     return grouped;
   }, [trip?.activities]);
 
-  // Transform schedule items or activities to calendar events format
+  // Transform schedule items and activities to calendar events format
+  // Use schedule items for days that have them, fall back to activities for other days
   const calendarEvents = useMemo(() => {
-    // If we have assembled schedule items, use those
+    const events: Array<{
+      id: string;
+      day_id: string;
+      date: string;
+      time_start: string;
+      time_end: string;
+      event_type: "activity" | "meal" | "transit" | "buffer" | "logistics";
+      title: string;
+      description?: string;
+      location_name?: string;
+      travel_mode?: "walking" | "driving" | "transit" | "taxi" | "ferry";
+      travel_minutes?: number;
+      is_all_day: boolean;
+    }> = [];
+
+    // Collect day_ids that have assembled schedule items
+    const assembledDayIds = new Set<string>();
+
     if (scheduleItems && scheduleItems.length > 0) {
-      return scheduleItems.map((item: DailyScheduleItem) => ({
-        id: item.id,
-        day_id: item.day_id,
-        date: item.day?.date || "",
-        time_start: item.time_start,
-        time_end: item.time_end,
-        event_type: item.event_type,
-        title: item.title,
-        description: item.description || undefined,
-        location_name: item.location_name || undefined,
-        travel_mode: item.travel_mode,
-        travel_minutes: item.travel_minutes,
-        is_all_day: false,
-      }));
+      for (const item of scheduleItems) {
+        assembledDayIds.add(item.day_id);
+        events.push({
+          id: item.id,
+          day_id: item.day_id,
+          date: item.day?.date || "",
+          time_start: item.time_start,
+          time_end: item.time_end,
+          event_type: item.event_type,
+          title: item.title,
+          description: item.description || undefined,
+          location_name: item.location_name || undefined,
+          travel_mode: item.travel_mode,
+          travel_minutes: item.travel_minutes,
+          is_all_day: false,
+        });
+      }
     }
 
-    // Fallback to activities if no assembled schedule
-    if (!trip?.activities || !trip?.days) return [];
+    // Add activities for days that don't have assembled schedule items
+    if (trip?.activities && trip?.days) {
+      const dayDateMap = new Map(trip.days.map((d) => [d.id, d.date]));
 
-    // Create a map of day_id to date
-    const dayDateMap = new Map(trip.days.map((d) => [d.id, d.date]));
+      for (const activity of trip.activities) {
+        if (activity.is_backup || !activity.day_id || !activity.start_time) continue;
+        // Skip days that already have assembled schedule items
+        if (assembledDayIds.has(activity.day_id)) continue;
 
-    // Transform activities to ScheduleEvent format
-    return trip.activities
-      .filter((a) => !a.is_backup && a.day_id && a.start_time)
-      .map((activity) => {
-        const date = dayDateMap.get(activity.day_id!) || "";
-        const startTime = activity.start_time || "09:00";
+        const date = dayDateMap.get(activity.day_id) || "";
+        const startTime = activity.start_time;
 
         // Calculate end time based on duration or default to 1 hour
         const durationMinutes = activity.duration_minutes || 60;
@@ -336,9 +420,9 @@ export default function TripItineraryPage() {
           eventType = "logistics";
         }
 
-        return {
+        events.push({
           id: activity.id,
-          day_id: activity.day_id!,
+          day_id: activity.day_id,
           date,
           time_start: startTime,
           time_end: endTime,
@@ -349,8 +433,11 @@ export default function TripItineraryPage() {
           travel_mode: undefined,
           travel_minutes: undefined,
           is_all_day: false,
-        };
-      });
+        });
+      }
+    }
+
+    return events;
   }, [scheduleItems, trip?.activities, trip?.days]);
 
   if (!trip) return null;
@@ -413,6 +500,27 @@ export default function TripItineraryPage() {
             )}
             {isAssembling ? "Assembling..." : `Assemble Schedule${unscheduledActivityCount > 0 ? ` (${unscheduledActivityCount})` : ""}`}
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Download className="h-4 w-4 mr-2" />
+                Export Calendar
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportIcs}>
+                <Download className="h-4 w-4 mr-2" />
+                Download ICS File
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {calendarEvents.length} events
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportGoogleCalendar}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Open in Google Calendar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button>
             <Plus className="h-4 w-4 mr-2" />
             Add Activity

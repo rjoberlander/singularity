@@ -54,6 +54,12 @@ const EVENT_COLORS: Record<string, { bg: string; border: string; text: string }>
 };
 
 // Helper functions
+function parseLocalDate(dateString: string): Date {
+  const datePart = dateString.split("T")[0];
+  const [year, month, day] = datePart.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function parseTime(time: string): { hours: number; minutes: number } {
   const [hours, minutes] = time.split(":").map(Number);
   return { hours, minutes };
@@ -109,7 +115,10 @@ function isSameDay(date1: Date, date2: Date): boolean {
 }
 
 function formatDateKey(date: Date): string {
-  return date.toISOString().split("T")[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 export function CalendarWeekView({
@@ -120,8 +129,8 @@ export function CalendarWeekView({
   className,
 }: CalendarWeekViewProps) {
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
-    // Start from trip start date
-    const tripStart = new Date(tripStartDate);
+    // Start from trip start date, parsed as local time to avoid UTC offset bugs
+    const tripStart = parseLocalDate(tripStartDate);
     const startOfWeek = new Date(tripStart);
     startOfWeek.setDate(tripStart.getDate() - tripStart.getDay());
     return startOfWeek;
