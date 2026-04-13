@@ -19,7 +19,7 @@ const KB_TRANSFORMS = [
 ];
 
 const AUTO_ADVANCE_MS = 3000;
-const MOSAIC_CHUNK_SIZE = 4; // photos per mosaic page
+const MOSAIC_CHUNK_SIZE = 3; // photos per mosaic page (3 avoids hidden bottom tiles)
 
 export interface StoryControls {
   paused: boolean;
@@ -185,6 +185,7 @@ export function PhotoBackground({
         <PhotoMosaic
           key={photoIndex}
           photos={mosaicPages[photoIndex] || allPhotos.slice(0, MOSAIC_CHUNK_SIZE)}
+          variant={photoIndex}
         />
       ) : hasPhotos && photoIndex >= 0 && photoIndex < allPhotos.length ? (
         // Carousel mode: single photo
@@ -280,47 +281,124 @@ export function PhotoBackground({
   );
 }
 
-// ─── Mosaic sub-component ──────────────────────────────────────────
+// ─── Mosaic sub-component (7 layout variants for 3 photos) ──────────
+// All layouts keep the hero/wide image at top so text overlay at the
+// bottom doesn't obscure photo content.
 
-function PhotoMosaic({ photos }: { photos: string[] }) {
+function Tile({ src, className }: { src: string; className?: string }) {
+  return (
+    <img
+      src={src}
+      alt=""
+      className={cn("w-full h-full object-cover", className)}
+      loading="eager"
+    />
+  );
+}
+
+function PhotoMosaic({ photos, variant = 0 }: { photos: string[]; variant?: number }) {
   const count = photos.length;
+  const p = photos;
+  const g = "gap-[2px]";
 
   if (count <= 1) {
     return (
       <div className="absolute inset-0">
-        {photos[0] && (
-          <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="eager" />
-        )}
+        {p[0] && <Tile src={p[0]} />}
       </div>
     );
   }
 
   if (count === 2) {
-    return (
-      <div className="absolute inset-0 grid grid-cols-2 gap-[2px]">
-        {photos.map((url, i) => (
-          <img key={i} src={url} alt="" className="w-full h-full object-cover" loading="eager" />
-        ))}
+    // Hero top, smaller bottom (keeps bottom clear for text)
+    return variant % 2 === 0 ? (
+      <div className={cn("absolute inset-0 grid grid-rows-[3fr_1fr]", g)}>
+        <Tile src={p[0]} /><Tile src={p[1]} />
+      </div>
+    ) : (
+      <div className={cn("absolute inset-0 grid grid-cols-[2fr_1fr]", g)}>
+        <Tile src={p[0]} /><Tile src={p[1]} />
       </div>
     );
   }
 
-  if (count === 3) {
+  // 3+ photos: 7 layout templates, all top-heavy
+  const v = variant % 7;
+
+  // 0: Wide hero top (60%), two side-by-side bottom (40%)
+  if (v === 0) {
     return (
-      <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-[2px]">
-        <img src={photos[0]} alt="" className="w-full h-full object-cover row-span-2" loading="eager" />
-        <img src={photos[1]} alt="" className="w-full h-full object-cover" loading="eager" />
-        <img src={photos[2]} alt="" className="w-full h-full object-cover" loading="eager" />
+      <div className={cn("absolute inset-0 grid grid-rows-[3fr_2fr]", g)}>
+        <Tile src={p[0]} />
+        <div className={cn("grid grid-cols-2", g)}>
+          <Tile src={p[1]} /><Tile src={p[2]} />
+        </div>
       </div>
     );
   }
 
-  // 4+: 2x2 grid
+  // 1: Big left (full height), two stacked right
+  if (v === 1) {
+    return (
+      <div className={cn("absolute inset-0 grid grid-cols-[3fr_2fr] grid-rows-2", g)}>
+        <Tile src={p[0]} className="row-span-2" />
+        <Tile src={p[1]} /><Tile src={p[2]} />
+      </div>
+    );
+  }
+
+  // 2: Two stacked left, big right (full height)
+  if (v === 2) {
+    return (
+      <div className={cn("absolute inset-0 grid grid-cols-[2fr_3fr] grid-rows-2", g)}>
+        <Tile src={p[1]} /><Tile src={p[0]} className="row-span-2" />
+        <Tile src={p[2]} />
+      </div>
+    );
+  }
+
+  // 3: Wide hero top (70%), two unequal bottom
+  if (v === 3) {
+    return (
+      <div className={cn("absolute inset-0 grid grid-rows-[7fr_3fr]", g)}>
+        <Tile src={p[0]} />
+        <div className={cn("grid grid-cols-[2fr_1fr]", g)}>
+          <Tile src={p[1]} /><Tile src={p[2]} />
+        </div>
+      </div>
+    );
+  }
+
+  // 4: Wide hero top (70%), two unequal bottom (flipped)
+  if (v === 4) {
+    return (
+      <div className={cn("absolute inset-0 grid grid-rows-[7fr_3fr]", g)}>
+        <Tile src={p[0]} />
+        <div className={cn("grid grid-cols-[1fr_2fr]", g)}>
+          <Tile src={p[1]} /><Tile src={p[2]} />
+        </div>
+      </div>
+    );
+  }
+
+  // 5: Big left (wide), narrow right column split in two
+  if (v === 5) {
+    return (
+      <div className={cn("absolute inset-0 grid grid-cols-[5fr_2fr] grid-rows-2", g)}>
+        <Tile src={p[0]} className="row-span-2" />
+        <Tile src={p[1]} /><Tile src={p[2]} />
+      </div>
+    );
+  }
+
+  // 6: Top two side-by-side (small), big hero bottom
+  // (hero at bottom works here since it's the largest and gradient fades into it)
   return (
-    <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-[2px]">
-      {photos.slice(0, 4).map((url, i) => (
-        <img key={i} src={url} alt="" className="w-full h-full object-cover" loading="eager" />
-      ))}
+    <div className={cn("absolute inset-0 grid grid-rows-[2fr_3fr]", g)}>
+      <div className={cn("grid grid-cols-2", g)}>
+        <Tile src={p[1]} /><Tile src={p[2]} />
+      </div>
+      <Tile src={p[0]} />
     </div>
   );
 }
