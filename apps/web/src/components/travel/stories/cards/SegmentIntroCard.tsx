@@ -6,7 +6,7 @@ import { PhotoBackground } from "./PhotoBackground";
 import { GlassPanel } from "./GlassPanel";
 import {
   MapPin, CloudSun, Car, Globe, Landmark, Backpack, Ticket,
-  Navigation, Lightbulb, Compass,
+  Navigation, Lightbulb, Compass, Calendar, Layers,
 } from "lucide-react";
 
 interface Props {
@@ -15,7 +15,8 @@ interface Props {
 }
 
 /** Split text into ~3 sentence chunks */
-function splitText(text: string, maxSentences = 3): string[] {
+function splitText(text: unknown, maxSentences = 3): string[] {
+  if (typeof text !== "string" || !text) return [];
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
   const chunks: string[] = [];
   for (let i = 0; i < sentences.length; i += maxSentences) {
@@ -31,6 +32,10 @@ export function SegmentIntroCard({ card, isActive }: Props) {
 
   const sections = isCity ? buildCitySections(card) : buildTripSections(card);
 
+  // Cap sections and ensure enough slides
+  const cappedSections = sections.slice(0, 12);
+  const minSlides = Math.max(cappedSections.length, 3);
+
   return (
     <PhotoBackground
       src={card.photoUrl}
@@ -39,19 +44,17 @@ export function SegmentIntroCard({ card, isActive }: Props) {
       cardId={card.id}
       mosaic={useMosaic}
       durationMs={8000}
+      minSlides={minSlides}
     >
       {(slideIndex, totalSlides) => {
-        // Each slide gets a unique section — don't repeat
-        const sectionIdx = Math.min(slideIndex, sections.length - 1);
-        const section = sections[sectionIdx];
+        const sectionIdx = Math.min(slideIndex, cappedSections.length - 1);
+        const section = sectionIdx >= 0 && sectionIdx < cappedSections.length ? cappedSections[sectionIdx] : null;
 
         return (
           <>
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/15 pointer-events-none" />
 
             <div className="relative flex flex-col h-full px-6 pt-24 pb-32">
-              {/* No spacer — header sits at top */}
-
               {/* Header block — fixed position across all slides */}
               <div className="shrink-0">
                 <div
@@ -71,9 +74,21 @@ export function SegmentIntroCard({ card, isActive }: Props) {
                   )}
                 </div>
 
-                <p className="text-xs text-white/50 mt-1">
-                  Segment {card.segmentNumber} &middot; {card.dateRange} &middot; {card.dayCount} day{card.dayCount !== 1 ? "s" : ""}
-                </p>
+                {/* Metadata badges */}
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-white/80 text-[10px] font-medium backdrop-blur-sm">
+                    <Layers className="h-2.5 w-2.5" />
+                    Segment {card.segmentNumber}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-white/80 text-[10px] font-medium backdrop-blur-sm">
+                    <Calendar className="h-2.5 w-2.5" />
+                    {card.dateRange}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-white/80 text-[10px] font-medium backdrop-blur-sm">
+                    <MapPin className="h-2.5 w-2.5" />
+                    {card.dayCount} day{card.dayCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
               </div>
 
               {/* Spacer pushes content to bottom */}
