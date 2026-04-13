@@ -265,7 +265,7 @@ export function PhotoBackground({
       {hasMultiple && (
         <button
           onClick={(e) => { e.stopPropagation(); togglePause(); }}
-          className="absolute bottom-5 right-3 z-20 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/70 hover:text-white hover:bg-black/70 transition-all border border-white/15"
+          className="absolute bottom-8 right-3 z-20 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/70 hover:text-white hover:bg-black/70 transition-all border border-white/15"
           aria-label={paused ? "Resume" : "Pause"}
         >
           {paused ? <Play className="h-4 w-4 ml-0.5" /> : <Pause className="h-4 w-4" />}

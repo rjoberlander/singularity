@@ -20,8 +20,8 @@ export function TripTitleCard({ card, isActive }: Props) {
       cardId={card.id}
       mosaic={useMosaic}
     >
-      {/* pt-24 clears progress bars + filter pills, pb-20 clears bottom pill */}
-      <div className="flex flex-col justify-end h-full px-6 pt-24 pb-20">
+      {/* pt-24 clears progress bars + filter pills, pb-32 clears home indicator + bottom pill */}
+      <div className="flex flex-col justify-end h-full px-6 pt-24 pb-32">
         <h1 className="text-4xl font-bold text-white tracking-tight leading-tight">
           {card.tripName}
         </h1>

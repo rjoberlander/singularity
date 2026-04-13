@@ -49,7 +49,7 @@ export function SegmentIntroCard({ card, isActive }: Props) {
           <>
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/15 pointer-events-none" />
 
-            <div className="relative flex flex-col h-full px-6 pt-24 pb-20">
+            <div className="relative flex flex-col h-full px-6 pt-24 pb-32">
               {/* No spacer — header sits at top */}
 
               {/* Header block — fixed position across all slides */}

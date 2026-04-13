@@ -64,7 +64,8 @@ function getTypeIcon(type?: string, name?: string) {
   }
 }
 
-function splitText(text: string, maxSentences = 3): string[] {
+function splitText(text: unknown, maxSentences = 3): string[] {
+  if (typeof text !== "string" || !text) return [];
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
   const chunks: string[] = [];
   for (let i = 0; i < sentences.length; i += maxSentences) {
@@ -74,7 +75,8 @@ function splitText(text: string, maxSentences = 3): string[] {
 }
 
 /** Split narrative into short readable chunks (~100-140 chars each) */
-function splitNarrative(text: string): string[] {
+function splitNarrative(text: unknown): string[] {
+  if (typeof text !== "string" || !text) return [];
   const cleaned = text
     .replace(/^#+\s+.*/gm, "")
     .replace(/\*([^*]+)\*/g, "$1")
@@ -138,7 +140,7 @@ export function DayHeaderCard({ card, isActive }: Props) {
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/15 pointer-events-none" />
             )}
 
-            <div className="relative flex flex-col h-full pt-24 pb-20">
+            <div className="relative flex flex-col h-full pt-24 pb-32">
               {/* No spacer — header sits at top */}
 
               {/* Header block — fixed position across all slides */}

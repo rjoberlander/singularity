@@ -19,6 +19,44 @@ type TripFull = Trip & {
   media: TripMedia[];
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/** Safely coerce DB values to string — JSON columns may return objects/numbers */
+function asString(v: unknown): string | undefined {
+  if (typeof v === "string" && v.length > 0) return v;
+  return undefined;
+}
+
+// ─── Kid engagement normalizer ────────────────────────────────────
+// DB stores kid_engagement in two formats:
+//   1. Age-based: { age_7: string[], age_5: string[], age_3: string[], general: string[] }
+//   2. Child-name-based: { parker: { scripts: string[] }, xander: { scripts: string[] }, ... }
+// Normalize to the age-based format the card components expect.
+
+type KidEngagement = { age_7?: string[]; age_5?: string[]; age_3?: string[]; general?: string[] };
+
+function normalizeKidEngagement(ke: unknown): KidEngagement | undefined {
+  if (!ke || typeof ke !== "object") return undefined;
+  const obj = ke as Record<string, unknown>;
+
+  // Already in expected format
+  if (obj.age_7 || obj.age_5 || obj.age_3 || obj.general) return obj as KidEngagement;
+
+  // Child-name format: extract first script from each child
+  const items: string[] = [];
+  for (const [name, data] of Object.entries(obj)) {
+    if (data && typeof data === "object" && "scripts" in data) {
+      const scripts = (data as { scripts?: string[] }).scripts;
+      if (Array.isArray(scripts) && scripts.length > 0) {
+        // Capitalize child name and prepend
+        const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+        items.push(`${displayName}: ${scripts[0]}`);
+      }
+    }
+  }
+  return items.length > 0 ? { general: items } : undefined;
+}
+
 // ─── Photo helpers ─────────────────────────────────────────────────
 
 /** Filter media to usable images (exclude documents + rejected google photos) */
@@ -472,7 +510,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             localInsight: rd?.local_insight,
             familyTips: rd?.family_tips,
             ambience: rd?.ambience,
-            kidEngagement: activity.kid_engagement,
+            kidEngagement: normalizeKidEngagement(activity.kid_engagement),
             photoUrl,
             photoUrls: actPhotos,
           });
@@ -502,11 +540,11 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             whyItsGreat: activity.why_its_great,
             kidFriendliness: activity.kid_friendliness,
             // Use full deep_dive.what_it_is (no truncation), fall back to deep_dive_content
-            deepDiveSnippet: activity.deep_dive?.what_it_is
-              || activity.deep_dive_content
-              || activity.historical_context
+            deepDiveSnippet: asString(activity.deep_dive?.what_it_is)
+              || asString(activity.deep_dive_content)
+              || asString(activity.historical_context)
               || undefined,
-            deepDiveStory: activity.deep_dive?.the_story,
+            deepDiveStory: asString(activity.deep_dive?.the_story),
             whatYoullSee: activity.deep_dive?.what_youll_see?.map(w => ({
               name: w.name, description: w.description,
             })),
@@ -516,7 +554,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             practicalTips: practicalParts.length > 0 ? practicalParts.join(". ") : undefined,
             googleRating: activity.google_rating,
             funFact,
-            kidEngagement: activity.kid_engagement,
+            kidEngagement: normalizeKidEngagement(activity.kid_engagement),
             photoUrl,
             photoUrls: actPhotos,
           });

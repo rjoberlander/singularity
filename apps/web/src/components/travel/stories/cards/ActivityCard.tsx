@@ -196,7 +196,8 @@ function ExpandableContent({
 
 /* ── Split long text into chunks ────────────────────────────────── */
 
-function splitText(text: string, maxLen = 140): string[] {
+function splitText(text: unknown, maxLen = 200): string[] {
+  if (typeof text !== "string" || !text) return [];
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
   const chunks: string[] = [];
   for (const s of sentences) {
@@ -480,8 +481,9 @@ export function ActivityCard({ card, isActive }: Props): React.ReactElement {
     ? buildRestaurantSections(card as RestaurantStoryCard)
     : buildActivitySections(card as ActivityStoryCard);
 
-  // Pad slides so there are enough even if photos are sparse
-  const minSlides = Math.max(sections.length, 3);
+  // Cap at 10 slides max — enough variety without being overwhelming
+  const cappedSections = sections.slice(0, 10);
+  const minSlides = Math.max(cappedSections.length, 3);
 
   return (
     <PhotoBackground
@@ -494,11 +496,11 @@ export function ActivityCard({ card, isActive }: Props): React.ReactElement {
       minSlides={minSlides}
     >
       {(slideIndex, _totalSlides, controls) => {
-        const sectionIdx = Math.min(slideIndex, sections.length - 1);
-        const section = sectionIdx >= 0 && sectionIdx < sections.length ? sections[sectionIdx] : null;
+        const sectionIdx = Math.min(slideIndex, cappedSections.length - 1);
+        const section = sectionIdx >= 0 && sectionIdx < cappedSections.length ? cappedSections[sectionIdx] : null;
 
         return (
-          <div className="flex flex-col h-full pt-24 pb-20">
+          <div className="flex flex-col h-full pt-24 pb-32">
             {/* Priority badge (top-left) */}
             {card.type === "activity" && (card as ActivityStoryCard).priority === "must_do" && (
               <div className="absolute top-[6.5rem] left-4 z-20">
