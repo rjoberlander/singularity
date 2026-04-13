@@ -272,8 +272,9 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
     );
 
     // Collect segment intro photos: activity photos only (no hotels)
+    // Use large pool so mosaic tiles don't repeat across many slides
     const segPhotos: string[] = [];
-    segPhotos.push(...getSegmentActivityThumbnails(segment.id, 32));
+    segPhotos.push(...getSegmentActivityThumbnails(segment.id, 90));
     if (segPhotos.length === 0) {
       // Fallback to segment-level media (city photos etc)
       segPhotos.push(...getThumbnailUrls(mediaBySegment[segment.id], 8));

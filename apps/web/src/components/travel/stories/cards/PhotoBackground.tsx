@@ -180,11 +180,11 @@ export function PhotoBackground({
               : "linear-gradient(135deg, #1f2937 0%, #111827 50%, #000 100%)",
           }}
         />
-      ) : mosaic && hasPhotos ? (
-        // Mosaic mode: always render a tile grid
+      ) : mosaic && hasPhotos && mosaicPages.length > 0 ? (
+        // Mosaic mode: wrap around when slides exceed page count
         <PhotoMosaic
           key={photoIndex}
-          photos={mosaicPages[photoIndex] || allPhotos.slice(0, MOSAIC_CHUNK_SIZE)}
+          photos={mosaicPages[photoIndex % mosaicPages.length]}
           variant={photoIndex}
         />
       ) : hasPhotos && photoIndex >= 0 && photoIndex < allPhotos.length ? (
