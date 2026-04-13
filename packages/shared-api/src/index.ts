@@ -894,6 +894,17 @@ export const travelApi = {
       return getApi().post(`/travel/trips/${tripId}/assemble-schedule${queryString ? `?${queryString}` : ''}`);
     },
   },
+
+  // Videos
+  videos: {
+    list: (tripId: string) => getApi().get(`/travel/trips/${tripId}/videos`),
+    get: (tripId: string, videoId: string) =>
+      getApi().get(`/travel/trips/${tripId}/videos/${videoId}`),
+    generate: (tripId: string, data: { level: string; segment_id?: string; day_id?: string }) =>
+      getApi().post(`/travel/trips/${tripId}/videos/generate`, data),
+    delete: (tripId: string, videoId: string) =>
+      getApi().delete(`/travel/trips/${tripId}/videos/${videoId}`),
+  },
 };
 
 // RV Locations

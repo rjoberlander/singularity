@@ -112,6 +112,7 @@ import type {
   RVLocationImportResult,
   RVImportValidationResult,
   RVLocationConvertToTripResult,
+  TripVideo,
 } from "@singularity/shared-types";
 
 // ============================================
@@ -1836,7 +1837,7 @@ export function useUpdateTripPlanningProgress() {
       completed,
     }: {
       id: string;
-      step: 'basics' | 'accommodations' | 'segments' | 'meals' | 'days_activities';
+      step: 'basics' | 'segments' | 'accommodations' | 'activities' | 'meals' | 'enrichment' | 'schedule' | 'days_activities';
       auto_suggested?: boolean;
       completed?: boolean;
     }) => {
@@ -3816,6 +3817,81 @@ export function useSaveRoutineVersion() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["routine-versions"] });
+    },
+  });
+}
+
+// ============================================
+// Trip Video Hooks
+// ============================================
+
+export function useTripVideos(tripId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "videos"],
+    queryFn: async () => {
+      const response = await travelApi.videos.list(tripId);
+      return response.data.data as TripVideo[];
+    },
+    enabled: !!tripId,
+  });
+}
+
+export function useTripVideo(tripId: string, videoId: string) {
+  return useQuery({
+    queryKey: ["travel", "trips", tripId, "videos", videoId],
+    queryFn: async () => {
+      const response = await travelApi.videos.get(tripId, videoId);
+      return response.data.data as TripVideo;
+    },
+    enabled: !!tripId && !!videoId,
+  });
+}
+
+export function useGenerateVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      level,
+      segment_id,
+      day_id,
+    }: {
+      tripId: string;
+      level: string;
+      segment_id?: string;
+      day_id?: string;
+    }) => {
+      const response = await travelApi.videos.generate(tripId, {
+        level,
+        segment_id,
+        day_id,
+      });
+      return response.data.data as TripVideo;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["travel", "trips", variables.tripId, "videos"],
+      });
+    },
+  });
+}
+
+export function useDeleteVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      videoId,
+    }: {
+      tripId: string;
+      videoId: string;
+    }) => {
+      await travelApi.videos.delete(tripId, videoId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["travel", "trips", variables.tripId, "videos"],
+      });
     },
   });
 }

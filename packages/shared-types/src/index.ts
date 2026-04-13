@@ -1240,7 +1240,7 @@ export type TripActivityType = TripActivityCategory;
 export type TripTimeBlock = 'morning' | 'midday' | 'sunset' | 'evening';
 
 // Media parent types
-export type TripMediaParentType = 'trip' | 'segment' | 'day' | 'activity' | 'accommodation';
+export type TripMediaParentType = 'trip' | 'segment' | 'day' | 'activity' | 'accommodation' | 'flight' | 'driving';
 
 // Share permission
 export type TripSharePermission = 'view' | 'edit';
@@ -1254,10 +1254,14 @@ export interface PlanningStepProgress {
 
 export interface TripPlanningProgress {
   basics: PlanningStepProgress;
-  accommodations: PlanningStepProgress;
   segments: PlanningStepProgress;
+  accommodations: PlanningStepProgress;
+  activities: PlanningStepProgress;
   meals: PlanningStepProgress;
-  days_activities: PlanningStepProgress;
+  enrichment: PlanningStepProgress;
+  schedule: PlanningStepProgress;
+  // Deprecated — kept for backwards compat reading
+  days_activities?: PlanningStepProgress;
 }
 
 // Trip (main container)
@@ -1290,7 +1294,23 @@ export interface Trip {
   public_slug?: string;
   share_password_hash?: string;
   notes?: string;
+  // V3 trip overview fields
+  overview?: string;
+  route_description?: string;
+  pacing_notes?: string;
+  destination_country?: string;
+  destination_country_code?: string;
   planning_progress?: TripPlanningProgress;
+  deep_overview?: {
+    country_background?: string;
+    cultural_context?: string;
+    practical_tips?: string[];
+    history_highlights?: string[];
+    language_basics?: string[];
+    currency_tips?: string;
+    safety_notes?: string;
+    family_travel_tips?: string[];
+  };
   created_at: string;
   updated_at: string;
   // Populated via joins
@@ -1322,12 +1342,21 @@ export interface UpdateTripRequest extends Partial<CreateTripRequest> {
 }
 
 export interface UpdateTripPlanningProgressRequest {
-  step: 'basics' | 'accommodations' | 'segments' | 'meals' | 'days_activities';
+  step: 'basics' | 'segments' | 'accommodations' | 'activities' | 'meals' | 'enrichment' | 'schedule' | 'days_activities';
   auto_suggested?: boolean;
   completed?: boolean;
 }
 
 // Trip Flight
+export interface FlightSegmentDetail {
+  flight_number?: string;
+  departure_airport: string;
+  arrival_airport: string;
+  departure_datetime?: string;
+  arrival_datetime?: string;
+  duration_minutes?: number;
+}
+
 export interface TripFlight {
   id: string;
   trip_id: string;
@@ -1339,6 +1368,10 @@ export interface TripFlight {
   departure_datetime?: string;
   arrival_datetime?: string;
   booking_reference?: string;
+  agency_reference?: string;
+  cost?: number;
+  currency?: string;
+  points_used?: number;
   seat_assignments?: Array<{
     name: string;
     seat: string;
@@ -1348,6 +1381,7 @@ export interface TripFlight {
     duration: string;
     flight_number?: string;
   }>;
+  flight_segments?: FlightSegmentDetail[];
   notes?: string;
   created_at: string;
 }
@@ -1361,8 +1395,13 @@ export interface CreateTripFlightRequest {
   departure_datetime?: string;
   arrival_datetime?: string;
   booking_reference?: string;
+  agency_reference?: string;
+  cost?: number;
+  currency?: string;
+  points_used?: number;
   seat_assignments?: TripFlight['seat_assignments'];
   layovers?: TripFlight['layovers'];
+  flight_segments?: FlightSegmentDetail[];
   notes?: string;
 }
 
@@ -1479,6 +1518,15 @@ export interface TripSegment {
   // Route stops and alternatives
   route_stops?: RouteStop[];
   segment_alternatives?: SegmentAlternative[];
+  // Deep enrichment narrative
+  segment_narrative?: {
+    summary?: string;
+    accommodation_context?: string;
+    activity_highlights?: string[];
+    meal_highlights?: string[];
+    local_tips?: string[];
+    getting_around?: string;
+  };
   // Populated via joins
   days?: TripDay[];
   accommodations?: TripAccommodation[];
@@ -1505,6 +1553,48 @@ export interface CreateTripSegmentRequest {
 }
 
 // Trip Accommodation
+export interface AccommodationParking {
+  available: boolean;
+  type?: 'on_site' | 'street' | 'garage' | 'valet' | 'none';
+  cost_per_day?: number;
+  currency?: string;
+  free?: boolean;
+  notes?: string;
+}
+
+export interface AccommodationBreakfast {
+  included: boolean;
+  type?: 'buffet' | 'continental' | 'full' | 'cooked_to_order' | 'none';
+  cost_per_person?: number;
+  currency?: string;
+  hours?: string;
+  notes?: string;
+}
+
+export interface AccommodationAmenities {
+  pool?: { exists: boolean; type?: 'indoor' | 'outdoor' | 'both' | 'rooftop'; kid_pool?: boolean; heated?: boolean; adults_only?: boolean };
+  gym?: boolean;
+  spa?: boolean;
+  restaurant_on_site?: boolean;
+  bar?: boolean;
+  kitchen?: { type: 'full' | 'kitchenette' | 'none' };
+  laundry?: boolean;
+  wifi?: boolean;
+  air_conditioning?: boolean;
+  elevator?: boolean;
+  concierge?: boolean;
+  room_service?: boolean;
+  airport_shuttle?: boolean;
+  ev_charging?: boolean;
+  pet_friendly?: boolean;
+}
+
+export interface NearbyLandmark {
+  name: string;
+  distance?: string;
+  walk_minutes?: number;
+}
+
 export interface TripAccommodation {
   id: string;
   trip_id: string;
@@ -1531,6 +1621,27 @@ export interface TripAccommodation {
   google_place_id?: string;
   google_rating?: number;
   photos_fetched?: boolean;
+  // Enrichment fields
+  property_type?: string;
+  star_rating?: number;
+  google_review_count?: number;
+  google_editorial_summary?: string;
+  parking?: AccommodationParking;
+  breakfast?: AccommodationBreakfast;
+  amenities_structured?: AccommodationAmenities;
+  neighborhood?: string;
+  nearby_landmarks?: NearbyLandmark[];
+  enriched_at?: string;
+  enrichment_source?: string;
+  guest_insights?: {
+    what_guests_love?: string;
+    check_in_tips?: string;
+    room_tips?: string;
+    things_to_know?: string;
+    family_tips?: string;
+    best_features?: string[];
+    review_highlights?: string[];
+  };
   created_at: string;
   updated_at: string;
 }
@@ -1601,6 +1712,8 @@ export interface TripDay {
   logistics?: V3DayLogistics;  // V3: driving, parking, tickets
   backup_plan?: V3BackupPlan;  // V3: if_rain, if_tired, if_kids_meltdown
   notes?: string;
+  // Deep enrichment narrative
+  day_narrative?: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -1739,7 +1852,7 @@ export interface TripActivity {
   };
   // Restaurant-specific details (enriched with AI review analysis)
   restaurant_details?: RestaurantDetails;
-  restaurant_suggestion_source?: 'ai_discovery' | 'imported_research' | 'user_manual' | 'hotel_restaurant';
+  restaurant_suggestion_source?: 'ai_discovery' | 'imported_research' | 'user_manual' | 'hotel_restaurant' | 'web_research';
   kid_engagement?: {
     age_7?: string[];
     age_5?: string[];
@@ -1839,7 +1952,7 @@ export interface TripMedia {
   parent_id: string;
   file_url: string;
   thumbnail_url?: string;
-  media_type?: 'image' | 'video';
+  media_type?: 'image' | 'video' | 'document';
   original_filename?: string;
   mime_type?: string;
   file_size_bytes?: number;
@@ -1860,7 +1973,7 @@ export interface CreateTripMediaRequest {
   parent_id: string;
   file_url: string;
   thumbnail_url?: string;
-  media_type?: 'image' | 'video';
+  media_type?: 'image' | 'video' | 'document';
   original_filename?: string;
   mime_type?: string;
   file_size_bytes?: number;
@@ -1962,8 +2075,20 @@ export interface TravelSettings {
   family_profile_version: string;
   output_template: ResearchOutputTemplate | null;
   output_template_version: string;
+  meal_preferences: MealResearchPreferences | null;
   created_at: string;
   updated_at: string;
+}
+
+// Meal Research Preferences - stored in travel_settings.meal_preferences
+export interface MealResearchPreferences {
+  dining_style: 'adventurous' | 'balanced' | 'conservative';
+  priorities: string[];           // e.g. ['authenticity', 'local_specialties', 'kid_friendly']
+  avoid: string[];                // e.g. ['tourist_traps', 'chains']
+  cuisine_interests: string[];    // e.g. ['regional_specialties', 'seafood', 'street_food']
+  budget: 'budget' | 'moderate' | 'no_limit';
+  dietary_restrictions: string[];
+  family_context?: string;        // e.g. "2 adults, 3 kids (ages 7, 5, 3)"
 }
 
 // Family Travel Profile structure (matches family-travel-profile.json)
@@ -3331,7 +3456,7 @@ export interface RVLocationMedia {
   user_id: string;
   file_url: string;
   thumbnail_url?: string;
-  media_type?: 'image' | 'video';
+  media_type?: 'image' | 'video' | 'document';
   original_filename?: string;
   mime_type?: string;
   file_size_bytes?: number;
@@ -3440,7 +3565,7 @@ export interface CreateRVLocationMediaRequest {
   activity_id?: string;
   file_url: string;
   thumbnail_url?: string;
-  media_type?: 'image' | 'video';
+  media_type?: 'image' | 'video' | 'document';
   original_filename?: string;
   mime_type?: string;
   file_size_bytes?: number;
@@ -3660,4 +3785,53 @@ export interface RVActivitySuggestion {
   kid_engagement?: RVKidEngagement;
   google_place_id?: string;
   alltrails_url?: string;
+}
+
+// ─── Trip Video Types ─────────────────────────────────────────────────
+
+export type TripVideoLevel = 'trip' | 'segment' | 'day';
+export type TripVideoStatus = 'queued' | 'generating_script' | 'generating_audio' | 'rendering' | 'complete' | 'failed';
+
+export interface PodcastScriptLine {
+  speaker: 'host' | 'cohost';
+  text: string;
+  visual_cue?: {
+    type: 'photo' | 'video' | 'map' | 'text_popup' | 'kid_callout' | 'title_card';
+    ref: string;
+    detail?: string;
+  };
+}
+
+export interface PodcastScript {
+  title: string;
+  level: TripVideoLevel;
+  dialogue: PodcastScriptLine[];
+  estimated_duration_seconds?: number;
+}
+
+export interface TripVideoAudioFile {
+  speaker: 'host' | 'cohost';
+  file_url: string;
+  duration_ms: number;
+  index: number;
+}
+
+export interface TripVideo {
+  id: string;
+  trip_id: string;
+  user_id: string;
+  segment_id?: string | null;
+  day_id?: string | null;
+  level: TripVideoLevel;
+  title?: string | null;
+  status: TripVideoStatus;
+  script?: PodcastScript | null;
+  audio_files?: TripVideoAudioFile[] | null;
+  video_url?: string | null;
+  thumbnail_url?: string | null;
+  duration_seconds?: number | null;
+  error_message?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 }
