@@ -345,6 +345,12 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
       locationName: segment.location_name || segment.name,
       dateRange: formatDateRange(segment.start_date, segment.end_date),
       dayCount: segDays.length,
+      daySummaries: segDays.map((d, di) => ({
+        dayNumber: di + 1,
+        title: d.title || `Day ${di + 1}`,
+        overview: d.overview || "",
+        date: d.date,
+      })).filter(d => d.title || d.overview),
       theme: segment.theme,
       keyActivities: segment.key_activities_summary,
       segmentNarrative: sn ? {

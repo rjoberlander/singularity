@@ -53,6 +53,7 @@ export interface SegmentIntroStoryCard extends StoryCardBase {
   localCurrency?: string;
   mainAttractions?: Array<{ name: string; description?: string }>;
   // Trip category data
+  daySummaries?: Array<{ dayNumber: number; title: string; overview: string; date?: string }>;
   theme?: string;
   keyActivities?: string;
   segmentNarrative?: {

@@ -25,14 +25,18 @@ function splitText(text: unknown, maxSentences = 3): string[] {
   return chunks.filter((c) => c.length > 0);
 }
 
+// City card: warm amber tones for history/culture
+const CITY_COLOR = { badge: "#d97706", bar: "#f59e0b" }; // amber
+// Trip card: cool blue/indigo tones for your itinerary
+const TRIP_COLOR = { badge: "#4f46e5", bar: "#6366f1" }; // indigo
+
 export function SegmentIntroCard({ card, isActive }: Props) {
-  const color = STORY_SEGMENT_COLORS[card.segmentIndex % STORY_SEGMENT_COLORS.length];
   const useMosaic = card.photoUrls.length >= 2;
   const isCity = card.category === "city";
+  const palette = isCity ? CITY_COLOR : TRIP_COLOR;
 
   const sections = isCity ? buildCitySections(card) : buildTripSections(card);
 
-  // Cap sections and ensure enough slides
   const cappedSections = sections.slice(0, 12);
   const minSlides = Math.max(cappedSections.length, 3);
 
@@ -44,6 +48,7 @@ export function SegmentIntroCard({ card, isActive }: Props) {
       cardId={card.id}
       mosaic={useMosaic}
       durationMs={8000}
+      accentColor={palette.badge}
       minSlides={minSlides}
     >
       {(slideIndex, totalSlides) => {
@@ -55,21 +60,21 @@ export function SegmentIntroCard({ card, isActive }: Props) {
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/15 pointer-events-none" />
 
             <div className="relative flex flex-col h-full px-6 pt-24 pb-32">
-              {/* Header block — fixed position across all slides */}
+              {/* Header block */}
               <div className="shrink-0">
                 <div
                   className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold text-white mb-2"
-                  style={{ backgroundColor: color.hex + "cc" }}
+                  style={{ backgroundColor: palette.badge + "cc" }}
                 >
                   {isCity ? (
                     <>
-                      <Globe className="h-3 w-3" />
-                      About {card.locationName}
+                      <Landmark className="h-3 w-3" />
+                      {card.locationName} History
                     </>
                   ) : (
                     <>
                       <Compass className="h-3 w-3" />
-                      Your Trip &middot; {card.locationName}
+                      Your {card.locationName} Trip
                     </>
                   )}
                 </div>
@@ -91,15 +96,13 @@ export function SegmentIntroCard({ card, isActive }: Props) {
                 </div>
               </div>
 
-              {/* Spacer pushes content to bottom */}
               <div className="flex-1 min-h-4" />
 
-              {/* Rotating content section — always at bottom */}
               <div className="shrink-0">{section}</div>
 
               <div
                 className="h-1 w-full rounded-full mt-4 shrink-0"
-                style={{ backgroundColor: color.hex }}
+                style={{ backgroundColor: palette.bar }}
               />
             </div>
           </>
@@ -237,11 +240,45 @@ function buildCitySections(card: SegmentIntroStoryCard): React.ReactNode[] {
 
 // ─── Trip sections ─────────────────────────────────────────────────
 
+function formatShortDate(dateStr?: string): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
 function buildTripSections(card: SegmentIntroStoryCard): React.ReactNode[] {
   const sections: React.ReactNode[] = [];
 
-  // Theme
-  if (card.theme) {
+  // Day-by-day breakdown (replaces theme quote as first section)
+  if (card.daySummaries && card.daySummaries.length > 0) {
+    sections.push(
+      <div key="days">
+        <SectionLabel icon={<Calendar className="h-3 w-3" />} label="Day by Day" />
+        <div className="space-y-2">
+          {card.daySummaries.map((d) => (
+            <div key={d.dayNumber} className="flex gap-2.5">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+                style={{ backgroundColor: TRIP_COLOR.badge + "cc" }}
+              >
+                {d.dayNumber}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white leading-tight">{d.title}</p>
+                {d.date && (
+                  <p className="text-[10px] text-white/40">{formatShortDate(d.date)}</p>
+                )}
+                {d.overview && (
+                  <p className="text-xs text-white/60 leading-snug mt-0.5 line-clamp-2">{d.overview}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  } else if (card.theme) {
+    // Fallback to theme if no day summaries
     sections.push(
       <div key="theme">
         <SectionLabel icon={<Compass className="h-3 w-3" />} label="The Plan" />
