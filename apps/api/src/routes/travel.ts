@@ -34,10 +34,14 @@ import { ScheduleValidationService } from '../services/schedule-validation';
 import { computeTravelTimesForTrip, formatTravelTimesForPrompt, getDefaultDurationMinutes } from '../services/google-routes-service';
 import { RestaurantSuggestionService } from '../services/restaurant-suggestion';
 import { enrichRestaurantDetails } from '../services/restaurant-enrichment';
+import { enrichFromAirbnb, extractAirbnbListingId } from '../services/airbnb-enrichment';
+import { trackPlaceDetails, trackAnthropicUsage } from '../services/api-usage-tracking';
+import { enrichActivityDetails } from '../services/activity-detail-enrichment';
 import type { ValidationResult, AssembleScheduleResponse } from '@singularity/shared-types';
 
 // Import travel import & settings routes (see docs/travel-module-prd.md for workflow)
 import travelImportRoutes from './travel-import';
+import travelVideoRoutes from './travel-videos';
 
 // Interface for Google Places API response
 interface GooglePlaceResult {
@@ -97,6 +101,58 @@ interface GooglePlaceResult {
   servesCocktails?: boolean;
   liveMusic?: boolean;
   allowsDogs?: boolean;
+}
+
+/**
+ * Check if a URL points to a specific property/listing (not just a generic domain).
+ * Returns the URL if specific, or null if generic/invalid.
+ * Examples:
+ *   "https://www.airbnb.com/rooms/12345" → specific (has listing path)
+ *   "https://www.airbnb.com" → generic (just domain)
+ *   "https://www.hyatt.com" → generic
+ *   "https://vilagale.com/en/hotels/alentejo/..." → specific
+ */
+function validateSpecificUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/+$/, '');
+    // Paths like "/trips/v1" on airbnb are not real listings
+    if (path.length <= 1) return null; // just "/"
+    // Known booking platforms need a listing ID in the path
+    const host = u.hostname.replace('www.', '');
+    if (['airbnb.com', 'airbnb.co.uk', 'vrbo.com', 'booking.com'].includes(host)) {
+      // Airbnb needs /rooms/<id> pattern; /trips/* is not a listing
+      if (host.startsWith('airbnb') && !path.match(/\/rooms\/\d+/)) return null;
+      if (host === 'vrbo.com' && !path.match(/\/\d+/)) return null;
+      if (host === 'booking.com' && !path.match(/\/hotel\//)) return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch all trip_media rows for a trip, paginating past Supabase's 1000-row cap.
+ */
+async function fetchAllTripMedia(tripId: string) {
+  const allMedia: any[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('trip_media')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('sort_order')
+      .range(offset, offset + pageSize - 1);
+    if (error || !data || data.length === 0) break;
+    allMedia.push(...data);
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return allMedia;
 }
 
 /**
@@ -293,7 +349,7 @@ router.get('/public/:slug', async (req: Request, res: Response): Promise<any> =>
       { data: accommodations },
       { data: days },
       { data: activities },
-      { data: media }
+      media
     ] = await Promise.all([
       supabase.from('trip_flights').select('*').eq('trip_id', trip.id),
       supabase.from('trip_driving').select('*').eq('trip_id', trip.id),
@@ -301,7 +357,7 @@ router.get('/public/:slug', async (req: Request, res: Response): Promise<any> =>
       supabase.from('trip_accommodations').select('*').eq('trip_id', trip.id).order('check_in_date'),
       supabase.from('trip_days').select('*').eq('trip_id', trip.id).order('date'),
       supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('sort_order'),
-      supabase.from('trip_media').select('*').eq('trip_id', trip.id).order('sort_order').limit(5000)
+      fetchAllTripMedia(trip.id)
     ]);
 
     res.json({
@@ -332,6 +388,7 @@ router.get('/public/:slug', async (req: Request, res: Response): Promise<any> =>
 // Mount travel import & settings routes (settings, import, research items)
 // See docs/travel-module-prd.md for the full workflow documentation
 router.use('/', travelImportRoutes);
+router.use('/', travelVideoRoutes);
 
 // =============================================
 // TRIPS
@@ -515,7 +572,7 @@ router.get('/trips/:id/full', authenticateUser, async (req: Request, res: Respon
       { data: accommodations },
       { data: days },
       { data: activities },
-      { data: media },
+      media,
       { data: sharing }
     ] = await Promise.all([
       supabase.from('trip_flights').select('*').eq('trip_id', id),
@@ -524,7 +581,7 @@ router.get('/trips/:id/full', authenticateUser, async (req: Request, res: Respon
       supabase.from('trip_accommodations').select('*').eq('trip_id', id).order('check_in_date'),
       supabase.from('trip_days').select('*').eq('trip_id', id).order('date'),
       supabase.from('trip_activities').select('*').eq('trip_id', id).order('sort_order'),
-      supabase.from('trip_media').select('*').eq('trip_id', id).order('sort_order').limit(5000),
+      fetchAllTripMedia(id),
       supabase.from('trip_sharing').select('*, users!shared_with_user_id(id, name, email)').eq('trip_id', id)
     ]);
 
@@ -917,11 +974,11 @@ router.patch('/trips/:id/planning-progress', authenticateUser, async (req: Reque
     const { step, auto_suggested, completed } = req.body;
 
     // Validate step
-    const validSteps = ['basics', 'accommodations', 'segments', 'meals', 'days_activities'];
+    const validSteps = ['basics', 'segments', 'accommodations', 'activities', 'meals', 'enrichment', 'schedule', 'days_activities'];
     if (!step || !validSteps.includes(step)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid step. Must be one of: basics, accommodations, segments, meals, days_activities',
+        error: 'Invalid step. Must be one of: basics, segments, accommodations, activities, meals, enrichment, schedule',
         timestamp: new Date().toISOString()
       });
     }
@@ -950,14 +1007,20 @@ router.patch('/trips/:id/planning-progress', authenticateUser, async (req: Reque
     }
 
     // Build the updated planning progress
-    const currentProgress = existing.planning_progress || {
-      basics: { auto_suggested: false, completed: false },
-      accommodations: { auto_suggested: false, completed: false },
-      segments: { auto_suggested: false, completed: false },
-      days_activities: { auto_suggested: false, completed: false }
+    const defaultStep = { auto_suggested: false, completed: false };
+    const stored = existing.planning_progress || {};
+    const currentProgress = {
+      basics: stored.basics || defaultStep,
+      segments: stored.segments || defaultStep,
+      accommodations: stored.accommodations || defaultStep,
+      activities: stored.activities || defaultStep,
+      meals: stored.meals || defaultStep,
+      enrichment: stored.enrichment || defaultStep,
+      schedule: stored.schedule || stored.days_activities || defaultStep,
     };
 
-    const updatedStepProgress: Record<string, unknown> = { ...currentProgress[step] };
+    const stepKey = step === 'days_activities' ? 'schedule' : step;
+    const updatedStepProgress: Record<string, unknown> = { ...(currentProgress as Record<string, any>)[stepKey] };
 
     if (auto_suggested !== undefined) {
       updatedStepProgress.auto_suggested = auto_suggested;
@@ -974,7 +1037,7 @@ router.patch('/trips/:id/planning-progress', authenticateUser, async (req: Reque
 
     const updatedProgress = {
       ...currentProgress,
-      [step]: updatedStepProgress
+      [stepKey]: updatedStepProgress
     };
 
     const { data, error } = await supabase
@@ -1088,8 +1151,13 @@ router.post('/trips/:tripId/flights', authenticateUser, async (req: Request, res
         departure_datetime: flightData.departure_datetime,
         arrival_datetime: flightData.arrival_datetime,
         booking_reference: flightData.booking_reference,
+        agency_reference: flightData.agency_reference,
+        cost: flightData.cost,
+        currency: flightData.currency,
+        points_used: flightData.points_used,
         seat_assignments: flightData.seat_assignments,
         layovers: flightData.layovers,
+        flight_segments: flightData.flight_segments,
         notes: flightData.notes,
         created_at: new Date().toISOString()
       })
@@ -2330,6 +2398,11 @@ IMPORTANT:
       });
     }
 
+    // Strip generic/non-specific URLs (e.g. "https://www.airbnb.com" with no listing path)
+    if (hotelData?.website) {
+      hotelData.website = validateSpecificUrl(hotelData.website);
+    }
+
     // Ground-truth the hotel location via Google Places Text Search.
     // LLMs hallucinate coordinates and addresses, so we always overwrite
     // those fields with authoritative Google data when available.
@@ -2356,7 +2429,9 @@ IMPORTANT:
             if (place.formattedAddress) hotelData.address = place.formattedAddress;
             if (place.id) hotelData.google_place_id = place.id;
             if (place.displayName?.text) hotelData.name = place.displayName.text;
-            if (place.websiteUri && !hotelData.website) hotelData.website = place.websiteUri;
+            if (!hotelData.website && place.websiteUri) {
+              hotelData.website = validateSpecificUrl(place.websiteUri);
+            }
             if ((place as any).internationalPhoneNumber && !hotelData.phone) {
               hotelData.phone = (place as any).internationalPhoneNumber;
             }
@@ -2488,7 +2563,7 @@ router.post('/trips/:tripId/accommodations', authenticateUser, async (req: Reque
         loyalty_program: accommodationData.loyalty_program,
         booking_reference: accommodationData.booking_reference,
         amenities: accommodationData.amenities,
-        website: accommodationData.website,
+        website: validateSpecificUrl(accommodationData.website) ?? undefined,
         phone: accommodationData.phone,
         notes: accommodationData.notes,
         created_at: new Date().toISOString(),
@@ -2688,7 +2763,7 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.formattedAddress,places.location,places.types,places.websiteUri'
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.formattedAddress,places.location,places.types,places.websiteUri,places.editorialSummary,places.internationalPhoneNumber,places.goodForChildren,places.businessStatus'
       },
       body: JSON.stringify({
         textQuery: searchQuery,
@@ -2738,9 +2813,19 @@ router.post('/trips/:tripId/accommodations/:accommodationId/fetch-google', authe
     }
 
     // Website is additive — only set if the user didn't specify one.
+    // Only accept specific property URLs, not generic domains.
     if (!accommodation.website && place.websiteUri) {
-      updateData.website = place.websiteUri;
+      const validUrl = validateSpecificUrl(place.websiteUri);
+      if (validUrl) updateData.website = validUrl;
     }
+
+    // Extended Google data
+    if (place.userRatingCount) updateData.google_review_count = place.userRatingCount;
+    if ((place as any).editorialSummary?.text) updateData.google_editorial_summary = (place as any).editorialSummary.text;
+    if ((place as any).internationalPhoneNumber && !accommodation.phone) {
+      updateData.phone = (place as any).internationalPhoneNumber;
+    }
+    updateData.enriched_at = new Date().toISOString();
 
     const { error: updateError } = await supabase
       .from('trip_accommodations')
@@ -4168,7 +4253,11 @@ router.post('/trips/:tripId/activities/:activityId/fetch-google', authenticateUs
       });
     }
 
-    // Fetch and store photos (up to 20, deduped by content hash)
+    // Fetch and store photos.
+    // Dedup enforced by DB unique constraints:
+    //   (trip_id, google_photo_reference) — same ref can't exist twice
+    //   (trip_id, content_hash) — same image bytes can't exist twice
+    // Every insert computes content_hash, so both constraints are always active.
     let photosAdded = 0;
     let photosSkipped = 0;
     const targetPhotoCount = 20;
@@ -6713,11 +6802,18 @@ router.post('/trips/:tripId/segments/:segmentId/enrich-activities', authenticate
       errors: enrichResult.errors.length,
     });
 
-    // 7. Auto-trigger restaurant detail enrichment (fire-and-forget)
+    // 7. Auto-trigger AI content enrichment (fire-and-forget)
+    // Runs AFTER Google Places data is in place:
+    //   a) Restaurant detail enrichment (signature dishes, review analysis)
+    //   b) Activity detail enrichment (deep_dive, practical_details)
     if (anthropicApiKey && googleApiKey) {
       enrichRestaurantDetails(tripId, userId, googleApiKey, anthropicApiKey, segmentId)
         .then(r => log('Restaurant enrichment complete', { enriched: r.enriched, skipped: r.skipped }))
         .catch(e => console.error('[SegmentEnrich] Restaurant enrichment error:', e));
+
+      enrichActivityDetails(tripId, userId, googleApiKey, anthropicApiKey, segmentId)
+        .then(r => log('Activity detail enrichment complete', { enriched: r.enriched, skipped: r.skipped }))
+        .catch(e => console.error('[SegmentEnrich] Activity detail enrichment error:', e));
     }
 
     return res.json({
@@ -6942,6 +7038,135 @@ router.post('/trips/:tripId/enrich-restaurant-details', authenticateUser, async 
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[RestaurantEnrichEndpoint][${elapsed}s] ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/enrich-activity-details
+ * AI-powered enrichment for activities missing deep_dive and practical_details.
+ * Delegates to the enrichActivityDetails service function.
+ */
+router.post('/trips/:tripId/enrich-activity-details', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+    const segmentId = req.query.segmentId as string | undefined;
+    const activityId = req.query.activityId as string | undefined;
+
+    // Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const keyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!keyData?.api_key) {
+      return res.status(400).json({ success: false, error: 'Anthropic API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const result = await enrichActivityDetails(tripId, userId, googleApiKey, keyData.api_key, segmentId, activityId);
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[ActivityDetailEnrichEndpoint] Complete in ${duration}s`, result);
+
+    return res.json({
+      success: true,
+      message: `Activity detail enrichment complete: ${result.enriched} enriched, ${result.skipped} skipped`,
+      data: result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[ActivityDetailEnrichEndpoint][${elapsed}s] ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/deep-enrich
+ * Orchestrates the gap-filler enrichment step:
+ * - Activity deep_dive gaps
+ * - Restaurant review gaps
+ * - Trip-level deep overview
+ * - Segment-level narrative synthesis
+ * - Day-level tour guide narrative
+ */
+router.post('/trips/:tripId/deep-enrich', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  const startTime = Date.now();
+  try {
+    const userId = req.user!.id;
+    const { tripId } = req.params;
+
+    // Verify trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('id', tripId)
+      .eq('user_id', userId)
+      .single();
+
+    if (tripError || !trip) {
+      return res.status(404).json({ success: false, error: 'Trip not found', timestamp: new Date().toISOString() });
+    }
+
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!googleApiKey) {
+      return res.status(400).json({ success: false, error: 'Google Places API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const anthropicKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+    if (!anthropicKeyData?.api_key) {
+      return res.status(400).json({ success: false, error: 'Anthropic API key not configured', timestamp: new Date().toISOString() });
+    }
+
+    const perplexityKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'perplexity');
+
+    const { runDeepEnrichment } = await import('../services/deep-enrichment');
+    const result = await runDeepEnrichment(
+      tripId,
+      userId,
+      googleApiKey,
+      anthropicKeyData.api_key,
+      perplexityKeyData?.api_key
+    );
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[DeepEnrichEndpoint] Complete in ${duration}s`, result);
+
+    return res.json({
+      success: true,
+      message: `Deep enrichment complete`,
+      data: result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[DeepEnrichEndpoint][${elapsed}s] ERROR:`, error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
@@ -7206,6 +7431,506 @@ router.post('/trips/:tripId/segments/:segmentId/meal-research', authenticateUser
       error: error instanceof Error ? error.message : 'Internal server error',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// =============================================
+// ACCOMMODATION AI ENRICHMENT
+// =============================================
+
+/**
+ * POST /api/v1/travel/trips/:tripId/accommodations/:accommodationId/enrich-ai
+ * AI-powered enrichment: Perplexity web search → Claude synthesis → DB update
+ */
+router.post('/trips/:tripId/accommodations/:accommodationId/enrich-ai', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, accommodationId } = req.params;
+
+    // Check trip ownership
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('user_id')
+      .eq('id', tripId)
+      .single();
+
+    if (tripError || !trip || trip.user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    // Get accommodation
+    const { data: accommodation, error: accError } = await supabase
+      .from('trip_accommodations')
+      .select('*')
+      .eq('id', accommodationId)
+      .eq('trip_id', tripId)
+      .single();
+
+    if (accError || !accommodation) {
+      return res.status(404).json({ success: false, error: 'Accommodation not found' });
+    }
+
+    // Get API keys
+    const perplexityKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'perplexity');
+    const anthropicKeyData = await AIAPIKeyService.getActiveKeyForProvider(userId, 'anthropic');
+
+    if (!anthropicKeyData) {
+      return res.status(400).json({ success: false, error: 'No Anthropic API key configured' });
+    }
+
+    // Phase 1: Perplexity web search
+    let perplexityText = '';
+    if (perplexityKeyData) {
+      try {
+        const searchQuery = `"${accommodation.name}" ${accommodation.address || ''} hotel amenities parking breakfast pool restaurant nearby attractions family-friendly reviews tips`;
+        const perplexityResp = await fetch('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${perplexityKeyData.api_key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'sonar',
+            messages: [
+              {
+                role: 'system',
+                content: `You are researching accommodation details for a family trip. Find specific, factual information about this property including:
+1. Parking availability and cost
+2. Breakfast options and cost
+3. Pool details (type, kids allowed, heated)
+4. On-site restaurants/bars
+5. Gym/spa
+6. Kitchen facilities, laundry
+7. The neighborhood/area, walkability, nearby landmarks within walking distance
+8. GUEST REVIEW HIGHLIGHTS: What do guests consistently praise? What do they love most?
+9. CHECK-IN TIPS: Early check-in policy, late checkout, what to ask for at reception
+10. ROOM TIPS: Best room types, best views, floors to request, room upgrade strategies
+11. THINGS GUESTS SHOULD KNOW: Any quirks, construction, noise, hidden fees, what to bring
+12. FAMILY-SPECIFIC: Kids clubs, family amenities, kid-friendly pools, high chairs, cribs`
+              },
+              {
+                role: 'user',
+                content: searchQuery
+              }
+            ],
+            max_tokens: 2000,
+            temperature: 0.2,
+          }),
+        });
+
+        if (perplexityResp.ok) {
+          const perplexityResult: any = await perplexityResp.json();
+          perplexityText = perplexityResult.choices?.[0]?.message?.content || '';
+        }
+      } catch (pErr) {
+        console.error('Perplexity search error (non-fatal):', pErr);
+      }
+    }
+
+    // Phase 2: Claude synthesis
+    const anthropic = new Anthropic({ apiKey: anthropicKeyData.api_key });
+    const synthesisPrompt = `Extract structured accommodation details from the web research below. If no web research is available, use your knowledge of "${accommodation.name}" at "${accommodation.address || ''}".
+
+${perplexityText ? `Web research:\n${perplexityText}` : 'No web research available — use your knowledge.'}
+
+Existing data we already have:
+- Name: ${accommodation.name}
+- Address: ${accommodation.address || 'unknown'}
+- Room type: ${accommodation.room_type || 'unknown'}
+- Amenities (flat list): ${JSON.stringify(accommodation.amenities || [])}
+- Notes: ${accommodation.notes || 'none'}
+
+Return a JSON object with EXACTLY this structure (use null for unknown fields, do NOT guess):
+{
+  "property_type": "hotel" | "resort" | "vacation_rental" | "apartment" | "boutique" | "pousada" | "bed_and_breakfast" | "hostel",
+  "star_rating": <number 1-5 or null>,
+  "parking": {
+    "available": <boolean>,
+    "type": "on_site" | "street" | "garage" | "valet" | "none",
+    "cost_per_day": <number or null>,
+    "currency": "EUR" | "USD" | etc,
+    "free": <boolean>,
+    "notes": "<string or null>"
+  },
+  "breakfast": {
+    "included": <boolean>,
+    "type": "buffet" | "continental" | "full" | "cooked_to_order" | "none",
+    "cost_per_person": <number or null>,
+    "currency": "EUR" | "USD" | etc,
+    "hours": "<string like '7:00-10:30' or null>",
+    "notes": "<string or null>"
+  },
+  "amenities_structured": {
+    "pool": { "exists": <boolean>, "type": "indoor" | "outdoor" | "both" | null, "kid_pool": <boolean>, "heated": <boolean>, "adults_only": <boolean> },
+    "gym": <boolean>,
+    "spa": <boolean>,
+    "restaurant_on_site": <boolean>,
+    "bar": <boolean>,
+    "kitchen": { "type": "full" | "kitchenette" | "none" },
+    "laundry": <boolean>,
+    "wifi": <boolean>,
+    "air_conditioning": <boolean>,
+    "elevator": <boolean>,
+    "concierge": <boolean>,
+    "room_service": <boolean>,
+    "airport_shuttle": <boolean>,
+    "ev_charging": <boolean>,
+    "pet_friendly": <boolean>
+  },
+  "neighborhood": "<name of neighborhood/district>",
+  "nearby_landmarks": [
+    { "name": "<landmark>", "distance": "<e.g. 200m>", "walk_minutes": <number> }
+  ],
+  "guest_insights": {
+    "what_guests_love": "<What do reviewers consistently praise? Top 2-3 things guests love (e.g. 'Stunning river views from every room, exceptional breakfast buffet with mimosa bar, friendly staff')>",
+    "check_in_tips": "<Early check-in policy, what to ask at reception, any upgrade strategies (e.g. 'Early check-in often possible by noon-1pm if requested. Ask about suite upgrades — availability is common midweek')>",
+    "room_tips": "<Best room types, best views, floors to request (e.g. 'Request high floor river-view room. Corner suites on floors 6-8 have panoramic Tagus views')>",
+    "things_to_know": "<Quirks, hidden fees, noise, construction, what to bring (e.g. 'City tax €4/night paid at check-in. Pool is adults-only. Parking is €25/day — street parking available nearby')>",
+    "family_tips": "<Family-specific tips: cribs, high chairs, kids clubs, family-friendly dining (e.g. 'Cribs available on request. Kids eat free at breakfast. No dedicated kids pool but beach is 5 min walk')>",
+    "best_features": ["<feature 1>", "<feature 2>", "<feature 3>"],
+    "review_highlights": ["<short quote or insight from reviews>", "<another highlight>"]
+  }
+}
+
+Return ONLY valid JSON, no markdown.`;
+
+    const claudeResp = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: synthesisPrompt }],
+    });
+
+    const claudeText = claudeResp.content[0]?.type === 'text' ? claudeResp.content[0].text : '';
+    let enrichment: any;
+    try {
+      let jsonStr = claudeText;
+      if (jsonStr.includes('```json')) jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      else if (jsonStr.includes('```')) jsonStr = jsonStr.replace(/```\n?/g, '');
+      enrichment = JSON.parse(jsonStr.trim());
+    } catch (parseErr) {
+      console.error('Failed to parse enrichment JSON:', claudeText.slice(0, 500));
+      return res.status(500).json({ success: false, error: 'Failed to parse AI enrichment response' });
+    }
+
+    // Phase 3: Update DB
+    const updateData: Record<string, any> = {
+      enriched_at: new Date().toISOString(),
+      enrichment_source: perplexityText ? 'perplexity_claude' : 'claude',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (enrichment.property_type) updateData.property_type = enrichment.property_type;
+    if (enrichment.star_rating) updateData.star_rating = enrichment.star_rating;
+    if (enrichment.parking) updateData.parking = enrichment.parking;
+    if (enrichment.breakfast) updateData.breakfast = enrichment.breakfast;
+    if (enrichment.amenities_structured) updateData.amenities_structured = enrichment.amenities_structured;
+    if (enrichment.neighborhood) updateData.neighborhood = enrichment.neighborhood;
+    if (enrichment.nearby_landmarks?.length > 0) updateData.nearby_landmarks = enrichment.nearby_landmarks;
+    if (enrichment.guest_insights) updateData.guest_insights = enrichment.guest_insights;
+
+    const { error: updateError } = await supabase
+      .from('trip_accommodations')
+      .update(updateData)
+      .eq('id', accommodationId);
+
+    if (updateError) {
+      console.error('Enrichment update error:', updateError);
+      return res.status(500).json({ success: false, error: 'Failed to save enrichment data' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        enrichment,
+        fields_updated: Object.keys(updateData).length,
+        source: updateData.enrichment_source,
+      },
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/accommodations/:accommodationId/enrich-ai error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/accommodations/:accommodationId/enrich-airbnb
+ * Enrich an Airbnb accommodation using the Airbnb listing API
+ * Fetches photos, amenities, host info, check-in/out times directly from Airbnb
+ */
+router.post('/trips/:tripId/accommodations/:accommodationId/enrich-airbnb', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, accommodationId } = req.params;
+
+    // Verify trip ownership
+    const { data: trip } = await supabase.from('trips').select('id').eq('id', tripId).eq('user_id', userId).single();
+    if (!trip) return res.status(404).json({ success: false, error: 'Trip not found' });
+
+    // Get accommodation
+    const { data: acc } = await supabase.from('trip_accommodations').select('*').eq('id', accommodationId).eq('trip_id', tripId).single();
+    if (!acc) return res.status(404).json({ success: false, error: 'Accommodation not found' });
+
+    // Must have an Airbnb URL
+    const airbnbUrl = acc.website;
+    if (!airbnbUrl || !extractAirbnbListingId(airbnbUrl)) {
+      return res.status(400).json({ success: false, error: 'Accommodation does not have a valid Airbnb listing URL' });
+    }
+
+    const result = await enrichFromAirbnb(tripId, accommodationId, userId, airbnbUrl);
+
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || 'Airbnb enrichment failed' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        photosAdded: result.photosAdded,
+        photosSkipped: result.photosSkipped,
+        fieldsUpdated: result.fieldsUpdated,
+        message: `Enriched from Airbnb. ${result.photosAdded} photos added.`,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/accommodations/:accommodationId/enrich-airbnb error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/accommodations/:accommodationId/upload-confirmation
+ * Upload a confirmation document (PDF/image) for an accommodation
+ */
+router.post('/trips/:tripId/accommodations/:accommodationId/upload-confirmation', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, accommodationId } = req.params;
+    const { file, filename, mimeType } = req.body;
+
+    if (!file || !filename) {
+      return res.status(400).json({ success: false, error: 'file and filename are required' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: `Invalid file type. Allowed: ${allowedTypes.join(', ')}` });
+    }
+
+    // Verify trip ownership
+    const { data: trip } = await supabase.from('trips').select('id').eq('id', tripId).eq('user_id', userId).single();
+    if (!trip) return res.status(404).json({ success: false, error: 'Trip not found' });
+
+    // Verify accommodation belongs to this trip
+    const { data: acc } = await supabase.from('trip_accommodations').select('id, name').eq('id', accommodationId).eq('trip_id', tripId).single();
+    if (!acc) return res.status(404).json({ success: false, error: 'Accommodation not found' });
+
+    // Decode base64
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Validate size (10MB max)
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File too large. Maximum 10MB.' });
+    }
+
+    // Upload to Supabase Storage
+    const ext = filename.split('.').pop() || 'pdf';
+    const storagePath = `travel/${tripId}/confirmations/${accommodationId}/confirmation.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('singularity-uploads')
+      .upload(storagePath, buffer, {
+        contentType: mimeType,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError);
+      return res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+
+    const { data: urlData } = supabase.storage.from('singularity-uploads').getPublicUrl(storagePath);
+    const publicUrl = urlData.publicUrl;
+
+    // Upsert trip_media record (replace existing confirmation doc if any)
+    const { data: existing } = await supabase
+      .from('trip_media')
+      .select('id')
+      .eq('trip_id', tripId)
+      .eq('parent_type', 'accommodation')
+      .eq('parent_id', accommodationId)
+      .eq('media_type', 'document')
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      await supabase.from('trip_media').update({
+        file_url: publicUrl,
+        original_filename: filename,
+        mime_type: mimeType,
+        file_size_bytes: buffer.length,
+      }).eq('id', existing[0].id);
+    } else {
+      await supabase.from('trip_media').insert({
+        trip_id: tripId,
+        user_id: userId,
+        parent_type: 'accommodation',
+        parent_id: accommodationId,
+        file_url: publicUrl,
+        media_type: 'document',
+        original_filename: filename,
+        mime_type: mimeType,
+        file_size_bytes: buffer.length,
+        sort_order: 0,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { fileUrl: publicUrl, filename },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('POST /travel/trips/:tripId/accommodations/:accommodationId/upload-confirmation error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/flights/:flightId/upload-confirmation
+ * Upload a confirmation document (PDF/image) for a flight
+ */
+router.post('/trips/:tripId/flights/:flightId/upload-confirmation', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, flightId } = req.params;
+    const { file, filename, mimeType } = req.body;
+
+    if (!file || !filename) {
+      return res.status(400).json({ success: false, error: 'file and filename are required' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: `Invalid file type. Allowed: ${allowedTypes.join(', ')}` });
+    }
+
+    const { data: trip } = await supabase.from('trips').select('id').eq('id', tripId).eq('user_id', userId).single();
+    if (!trip) return res.status(404).json({ success: false, error: 'Trip not found' });
+
+    const { data: flight } = await supabase.from('trip_flights').select('id').eq('id', flightId).eq('trip_id', tripId).single();
+    if (!flight) return res.status(404).json({ success: false, error: 'Flight not found' });
+
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File too large. Maximum 10MB.' });
+    }
+
+    const ext = filename.split('.').pop() || 'pdf';
+    const storagePath = `travel/${tripId}/confirmations/flights/${flightId}/confirmation.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('singularity-uploads')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError);
+      return res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+
+    const { data: urlData } = supabase.storage.from('singularity-uploads').getPublicUrl(storagePath);
+    const publicUrl = urlData.publicUrl;
+
+    const { data: existing } = await supabase.from('trip_media').select('id')
+      .eq('trip_id', tripId).eq('parent_type', 'flight').eq('parent_id', flightId).eq('media_type', 'document').limit(1);
+
+    if (existing && existing.length > 0) {
+      await supabase.from('trip_media').update({
+        file_url: publicUrl, original_filename: filename, mime_type: mimeType, file_size_bytes: buffer.length,
+      }).eq('id', existing[0].id);
+    } else {
+      await supabase.from('trip_media').insert({
+        trip_id: tripId, user_id: userId, parent_type: 'flight', parent_id: flightId,
+        file_url: publicUrl, media_type: 'document', original_filename: filename,
+        mime_type: mimeType, file_size_bytes: buffer.length, sort_order: 0,
+      });
+    }
+
+    res.json({ success: true, data: { fileUrl: publicUrl, filename }, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('POST flights upload-confirmation error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/v1/travel/trips/:tripId/driving/:drivingId/upload-confirmation
+ * Upload a confirmation document (PDF/image) for a car rental
+ */
+router.post('/trips/:tripId/driving/:drivingId/upload-confirmation', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, drivingId } = req.params;
+    const { file, filename, mimeType } = req.body;
+
+    if (!file || !filename) {
+      return res.status(400).json({ success: false, error: 'file and filename are required' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: `Invalid file type. Allowed: ${allowedTypes.join(', ')}` });
+    }
+
+    const { data: trip } = await supabase.from('trips').select('id').eq('id', tripId).eq('user_id', userId).single();
+    if (!trip) return res.status(404).json({ success: false, error: 'Trip not found' });
+
+    const { data: driving } = await supabase.from('trip_driving').select('id').eq('id', drivingId).eq('trip_id', tripId).single();
+    if (!driving) return res.status(404).json({ success: false, error: 'Driving record not found' });
+
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File too large. Maximum 10MB.' });
+    }
+
+    const ext = filename.split('.').pop() || 'pdf';
+    const storagePath = `travel/${tripId}/confirmations/driving/${drivingId}/confirmation.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('singularity-uploads')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError);
+      return res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+
+    const { data: urlData } = supabase.storage.from('singularity-uploads').getPublicUrl(storagePath);
+    const publicUrl = urlData.publicUrl;
+
+    const { data: existing } = await supabase.from('trip_media').select('id')
+      .eq('trip_id', tripId).eq('parent_type', 'driving').eq('parent_id', drivingId).eq('media_type', 'document').limit(1);
+
+    if (existing && existing.length > 0) {
+      await supabase.from('trip_media').update({
+        file_url: publicUrl, original_filename: filename, mime_type: mimeType, file_size_bytes: buffer.length,
+      }).eq('id', existing[0].id);
+    } else {
+      await supabase.from('trip_media').insert({
+        trip_id: tripId, user_id: userId, parent_type: 'driving', parent_id: drivingId,
+        file_url: publicUrl, media_type: 'document', original_filename: filename,
+        mime_type: mimeType, file_size_bytes: buffer.length, sort_order: 0,
+      });
+    }
+
+    res.json({ success: true, data: { fileUrl: publicUrl, filename }, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('POST driving upload-confirmation error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 

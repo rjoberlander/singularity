@@ -64,19 +64,35 @@ export async function enrichRestaurantDetails(
 
   log('START', { tripId, segmentId });
 
-  // Find restaurants that need enrichment: have google_place_id but no signature_dishes
+  // Find food-related activities that need enrichment: have google_place_id but no signature_dishes.
+  // Cast a wide net: activity_type='restaurant' OR food-related sub_types OR food-related names.
+  // We do a broader query and filter in JS to catch misclassified food places.
   let query = supabase
     .from('trip_activities')
-    .select('id, name, google_place_id, restaurant_details, segment_id')
+    .select('id, name, activity_type, activity_sub_type, google_place_id, restaurant_details, segment_id')
     .eq('trip_id', tripId)
-    .eq('activity_type', 'restaurant')
     .not('google_place_id', 'is', null);
 
   if (segmentId) {
     query = query.eq('segment_id', segmentId);
   }
 
-  const { data: restaurants, error: queryError } = await query;
+  const { data: allActivities, error: queryError } = await query;
+
+  // Filter to food-related activities (broader than just activity_type='restaurant')
+  const FOOD_SUB_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'coffee', 'brunch']);
+  const FOOD_NAME_PATTERNS = [
+    /\b(pastries|pastéis|bakery|café|cafe|gelato|ice\s*cream|nata|pastel|padaria|confeitaria)\b/i,
+    /\b(restaurant|bistro|taverna|tasca|cervejaria|marisqueira|churrasqueira|taberna)\b/i,
+    /\b(seafood|lunch|dinner|breakfast|brunch|snack|tapas|tasting)\b/i,
+  ];
+
+  const restaurants = (allActivities || []).filter(a => {
+    if (a.activity_type === 'restaurant') return true;
+    if (a.activity_sub_type && FOOD_SUB_TYPES.has(a.activity_sub_type)) return true;
+    if (FOOD_NAME_PATTERNS.some(p => p.test(a.name))) return true;
+    return false;
+  });
 
   if (queryError) {
     log('Query error', { error: queryError.message });

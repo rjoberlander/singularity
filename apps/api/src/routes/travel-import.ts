@@ -235,6 +235,50 @@ router.patch('/settings/family-profile', async (req: Request, res: Response): Pr
   }
 });
 
+/**
+ * PATCH /api/v1/travel/settings/meal-preferences
+ * Update only the meal research preferences
+ */
+router.patch('/settings/meal-preferences', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { meal_preferences } = req.body;
+
+    const { data, error } = await supabase
+      .from('travel_settings')
+      .upsert(
+        {
+          user_id: userId,
+          meal_preferences,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 // =============================================
 // TRIP IMPORT
 // =============================================
