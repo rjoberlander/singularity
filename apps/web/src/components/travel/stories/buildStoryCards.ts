@@ -348,7 +348,15 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
         neighborhood: segAccom.neighborhood,
         editorialSummary: segAccom.google_editorial_summary,
         amenities,
-        guestInsights: segAccom.guest_insights,
+        guestInsights: segAccom.guest_insights ? {
+          whatGuestsLove: segAccom.guest_insights.what_guests_love,
+          checkInTips: segAccom.guest_insights.check_in_tips,
+          roomTips: segAccom.guest_insights.room_tips,
+          thingsToKnow: segAccom.guest_insights.things_to_know,
+          familyTips: segAccom.guest_insights.family_tips,
+          bestFeatures: segAccom.guest_insights.best_features,
+          reviewHighlights: segAccom.guest_insights.review_highlights,
+        } : undefined,
         nearbyLandmarks: segAccom.nearby_landmarks?.map((l) => ({
           name: l.name, distance: l.distance, walkMinutes: l.walk_minutes,
         })),
@@ -469,6 +477,15 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             photoUrls: actPhotos,
           });
         } else {
+          // Build practical tips string from practical_details
+          const pd = activity.practical_details;
+          const practicalParts: string[] = [];
+          if (pd?.best_times?.length) practicalParts.push(`Best time: ${pd.best_times.join(", ")}`);
+          if (pd?.getting_there) practicalParts.push(`Getting there: ${pd.getting_there}`);
+          if (pd?.time_needed) practicalParts.push(`Time needed: ${pd.time_needed}`);
+          if (pd?.combo_tickets) practicalParts.push(pd.combo_tickets);
+          if (pd?.avoid_times?.length) practicalParts.push(`Avoid: ${pd.avoid_times.join(", ")}`);
+
           cards.push({
             id: `act-${activity.id}`,
             type: "activity",
@@ -484,11 +501,19 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             description: activity.description,
             whyItsGreat: activity.why_its_great,
             kidFriendliness: activity.kid_friendliness,
+            // Use full deep_dive.what_it_is (no truncation), fall back to deep_dive_content
             deepDiveSnippet: activity.deep_dive?.what_it_is
-              ? activity.deep_dive.what_it_is.length > 140
-                ? activity.deep_dive.what_it_is.slice(0, 137) + "..."
-                : activity.deep_dive.what_it_is
-              : undefined,
+              || activity.deep_dive_content
+              || activity.historical_context
+              || undefined,
+            deepDiveStory: activity.deep_dive?.the_story,
+            whatYoullSee: activity.deep_dive?.what_youll_see?.map(w => ({
+              name: w.name, description: w.description,
+            })),
+            photoSpots: activity.deep_dive?.photo_spots?.map(p => ({
+              name: p.name, tip: p.tip,
+            })),
+            practicalTips: practicalParts.length > 0 ? practicalParts.join(". ") : undefined,
             googleRating: activity.google_rating,
             funFact,
             kidEngagement: activity.kid_engagement,

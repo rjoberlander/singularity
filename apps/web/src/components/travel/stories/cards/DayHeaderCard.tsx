@@ -73,6 +73,33 @@ function splitText(text: string, maxSentences = 3): string[] {
   return chunks.filter((c) => c.length > 0);
 }
 
+/** Split narrative into short readable chunks (~100-140 chars each) */
+function splitNarrative(text: string): string[] {
+  const cleaned = text
+    .replace(/^#+\s+.*/gm, "")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\n{2,}/g, " ")
+    .trim();
+  if (!cleaned) return [];
+
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g) || [cleaned];
+  const chunks: string[] = [];
+  for (const s of sentences) {
+    const t = s.trim();
+    if (!t) continue;
+    if (t.length <= 140) { chunks.push(t); continue; }
+    // Split long sentences by clause boundaries
+    const parts = t.split(/(?<=[,;:—–])\s+/);
+    let cur = "";
+    for (const p of parts) {
+      if (cur && (cur + " " + p).length > 140) { chunks.push(cur.trim()); cur = p; }
+      else cur = cur ? cur + " " + p : p;
+    }
+    if (cur.trim()) chunks.push(cur.trim());
+  }
+  return chunks.filter(c => c.length > 0);
+}
+
 function SectionLabel({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <div className="flex items-center gap-1.5 text-white/60 text-xs uppercase tracking-wider font-semibold mb-2">

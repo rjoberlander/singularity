@@ -21,13 +21,18 @@ const KB_TRANSFORMS = [
 const AUTO_ADVANCE_MS = 3000;
 const MOSAIC_CHUNK_SIZE = 4; // photos per mosaic page
 
+export interface StoryControls {
+  paused: boolean;
+  setPaused: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
 interface PhotoBackgroundProps {
   src?: string;
   photos?: string[];
   isActive: boolean;
   cardId: string;
-  /** Pass activeSlide + totalSlides to children for content that changes per slide */
-  children: React.ReactNode | ((slideIndex: number, totalSlides: number) => React.ReactNode);
+  /** Pass activeSlide + totalSlides + controls to children for content that changes per slide */
+  children: React.ReactNode | ((slideIndex: number, totalSlides: number, controls: StoryControls) => React.ReactNode);
   className?: string;
   /** Mosaic mode: every carousel slide is a tile grid, never a single photo */
   mosaic?: boolean;
@@ -39,6 +44,8 @@ interface PhotoBackgroundProps {
   accentColor?: string;
   /** When true, slide 0 shows a plain background (no photo); photos start from slide 1 */
   blankFirstSlide?: boolean;
+  /** Minimum number of slides — pads with gradient backgrounds when photos run out */
+  minSlides?: number;
 }
 
 /** Split photos into chunks for mosaic pages */
@@ -64,6 +71,7 @@ export function PhotoBackground({
   durationMs,
   accentColor,
   blankFirstSlide,
+  minSlides,
 }: PhotoBackgroundProps) {
   const allPhotos = photos && photos.length > 0 ? photos : src ? [src] : [];
   const hasPhotos = allPhotos.length > 0;
@@ -74,7 +82,8 @@ export function PhotoBackground({
   );
   const blankOffset = blankFirstSlide ? 1 : 0;
   const photoSlideCount = mosaic ? mosaicPages.length : allPhotos.length;
-  const totalSlides = photoSlideCount + blankOffset;
+  const rawTotal = photoSlideCount + blankOffset;
+  const totalSlides = minSlides ? Math.max(rawTotal, minSlides) : rawTotal;
   const hasMultiple = totalSlides > 1;
 
   const [activeSlide, setActiveSlide] = useState(0);
@@ -126,11 +135,13 @@ export function PhotoBackground({
   const goNext = useCallback(() => {
     setActiveSlide((prev) => (prev + 1) % totalSlides);
     setProgressPct(0);
+    setPaused(false); // resume on manual nav
   }, [totalSlides]);
 
   const goPrev = useCallback(() => {
     setActiveSlide((prev) => (prev - 1 + totalSlides) % totalSlides);
     setProgressPct(0);
+    setPaused(false); // resume on manual nav
   }, [totalSlides]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -263,7 +274,7 @@ export function PhotoBackground({
 
       {/* Content */}
       <div className="relative z-10 h-full w-full">
-        {typeof children === "function" ? children(activeSlide, totalSlides) : children}
+        {typeof children === "function" ? children(activeSlide, totalSlides, { paused, setPaused }) : children}
       </div>
     </div>
   );

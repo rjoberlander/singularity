@@ -130,6 +130,10 @@ export interface ActivityStoryCard extends StoryCardBase {
   whyItsGreat?: string;
   kidFriendliness?: string;
   deepDiveSnippet?: string;
+  deepDiveStory?: string;
+  whatYoullSee?: Array<{ name: string; description?: string }>;
+  photoSpots?: Array<{ name: string; tip?: string }>;
+  practicalTips?: string;
   googleRating?: number;
   funFact?: string;
   kidEngagement?: {
