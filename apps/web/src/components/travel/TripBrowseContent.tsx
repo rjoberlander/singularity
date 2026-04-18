@@ -555,7 +555,7 @@ function BrowseActivityCard({
                                 </Badge>
                               )}
                             </div>
-                            {activity.opening_hours.weekday_text.map((line, i) => (
+                            {Array.isArray(activity.opening_hours.weekday_text) && activity.opening_hours.weekday_text.map((line, i) => (
                               <p key={i} className="text-xs text-muted-foreground">{line}</p>
                             ))}
                           </div>
@@ -801,7 +801,7 @@ function BrowseActivityCard({
                 )}
 
                 {/* Deep Dive - Interesting Facts */}
-                {(activity as any).deep_dive?.interesting_facts && (activity as any).deep_dive.interesting_facts.length > 0 && (
+                {Array.isArray((activity as any).deep_dive?.interesting_facts) && (activity as any).deep_dive.interesting_facts.length > 0 && (
                   <div className="text-sm">
                     <div className="font-medium mb-0.5">Interesting Facts</div>
                     <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
@@ -845,7 +845,7 @@ function BrowseActivityCard({
             )}
 
             {/* Photo spots */}
-            {(activity as any).deep_dive?.photo_spots && (activity as any).deep_dive.photo_spots.length > 0 && (
+            {Array.isArray((activity as any).deep_dive?.photo_spots) && (activity as any).deep_dive.photo_spots.length > 0 && (
               <div className="text-sm">
                 <div className="font-medium mb-0.5">Photo Spots</div>
                 {(activity as any).deep_dive.photo_spots.map((spot: any, i: number) => (
@@ -882,7 +882,7 @@ function BrowseActivityCard({
             )}
 
             {/* What to See */}
-            {activity.what_to_see && activity.what_to_see.length > 0 && (
+            {Array.isArray(activity.what_to_see) && activity.what_to_see.length > 0 && (
               <div className="text-sm">
                 <div className="flex items-center gap-1.5 font-medium mb-0.5"><Eye className="h-3.5 w-3.5" /> What to See</div>
                 <div className="space-y-1">
@@ -1028,10 +1028,10 @@ function BrowseActivityCard({
                   {activity.restaurant_details.highchair && <Badge variant="secondary" className="text-[10px]">Highchair</Badge>}
                   {activity.restaurant_details.kids_menu && <Badge variant="secondary" className="text-[10px]">Kids Menu</Badge>}
                   {activity.restaurant_details.seating && <Badge variant="secondary" className="text-[10px]">{activity.restaurant_details.seating === 'both' ? 'Indoor & Outdoor' : activity.restaurant_details.seating === 'outdoor' ? 'Outdoor Seating' : 'Indoor'}</Badge>}
-                  {activity.restaurant_details.dietary_options && activity.restaurant_details.dietary_options.length > 0 && activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}
+                  {Array.isArray(activity.restaurant_details.dietary_options) && activity.restaurant_details.dietary_options.length > 0 && activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}
                 </div>
                 {/* Must-Try Dishes */}
-                {activity.restaurant_details.signature_dishes && activity.restaurant_details.signature_dishes.length > 0 && (
+                {Array.isArray(activity.restaurant_details.signature_dishes) && activity.restaurant_details.signature_dishes.length > 0 && (
                   <div className="space-y-1.5">
                     <div className="font-medium text-xs text-orange-800 dark:text-orange-300">Must-Try Dishes</div>
                     {activity.restaurant_details.signature_dishes.map((dish, i) => (
@@ -1098,10 +1098,10 @@ function BrowseActivityCard({
                     {(activity.practical_details as any).ticket_price.source && <span className="text-[10px] text-muted-foreground w-full">Source: {(activity.practical_details as any).ticket_price.source}</span>}
                   </div>
                 )}
-                {activity.practical_details.best_times && activity.practical_details.best_times.length > 0 && (
+                {Array.isArray(activity.practical_details.best_times) && activity.practical_details.best_times.length > 0 && (
                   <div><span className="text-muted-foreground">Best times: </span><span className="font-medium">{activity.practical_details.best_times.join(", ")}</span></div>
                 )}
-                {activity.practical_details.avoid_times && activity.practical_details.avoid_times.length > 0 && (
+                {Array.isArray(activity.practical_details.avoid_times) && activity.practical_details.avoid_times.length > 0 && (
                   <div><span className="text-muted-foreground">Avoid: </span><span className="font-medium text-amber-600">{activity.practical_details.avoid_times.join(", ")}</span></div>
                 )}
                 {activity.practical_details.getting_there && (

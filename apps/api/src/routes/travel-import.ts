@@ -297,6 +297,62 @@ router.post('/import', async (req: Request, res: Response): Promise<any> => {
     const payload: TripImportPayload = req.body.payload;
     const options: TripImportOptions = req.body.options || {};
 
+    // ── Sanitize family names in imported content ──
+    // Research JSON may contain specific family names from the AI generation session
+    // that don't match the actual user. Replace with generic references.
+    try {
+      const { data: settings } = await supabase
+        .from('travel_settings')
+        .select('family_profile')
+        .eq('user_id', userId)
+        .single();
+
+      const actualFamilyName = (settings?.family_profile as any)?.family?.name;
+
+      // Detect family names in the payload that aren't the user's actual name
+      // Common patterns: "the X family", "the Xs", "X family"
+      const payloadStr = JSON.stringify(payload);
+      const familyNameRegex = /(?:the\s+)?(\b[A-Z][a-z]+)\s+family/g;
+      const detectedNames = new Set<string>();
+      let match;
+      while ((match = familyNameRegex.exec(payloadStr)) !== null) {
+        const name = match[1];
+        // Skip if it matches actual family name, or is a common word
+        if (name === actualFamilyName) continue;
+        if (['Royal', 'Holy', 'Imperial', 'National', 'Local', 'Portuguese', 'Host'].includes(name)) continue;
+        detectedNames.add(name);
+      }
+
+      if (detectedNames.size > 0) {
+        console.log(`[Import] Sanitizing family names: ${[...detectedNames].join(', ')} → generic`);
+        // Deep-replace all string values in the payload
+        const sanitize = (obj: any): any => {
+          if (typeof obj === 'string') {
+            let result = obj;
+            for (const name of detectedNames) {
+              result = result.replace(new RegExp(`the ${name} family`, 'gi'), 'your family');
+              result = result.replace(new RegExp(`The ${name} family`, 'g'), 'Your family');
+              result = result.replace(new RegExp(`the ${name}s `, 'gi'), 'the family ');
+              result = result.replace(new RegExp(`The ${name}s `, 'g'), 'The family ');
+              result = result.replace(new RegExp(`${name} family`, 'gi'), 'the family');
+            }
+            return result;
+          }
+          if (Array.isArray(obj)) return obj.map(sanitize);
+          if (obj && typeof obj === 'object') {
+            const out: any = {};
+            for (const [k, v] of Object.entries(obj)) out[k] = sanitize(v);
+            return out;
+          }
+          return obj;
+        };
+        Object.assign(payload, sanitize(payload));
+      }
+    } catch (sanitizeErr) {
+      // Non-fatal — continue with import even if sanitization fails
+      console.error('[Import] Family name sanitization error (non-fatal):', sanitizeErr);
+    }
+
     // Set defaults
     const opts = {
       create_trip: options.trip_id ? false : true,

@@ -27,6 +27,11 @@ function asString(v: unknown): string | undefined {
   return undefined;
 }
 
+/** Safely coerce a DB JSON value to an array — returns [] if not an array */
+function asArray<T = unknown>(v: unknown): T[] {
+  return Array.isArray(v) ? v : [];
+}
+
 // ─── Kid engagement normalizer ────────────────────────────────────
 // DB stores kid_engagement in two formats:
 //   1. Age-based: { age_7: string[], age_5: string[], age_3: string[], general: string[] }
@@ -338,22 +343,22 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
       dateRange: formatDateRange(segment.start_date, segment.end_date),
       dayCount: segDays.length,
       cityIntro: ci?.intro || ci?.overview,
-      deepHistorySections: (ci?.deep_history as any)?.sections?.map((s: any) => ({
+      deepHistorySections: asArray((ci?.deep_history as any)?.sections).map((s: any) => ({
         title: s.title, content: s.content, relevance: s.relevance,
       })),
       cultureOverview: (ci?.culture as any)?.overview,
-      cultureTraditions: (ci?.culture as any)?.traditions?.slice(0, 4)?.map((t: any) => ({
+      cultureTraditions: asArray((ci?.culture as any)?.traditions).slice(0, 4).map((t: any) => ({
         name: t.name, story: t.story, whereTo: t.where_to_experience,
       })),
       cuisineOverview: (ci?.cuisine as any)?.overview,
-      cuisineHighlights: (ci?.cuisine as any)?.signature_foods?.slice(0, 5)?.map((f: any) => ({
+      cuisineHighlights: asArray((ci?.cuisine as any)?.signature_foods).slice(0, 5).map((f: any) => ({
         name: f.name, story: f.story, whereTo: f.where_to_try,
       })),
       weatherSummary: segment.weather_summary,
-      languages: segment.languages,
+      languages: Array.isArray(segment.languages) ? segment.languages : undefined,
       population: segment.population,
       localCurrency: segment.local_currency,
-      mainAttractions: segment.main_attractions?.slice(0, 6),
+      mainAttractions: asArray<{ name: string; description?: string }>(segment.main_attractions).slice(0, 6),
     });
 
     // ── Card B: Your Trip ──
@@ -383,10 +388,10 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
       } : undefined,
       drivingFromPrevious: segment.driving_from_previous,
       drivingNotes: segment.driving_notes,
-      packingItems: segment.packing_list?.slice(0, 6)?.map((p) => ({
+      packingItems: asArray(segment.packing_list).slice(0, 6).map((p: any) => ({
         item: p.item, why: p.why || p.notes,
       })),
-      bookingPriorities: segment.booking_priorities?.book_now?.slice(0, 4)?.map((b) => ({
+      bookingPriorities: asArray(segment.booking_priorities?.book_now).slice(0, 4).map((b: any) => ({
         item: b.item, reason: b.reason,
       })),
     });
@@ -442,7 +447,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
           bestFeatures: segAccom.guest_insights.best_features,
           reviewHighlights: segAccom.guest_insights.review_highlights,
         } : undefined,
-        nearbyLandmarks: segAccom.nearby_landmarks?.map((l) => ({
+        nearbyLandmarks: asArray(segAccom.nearby_landmarks).map((l: any) => ({
           name: l.name, distance: l.distance, walkMinutes: l.walk_minutes,
         })),
         parkingInfo: pk ? (pk.available ? `${pk.type || "Available"}${pk.free ? " (free)" : pk.cost_per_day ? ` €${pk.cost_per_day}/day` : ""}${pk.notes ? ` — ${pk.notes}` : ""}` : "No parking") : undefined,
@@ -509,7 +514,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
         weatherHigh: day.weather_high_c,
         weatherLow: day.weather_low_c,
         weatherConditions: day.weather_conditions,
-        photoOpportunities: day.photo_opportunities,
+        photoOpportunities: asArray(day.photo_opportunities),
         backupPlan: bp ? {
           if_rain: (bp as any).if_rain,
           if_tired: (bp as any).if_tired,
@@ -553,7 +558,7 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
             cuisineType: rd?.cuisine_type,
             priceLevel: activity.google_price_level,
             googleRating: activity.google_rating,
-            signatureDishes: (rd?.signature_dishes || []).slice(0, 3),
+            signatureDishes: asArray<{ name: string; description: string }>(rd?.signature_dishes).slice(0, 3),
             localInsight: rd?.local_insight,
             familyTips: rd?.family_tips,
             ambience: rd?.ambience,
@@ -565,11 +570,11 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
           // Build practical tips string from practical_details
           const pd = activity.practical_details;
           const practicalParts: string[] = [];
-          if (pd?.best_times?.length) practicalParts.push(`Best time: ${pd.best_times.join(", ")}`);
+          if (Array.isArray(pd?.best_times) && pd.best_times.length) practicalParts.push(`Best time: ${pd.best_times.join(", ")}`);
           if (pd?.getting_there) practicalParts.push(`Getting there: ${pd.getting_there}`);
           if (pd?.time_needed) practicalParts.push(`Time needed: ${pd.time_needed}`);
           if (pd?.combo_tickets) practicalParts.push(pd.combo_tickets);
-          if (pd?.avoid_times?.length) practicalParts.push(`Avoid: ${pd.avoid_times.join(", ")}`);
+          if (Array.isArray(pd?.avoid_times) && pd.avoid_times.length) practicalParts.push(`Avoid: ${pd.avoid_times.join(", ")}`);
 
           cards.push({
             id: `act-${activity.id}`,
@@ -592,10 +597,10 @@ export function buildStoryCards(trip: TripFull): StoryCard[] {
               || asString(activity.historical_context)
               || undefined,
             deepDiveStory: asString(activity.deep_dive?.the_story),
-            whatYoullSee: activity.deep_dive?.what_youll_see?.map(w => ({
+            whatYoullSee: asArray(activity.deep_dive?.what_youll_see).map((w: any) => ({
               name: w.name, description: w.description,
             })),
-            photoSpots: activity.deep_dive?.photo_spots?.map(p => ({
+            photoSpots: asArray(activity.deep_dive?.photo_spots).map((p: any) => ({
               name: p.name, tip: p.tip,
             })),
             practicalTips: practicalParts.length > 0 ? practicalParts.join(". ") : undefined,

@@ -75,7 +75,14 @@ export function StoryViewer({ trip, tripId }: StoryViewerProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
-  const allCards = useMemo(() => buildStoryCards(trip as any), [trip]);
+  const allCards = useMemo(() => {
+    try {
+      return buildStoryCards(trip as any);
+    } catch (e) {
+      console.error("buildStoryCards error:", e);
+      return [];
+    }
+  }, [trip]);
   const cards = useMemo(() => filterCards(allCards, filter), [allCards, filter]);
 
   // Reset scroll position when filter changes
