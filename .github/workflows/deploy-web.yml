@@ -9,6 +9,12 @@ on:
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:  # Allow manual trigger
 
+# Serialize droplet deploys — 2GB RAM can't survive parallel npm installs
+# from API + web. Without this, both jobs fight for CPU/memory and time out.
+concurrency:
+  group: do-droplet-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -20,7 +26,7 @@ jobs:
           host: ${{ secrets.DO_WEB_HOST }}
           username: deploy
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
-          command_timeout: 20m
+          command_timeout: 35m
           script: |
             # Fail fast — earlier versions of this script ran the whole
             # pipeline even when npm install / next build failed, causing
