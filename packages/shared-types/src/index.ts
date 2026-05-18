@@ -1743,6 +1743,9 @@ export type TripActivityPriority = 'must_do' | 'recommended' | 'optional' | 'if_
 // Activity confirmation status
 export type TripActivityConfirmation = 'unconfirmed' | 'pending' | 'confirmed' | 'cancelled';
 
+// Advance booking level — whether booking ahead of time is needed
+export type TripAdvanceBooking = 'required' | 'recommended';
+
 // Trip Activity
 export interface TripActivity {
   id: string;
@@ -1773,6 +1776,7 @@ export interface TripActivity {
   booking_url?: string;  // Direct booking/reservation URL
   phone?: string;
   reservation_required: boolean;
+  advance_booking?: TripAdvanceBooking;  // 'required' | 'recommended' — whether to book ahead
   reservation_details?: string;
   confirmation_status?: TripActivityConfirmation;
   confirmation_number?: string;
@@ -1914,6 +1918,7 @@ export interface CreateTripActivityRequest {
   booking_url?: string;
   phone?: string;
   reservation_required?: boolean;
+  advance_booking?: TripAdvanceBooking;
   reservation_details?: string;
   confirmation_status?: TripActivityConfirmation;
   confirmation_number?: string;
@@ -2605,6 +2610,7 @@ export interface TripResearchItem {
   cost_currency: string;
   cost_breakdown: CostBreakdown | null;  // v2
   reservation_required: boolean | null;
+  advance_booking: string | null;  // 'required' | 'recommended'
   reservation_details: string | null;  // v2
   booking_url: string | null;
   website: string | null;
@@ -2833,6 +2839,7 @@ export interface TripImportResearchItem {
   cost_estimate_value?: number;
   cost_currency?: string;
   reservation_required?: boolean;
+  advance_booking?: TripAdvanceBooking;
   booking_url?: string;
   website?: string;
   phone?: string;

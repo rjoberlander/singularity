@@ -36,7 +36,8 @@
   },
   "homepage": "https://github.com/rjoberlander/singularity#readme",
   "dependencies": {
-    "@supabase/supabase-js": "^2.89.0"
+    "@supabase/supabase-js": "^2.89.0",
+    "concurrently": "^9.2.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

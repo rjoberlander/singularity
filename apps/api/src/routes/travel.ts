@@ -7934,4 +7934,103 @@ router.post('/trips/:tripId/driving/:drivingId/upload-confirmation', authenticat
   }
 });
 
+/**
+ * POST /api/v1/travel/trips/:tripId/activities/:activityId/upload-confirmation
+ * Upload a confirmation document (PDF/image) for an activity
+ */
+router.post('/trips/:tripId/activities/:activityId/upload-confirmation', authenticateUser, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const { tripId, activityId } = req.params;
+    const { file, filename, mimeType } = req.body;
+
+    if (!file || !filename) {
+      return res.status(400).json({ success: false, error: 'file and filename are required' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: `Invalid file type. Allowed: ${allowedTypes.join(', ')}` });
+    }
+
+    // Verify trip ownership
+    const { data: trip } = await supabase.from('trips').select('id').eq('id', tripId).eq('user_id', userId).single();
+    if (!trip) return res.status(404).json({ success: false, error: 'Trip not found' });
+
+    // Verify activity belongs to this trip
+    const { data: activity } = await supabase.from('trip_activities').select('id, name').eq('id', activityId).eq('trip_id', tripId).single();
+    if (!activity) return res.status(404).json({ success: false, error: 'Activity not found' });
+
+    // Decode base64
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File too large. Maximum 10MB.' });
+    }
+
+    // Upload to Supabase Storage
+    const ext = filename.split('.').pop() || 'pdf';
+    const storagePath = `travel/${tripId}/confirmations/activities/${activityId}/confirmation.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('singularity-uploads')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError);
+      return res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+
+    const { data: urlData } = supabase.storage.from('singularity-uploads').getPublicUrl(storagePath);
+    const publicUrl = urlData.publicUrl;
+
+    // Upsert trip_media record
+    const { data: existing } = await supabase
+      .from('trip_media')
+      .select('id')
+      .eq('trip_id', tripId)
+      .eq('parent_type', 'activity')
+      .eq('parent_id', activityId)
+      .eq('media_type', 'document')
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      await supabase.from('trip_media').update({
+        file_url: publicUrl,
+        original_filename: filename,
+        mime_type: mimeType,
+        file_size_bytes: buffer.length,
+      }).eq('id', existing[0].id);
+    } else {
+      await supabase.from('trip_media').insert({
+        trip_id: tripId,
+        user_id: userId,
+        parent_type: 'activity',
+        parent_id: activityId,
+        file_url: publicUrl,
+        media_type: 'document',
+        original_filename: filename,
+        mime_type: mimeType,
+        file_size_bytes: buffer.length,
+        sort_order: 0,
+      });
+    }
+
+    // Auto-update confirmation_status to confirmed
+    await supabase.from('trip_activities').update({
+      confirmation_status: 'confirmed',
+    }).eq('id', activityId);
+
+    res.json({
+      success: true,
+      data: { fileUrl: publicUrl, filename },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('POST activity upload-confirmation error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 export default router;

@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   parseLocalDate,
   getTimeBlockLabel,
+  API_URL,
+  useUpdateTripActivity,
+  useTripFull,
 } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import type {
   Trip,
   TripActivity,
@@ -67,11 +72,42 @@ import {
   Wind,
   PawPrint,
   Sparkles,
+  Filter,
+  CalendarClock,
+  Upload,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { DayRouteMap } from "@/components/travel/DayRouteMap";
 import { ActivityPhotoCarousel } from "@/components/travel/ActivityPhotoCarousel";
+
+// ─── Advance booking detection ───────────────────────────────────────
+const BOOKING_PATTERNS = /\bbook\b|reserv|advance|pre-?book|ticket.*ahead|secure.*slot|book.*quickly/i;
+
+function getAdvanceBooking(activity: TripActivity): 'required' | 'recommended' | null {
+  // Explicit DB field takes priority
+  if ((activity as any).advance_booking) return (activity as any).advance_booking;
+  if (activity.reservation_required) return 'required';
+
+  // Check text fields for booking signals
+  const pd = activity.practical_details;
+  if (pd) {
+    const bestTimes = pd.best_times || [];
+    const avoidTimes = pd.avoid_times || [];
+    for (const t of bestTimes) {
+      if (BOOKING_PATTERNS.test(t)) return 'recommended';
+    }
+    for (const t of avoidTimes) {
+      if (BOOKING_PATTERNS.test(t)) return 'recommended';
+    }
+  }
+  if (activity.reservation_details && BOOKING_PATTERNS.test(activity.reservation_details)) {
+    return 'recommended';
+  }
+  return null;
+}
 
 // ─── Time-of-day color system ────────────────────────────────────────
 function getTimeColor(time: string | null | undefined) {
@@ -362,6 +398,11 @@ function BrowseActivityCard({
   lodgingHref,
   segmentLocationName,
   isFirstHotelRef,
+  tripId,
+  confirmationDoc,
+  onConfirmationToggle,
+  onUploadConfirmation,
+  uploadingActivityId,
 }: {
   activity: TripActivity;
   media: Array<{ id: string; file_url: string; caption?: string | null; is_google_sourced?: boolean; approved?: boolean | null; google_attribution_name?: string | null }>;
@@ -373,6 +414,11 @@ function BrowseActivityCard({
   lodgingHref?: string;
   segmentLocationName?: string;
   isFirstHotelRef?: boolean;
+  tripId: string;
+  confirmationDoc?: { url: string; name: string } | null;
+  onConfirmationToggle?: (activityId: string, confirmed: boolean) => void;
+  onUploadConfirmation?: (activityId: string, file: File) => void;
+  uploadingActivityId?: string | null;
 }) {
   const isTransport = activity.activity_type === "transport";
 
@@ -577,6 +623,15 @@ function BrowseActivityCard({
                     </a>
                   )}
                 </div>
+                {/* Best time tag */}
+                {Array.isArray(activity.practical_details?.best_times) && activity.practical_details!.best_times!.length > 0 && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      <CalendarClock className="h-3 w-3" />
+                      Best time: {activity.practical_details!.best_times!.join(", ")}
+                    </span>
+                  </div>
+                )}
                 {/* Address + Phone */}
                 <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                   {(activity.address || displayLocation) && (
@@ -612,20 +667,35 @@ function BrowseActivityCard({
                   {activity.cost_estimate}{activity.cost_currency && ` ${activity.cost_currency}`}
                 </Badge>
               )}
-              {/* Duration is now shown inline in the time pill */}
-              {activity.reservation_required && (
-                <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 dark:text-amber-400">
-                  <Ticket className="h-3 w-3 mr-0.5" />Reservation
-                </Badge>
-              )}
+              {/* Advance booking badge */}
+              {(() => {
+                const bookingLevel = getAdvanceBooking(activity);
+                if (!bookingLevel) return null;
+                return bookingLevel === 'required' ? (
+                  <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 dark:text-amber-400">
+                    <Ticket className="h-3 w-3 mr-0.5" />Booking Required
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs border-sky-500 text-sky-600 dark:text-sky-400">
+                    <Ticket className="h-3 w-3 mr-0.5" />Booking Recommended
+                  </Badge>
+                );
+              })()}
               {activity.confirmation_status === "confirmed" && (
                 <Badge className="text-xs bg-green-600"><CheckCircle className="h-3 w-3 mr-0.5" />Confirmed</Badge>
               )}
-              {activity.reservation_required && activity.confirmation_status !== "confirmed" && (
-                <Badge variant="destructive" className="text-xs animate-pulse">
-                  <AlertTriangle className="h-3 w-3 mr-0.5" />Book Now!
-                </Badge>
-              )}
+              {getAdvanceBooking(activity) && activity.confirmation_status !== "confirmed" && (() => {
+                const bookUrl = activity.booking_url
+                  || activity.website
+                  || `https://www.google.com/search?q=${encodeURIComponent(activity.name + ' tickets booking')}`;
+                return (
+                  <a href={bookUrl} target="_blank" rel="noopener noreferrer">
+                    <Badge variant="destructive" className="text-xs animate-pulse cursor-pointer hover:opacity-80">
+                      <AlertTriangle className="h-3 w-3 mr-0.5" />Book Now!<ExternalLink className="h-2.5 w-2.5 ml-0.5" />
+                    </Badge>
+                  </a>
+                );
+              })()}
               {activity.alltrails_url && (
                 <a href={activity.alltrails_url} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1 text-xs text-primary hover:underline">
@@ -646,6 +716,56 @@ function BrowseActivityCard({
                 </>
               )}
             </div>
+
+            {/* Booking confirmation & upload — shown for activities needing advance booking */}
+            {getAdvanceBooking(activity) && (
+              <div className="flex items-center gap-3 flex-wrap p-2 rounded-lg bg-muted/50 text-sm">
+                {/* Confirmed checkbox */}
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-muted-foreground/50 accent-green-600"
+                    checked={activity.confirmation_status === 'confirmed'}
+                    onChange={(e) => onConfirmationToggle?.(activity.id, e.target.checked)}
+                  />
+                  <span className={cn("text-xs font-medium", activity.confirmation_status === 'confirmed' ? "text-green-600" : "text-muted-foreground")}>
+                    Confirmed
+                  </span>
+                </label>
+
+                {/* Confirmation document */}
+                {confirmationDoc ? (
+                  <a href={confirmationDoc.url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-primary hover:underline">
+                    <FileText className="h-3 w-3" />
+                    {confirmationDoc.name}
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                ) : (
+                  <label className={cn(
+                    "flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded border border-dashed transition-colors",
+                    "border-muted-foreground/30 text-muted-foreground hover:border-primary hover:text-primary"
+                  )}>
+                    {uploadingActivityId === activity.id ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" /><span>Uploading...</span></>
+                    ) : (
+                      <><Upload className="h-3 w-3" /><span>Upload confirmation</span></>
+                    )}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,.pdf"
+                      disabled={uploadingActivityId === activity.id}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) onUploadConfirmation?.(activity.id, f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
 
             {/* Hotel info card — shown only on first hotel reference per segment */}
             {isFirstHotelRef && accommodation && (
@@ -810,39 +930,58 @@ function BrowseActivityCard({
                   </div>
                 )}
 
-                {/* Deep Dive - What You'll See — also require that at least one area has
-                    a name or non-empty highlights, so we don't render an empty header */}
-                {(() => {
-                  const wys = (activity as any).deep_dive?.what_youll_see;
-                  const hasContent = Array.isArray(wys) && wys.some((a: any) =>
-                    (a?.name && String(a.name).trim().length > 0) ||
-                    (Array.isArray(a?.highlights) && a.highlights.length > 0)
-                  );
-                  if (!hasContent) return null;
-                  return (
-                    <div className="text-sm">
-                      <div className="flex items-center gap-1.5 font-medium mb-0.5"><Eye className="h-3.5 w-3.5" /> What You'll See</div>
-                      <div className="space-y-1.5">
-                        {wys.map((area: any, idx: number) => {
-                          if (!area?.name && !(area?.highlights?.length)) return null;
-                          return (
-                            <div key={idx} className="p-2 bg-muted/50 rounded">
-                              {area.name && <p className="font-medium text-sm">{area.name}</p>}
-                              {area.highlights?.map((h: any, hIdx: number) => (
-                                <div key={hIdx} className="ml-3 mt-0.5">
-                                  {h.name && <p className="text-xs font-medium">{h.name}</p>}
-                                  {h.description && <p className="text-xs text-muted-foreground">{h.description}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
               </>
             )}
+          </div>{/* end left column */}
+
+          {/* Right: photos (desktop only — 2-col grid) */}
+          {photos.length > 0 && (
+            <div className="hidden md:block w-[280px] lg:w-[340px] shrink-0 p-2 border-l">
+              <ActivityPhotoCarousel
+                photos={photos}
+                activityName={activity.name}
+                variant="grid"
+              />
+            </div>
+          )}
+        </div>{/* end md:flex top section */}
+
+        {/* ── Full-width bottom section: two-column grid ── */}
+        <div className="p-3 md:p-4 pt-0 space-y-2">
+          <div className="md:grid md:grid-cols-2 gap-x-4 gap-y-2">
+            {/* Left column: What You'll See, Photo Spots, What to See, History, Architecture */}
+            <div className="space-y-2">
+
+            {/* What You'll See (moved from deep_dive block to full-width) */}
+            {(() => {
+              const wys2 = (activity as any).deep_dive?.what_youll_see;
+              const hasWys = Array.isArray(wys2) && wys2.some((a: any) =>
+                (a?.name && String(a.name).trim().length > 0) ||
+                (Array.isArray(a?.highlights) && a.highlights.length > 0)
+              );
+              if (!hasWys) return null;
+              return (
+                <div className="text-sm">
+                  <div className="flex items-center gap-1.5 font-medium mb-0.5"><Eye className="h-3.5 w-3.5" /> What You'll See</div>
+                  <div className="space-y-1.5">
+                    {wys2.map((area: any, idx: number) => {
+                      if (!area?.name && !(area?.highlights?.length)) return null;
+                      return (
+                        <div key={idx} className="p-2 bg-muted/50 rounded">
+                          {area.name && <p className="font-medium text-sm">{area.name}</p>}
+                          {area.highlights?.map((h: any, hIdx: number) => (
+                            <div key={hIdx} className="ml-3 mt-0.5">
+                              {h.name && <p className="text-xs font-medium">{h.name}</p>}
+                              {h.description && <p className="text-xs text-muted-foreground">{h.description}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Photo spots */}
             {Array.isArray((activity as any).deep_dive?.photo_spots) && (activity as any).deep_dive.photo_spots.length > 0 && (
@@ -896,7 +1035,10 @@ function BrowseActivityCard({
                 </div>
               </div>
             )}
+            </div>{/* end left column of full-width section */}
 
+            {/* Right column: Kids, Restaurant, Practical, Accessibility, Gear, Warnings, Notes */}
+            <div className="space-y-2">
             {/* Kid friendliness (string) + rating */}
             {activity.kid_friendliness && (
               <div className="text-sm">
@@ -911,108 +1053,6 @@ function BrowseActivityCard({
                   )}
                 </div>
                 <p className="text-muted-foreground">{activity.kid_friendliness}</p>
-              </div>
-            )}
-
-            {/* Kid Engagement - 3 columns on desktop for named children */}
-            {activity.kid_engagement && (
-              <div className="text-sm">
-                <div className="flex items-center gap-1.5 font-medium mb-1"><Baby className="h-3.5 w-3.5" /> Kid Engagement</div>
-                {/* Named children in 3-col grid on desktop */}
-                {((activity.kid_engagement as any).parker?.scripts?.length > 0 ||
-                  (activity.kid_engagement as any).charlotte?.scripts?.length > 0 ||
-                  (activity.kid_engagement as any).xander?.scripts?.length > 0) && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-                    {(activity.kid_engagement as any).parker?.scripts?.length > 0 && (
-                      <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                        <div className="flex items-center gap-1 mb-1">
-                          <Badge className="bg-blue-600 text-xs">Parker</Badge>
-                          {(activity.kid_engagement as any).parker.age_at_trip && (
-                            <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).parker.age_at_trip}</span>
-                          )}
-                        </div>
-                        <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                          {(activity.kid_engagement as any).parker.scripts.map((s: string, i: number) => (
-                            <li key={i} className="italic text-xs">"{s}"</li>
-                          ))}
-                        </ul>
-                        {(activity.kid_engagement as any).parker.activities && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {(activity.kid_engagement as any).parker.activities.map((a: string, i: number) => (
-                              <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {(activity.kid_engagement as any).charlotte?.scripts?.length > 0 && (
-                      <div className="p-2 bg-pink-50 dark:bg-pink-900/20 rounded-lg">
-                        <div className="flex items-center gap-1 mb-1">
-                          <Badge className="bg-pink-600 text-xs">Charlotte</Badge>
-                          {(activity.kid_engagement as any).charlotte.age_at_trip && (
-                            <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).charlotte.age_at_trip}</span>
-                          )}
-                        </div>
-                        <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                          {(activity.kid_engagement as any).charlotte.scripts.map((s: string, i: number) => (
-                            <li key={i} className="italic text-xs">"{s}"</li>
-                          ))}
-                        </ul>
-                        {(activity.kid_engagement as any).charlotte.activities && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {(activity.kid_engagement as any).charlotte.activities.map((a: string, i: number) => (
-                              <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {(activity.kid_engagement as any).xander?.scripts?.length > 0 && (
-                      <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                        <div className="flex items-center gap-1 mb-1">
-                          <Badge className="bg-green-600 text-xs">Xander</Badge>
-                          {(activity.kid_engagement as any).xander.age_at_trip && (
-                            <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).xander.age_at_trip}</span>
-                          )}
-                          {(activity.kid_engagement as any).xander.carrier_needed && (
-                            <span className="text-xs text-amber-600">Carrier</span>
-                          )}
-                        </div>
-                        <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                          {(activity.kid_engagement as any).xander.scripts.map((s: string, i: number) => (
-                            <li key={i} className="italic text-xs">"{s}"</li>
-                          ))}
-                        </ul>
-                        {(activity.kid_engagement as any).xander.attention_span && (
-                          <p className="text-xs text-amber-600 mt-1">{(activity.kid_engagement as any).xander.attention_span}</p>
-                        )}
-                        {(activity.kid_engagement as any).xander.activities && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {(activity.kid_engagement as any).xander.activities.map((a: string, i: number) => (
-                              <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {/* Conversation starters + Games */}
-                {(activity.kid_engagement as any).conversation_starters?.length > 0 && (
-                  <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Conversation Starters</Badge>
-                    <ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).conversation_starters.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
-                  </div>
-                )}
-                {(activity.kid_engagement as any).games?.length > 0 && (
-                  <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Games</Badge>
-                    <ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).games.map((g: string, i: number) => <li key={i}>{g}</li>)}</ul>
-                  </div>
-                )}
-                {/* Legacy age-based */}
-                {activity.kid_engagement.age_7?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-                {activity.kid_engagement.age_5?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-                {activity.kid_engagement.age_3?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-                {activity.kid_engagement.general?.length ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
               </div>
             )}
 
@@ -1165,36 +1205,67 @@ function BrowseActivityCard({
                 <p className="text-muted-foreground text-xs">{activity.notes}</p>
               </div>
             )}
+            </div>{/* end right column */}
+          </div>{/* end two-column grid */}
 
-            {/* Alternatives */}
-            {alternatives.length > 0 && (
-              <div className="text-sm border-t pt-2">
-                <div className="flex items-center gap-1.5 font-medium mb-1"><ArrowLeftRight className="h-3.5 w-3.5 text-orange-500" /> Alternatives ({alternatives.length})</div>
-                <div className="space-y-1.5">
-                  {alternatives.map(alt => (
-                    <div key={alt.id} className="p-2 bg-orange-50 dark:bg-orange-900/10 rounded-lg">
-                      <p className="font-medium text-xs">{alt.name}</p>
-                      {alt.description && <p className="text-xs text-muted-foreground mt-0.5">{alt.description}</p>}
-                      {alt.alternative_trigger && <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">When: {alt.alternative_trigger}</p>}
-                      {alt.why_not_scheduled && <p className="text-xs text-muted-foreground mt-0.5">{alt.why_not_scheduled}</p>}
+          {/* Kid Engagement — full width (uses its own 3-col grid) */}
+          {activity.kid_engagement && (
+            <div className="text-sm">
+              <div className="flex items-center gap-1.5 font-medium mb-1"><Baby className="h-3.5 w-3.5" /> Kid Engagement</div>
+              {((activity.kid_engagement as any).parker?.scripts?.length > 0 ||
+                (activity.kid_engagement as any).charlotte?.scripts?.length > 0 ||
+                (activity.kid_engagement as any).xander?.scripts?.length > 0) && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                  {(activity.kid_engagement as any).parker?.scripts?.length > 0 && (
+                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="flex items-center gap-1 mb-1"><Badge className="bg-blue-600 text-xs">Parker</Badge>{(activity.kid_engagement as any).parker.age_at_trip && <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).parker.age_at_trip}</span>}</div>
+                      <ul className="list-disc list-inside text-muted-foreground space-y-0.5">{(activity.kid_engagement as any).parker.scripts.map((s: string, i: number) => <li key={i} className="italic text-xs">"{s}"</li>)}</ul>
+                      {(activity.kid_engagement as any).parker.activities && <div className="flex gap-1 mt-1.5 flex-wrap">{(activity.kid_engagement as any).parker.activities.map((a: string, i: number) => <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>)}</div>}
                     </div>
-                  ))}
+                  )}
+                  {(activity.kid_engagement as any).charlotte?.scripts?.length > 0 && (
+                    <div className="p-2 bg-pink-50 dark:bg-pink-900/20 rounded-lg">
+                      <div className="flex items-center gap-1 mb-1"><Badge className="bg-pink-600 text-xs">Charlotte</Badge>{(activity.kid_engagement as any).charlotte.age_at_trip && <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).charlotte.age_at_trip}</span>}</div>
+                      <ul className="list-disc list-inside text-muted-foreground space-y-0.5">{(activity.kid_engagement as any).charlotte.scripts.map((s: string, i: number) => <li key={i} className="italic text-xs">"{s}"</li>)}</ul>
+                      {(activity.kid_engagement as any).charlotte.activities && <div className="flex gap-1 mt-1.5 flex-wrap">{(activity.kid_engagement as any).charlotte.activities.map((a: string, i: number) => <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>)}</div>}
+                    </div>
+                  )}
+                  {(activity.kid_engagement as any).xander?.scripts?.length > 0 && (
+                    <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div className="flex items-center gap-1 mb-1"><Badge className="bg-green-600 text-xs">Xander</Badge>{(activity.kid_engagement as any).xander.age_at_trip && <span className="text-xs text-muted-foreground">Age {(activity.kid_engagement as any).xander.age_at_trip}</span>}{(activity.kid_engagement as any).xander.carrier_needed && <span className="text-xs text-amber-600">Carrier</span>}</div>
+                      <ul className="list-disc list-inside text-muted-foreground space-y-0.5">{(activity.kid_engagement as any).xander.scripts.map((s: string, i: number) => <li key={i} className="italic text-xs">"{s}"</li>)}</ul>
+                      {(activity.kid_engagement as any).xander.attention_span && <p className="text-xs text-amber-600 mt-1">{(activity.kid_engagement as any).xander.attention_span}</p>}
+                      {(activity.kid_engagement as any).xander.activities && <div className="flex gap-1 mt-1.5 flex-wrap">{(activity.kid_engagement as any).xander.activities.map((a: string, i: number) => <Badge key={i} variant="outline" className="text-[10px]">{a}</Badge>)}</div>}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right: photos (desktop only — 2-col grid) */}
-          {photos.length > 0 && (
-            <div className="hidden md:block w-[280px] lg:w-[340px] shrink-0 p-2 border-l">
-              <ActivityPhotoCarousel
-                photos={photos}
-                activityName={activity.name}
-                variant="grid"
-              />
+              )}
+              {(activity.kid_engagement as any).conversation_starters?.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Conversation Starters</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).conversation_starters.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul></div>}
+              {(activity.kid_engagement as any).games?.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Games</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).games.map((g: string, i: number) => <li key={i}>{g}</li>)}</ul></div>}
+              {activity.kid_engagement.age_7?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {activity.kid_engagement.age_5?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {activity.kid_engagement.age_3?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {activity.kid_engagement.general?.length ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
             </div>
           )}
-        </div>
+
+          {/* Alternatives — full width */}
+          {alternatives.length > 0 && (
+            <div className="text-sm border-t pt-2">
+              <div className="flex items-center gap-1.5 font-medium mb-1"><ArrowLeftRight className="h-3.5 w-3.5 text-orange-500" /> Alternatives ({alternatives.length})</div>
+              <div className="space-y-1.5">
+                {alternatives.map(alt => (
+                  <div key={alt.id} className="p-2 bg-orange-50 dark:bg-orange-900/10 rounded-lg">
+                    <p className="font-medium text-xs">{alt.name}</p>
+                    {alt.description && <p className="text-xs text-muted-foreground mt-0.5">{alt.description}</p>}
+                    {alt.alternative_trigger && <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">When: {alt.alternative_trigger}</p>}
+                    {alt.why_not_scheduled && <p className="text-xs text-muted-foreground mt-0.5">{alt.why_not_scheduled}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>{/* end full-width bottom section */}
 
         {/* Mobile photos (below content) — swipe carousel */}
         {photos.length > 0 && (
@@ -1236,6 +1307,8 @@ export function TripBrowseContent({
 }) {
   const resolvedLodgingHref = lodgingHref ?? `/travel/${tripId}/lodging`;
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const [filterBookingRequired, setFilterBookingRequired] = useState(false);
+  const [showAlternatives, setShowAlternatives] = useState(false);
 
   const daysBySegment = useMemo(() => {
     if (!trip?.days) return {};
@@ -1253,19 +1326,46 @@ export function TripBrowseContent({
     return grouped;
   }, [trip?.days]);
 
+  // Map segment_id -> first day_id (for assigning unparented alternates)
+  const firstDayBySegment = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [sid, days] of Object.entries(daysBySegment)) {
+      if (days.length > 0) map[sid] = days[0].id;
+    }
+    return map;
+  }, [daysBySegment]);
+
   const activitiesByDay = useMemo(() => {
     if (!trip?.activities) return {};
+    // Build parent activity lookup for resolving alternate day_ids
+    const actById: Record<string, TripActivity> = {};
+    for (const a of trip.activities) actById[a.id] = a;
+
     const grouped: Record<string, typeof trip.activities> = {};
     for (const a of trip.activities) {
-      if (a.is_backup) continue;
-      const did = a.day_id || "unassigned";
-      if (!grouped[did]) grouped[did] = [];
-      grouped[did].push(a);
+      if (a.is_backup && !showAlternatives) continue;
+      // For alternates without a day_id, inherit from parent or segment's first day
+      let did = a.day_id;
+      if (!did && a.is_backup) {
+        if (a.alternate_to_activity_id) {
+          did = actById[a.alternate_to_activity_id]?.day_id ?? undefined;
+        }
+        if (!did && a.segment_id) {
+          did = firstDayBySegment[a.segment_id] ?? undefined;
+        }
+      }
+      const key = did || "unassigned";
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(a);
     }
     for (const did of Object.keys(grouped))
-      grouped[did].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      grouped[did].sort((a, b) => {
+        // Sort alternates after main activities
+        if (a.is_backup !== b.is_backup) return a.is_backup ? 1 : -1;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
     return grouped;
-  }, [trip?.activities]);
+  }, [trip?.activities, showAlternatives, firstDayBySegment]);
 
   const mediaByActivity = useMemo(() => {
     if (!trip?.media) return {};
@@ -1326,6 +1426,91 @@ export function TripBrowseContent({
     sorted.forEach((d, i) => { map[d.id] = i + 1; });
     return map;
   }, [trip?.days]);
+
+  const totalTripDays = useMemo(() => {
+    return Object.keys(dayToGlobalNumber).length;
+  }, [dayToGlobalNumber]);
+
+  // Confirmation documents by activity
+  const confirmationDocByActivity = useMemo(() => {
+    if (!trip?.media) return {};
+    const map: Record<string, { url: string; name: string }> = {};
+    for (const m of trip.media) {
+      if (m.parent_type === 'activity' && (m as any).media_type === 'document') {
+        map[m.parent_id] = { url: m.file_url, name: (m as any).original_filename || 'Confirmation' };
+      }
+    }
+    return map;
+  }, [trip?.media]);
+
+  // Count alternate/backup activities
+  const alternativesCount = useMemo(() => {
+    if (!trip?.activities) return 0;
+    return trip.activities.filter(a => a.is_backup).length;
+  }, [trip?.activities]);
+
+  // Count activities needing advance booking across ALL segments
+  const bookingCount = useMemo(() => {
+    let count = 0;
+    for (const seg of (trip.segments || [])) {
+      const segDays = daysBySegment[seg.id] || [];
+      for (const day of segDays) {
+        const acts = activitiesByDay[day.id] || [];
+        for (const a of acts) {
+          if (getAdvanceBooking(a) !== null) count++;
+        }
+      }
+    }
+    return count;
+  }, [trip.segments, daysBySegment, activitiesByDay]);
+
+  // Handlers for confirmation toggle and file upload
+  const updateActivity = useUpdateTripActivity();
+  const { refetch } = useTripFull(tripId);
+  const [uploadingActivityId, setUploadingActivityId] = useState<string | null>(null);
+
+  const handleConfirmationToggle = useCallback(async (activityId: string, confirmed: boolean) => {
+    try {
+      await updateActivity.mutateAsync({
+        tripId,
+        activityId,
+        data: { confirmation_status: confirmed ? 'confirmed' : 'unconfirmed' } as any,
+      });
+    } catch {
+      toast.error("Failed to update confirmation status");
+    }
+  }, [tripId, updateActivity]);
+
+  const handleUploadConfirmation = useCallback(async (activityId: string, file: File) => {
+    setUploadingActivityId(activityId);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const resp = await fetch(`${API_URL}/travel/trips/${tripId}/activities/${activityId}/upload-confirmation`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ file: base64, filename: file.name, mimeType: file.type }),
+      });
+      if (!resp.ok) throw new Error("Upload failed");
+      toast.success("Confirmation uploaded");
+      refetch();
+    } catch {
+      toast.error("Failed to upload confirmation");
+    } finally {
+      setUploadingActivityId(null);
+    }
+  }, [tripId, refetch]);
 
   const segments = trip.segments || [];
   const activeSegment = segments[activeSegmentIndex];
@@ -1407,16 +1592,80 @@ export function TripBrowseContent({
         </div>
       )}
 
+      {/* Filter bar */}
+      <div className="max-w-7xl mx-auto px-2 md:px-4 pt-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground flex items-center gap-1"><Filter className="h-3 w-3" />Filters:</span>
+          <button
+            onClick={() => setFilterBookingRequired(!filterBookingRequired)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border",
+              filterBookingRequired
+                ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                : "bg-transparent text-muted-foreground border-muted-foreground/30 hover:border-amber-500 hover:text-amber-600"
+            )}
+          >
+            <Ticket className="h-3 w-3" />
+            Advance Booking
+            {bookingCount > 0 && (
+              <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold", filterBookingRequired ? "bg-white/20" : "bg-muted")}>{bookingCount}</span>
+            )}
+          </button>
+          <button
+            onClick={() => setShowAlternatives(!showAlternatives)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border",
+              showAlternatives
+                ? "bg-blue-500 text-white border-blue-500 shadow-sm"
+                : "bg-transparent text-muted-foreground border-muted-foreground/30 hover:border-blue-500 hover:text-blue-600"
+            )}
+          >
+            <ArrowLeftRight className="h-3 w-3" />
+            Alternatives
+            {alternativesCount > 0 && (
+              <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold", showAlternatives ? "bg-white/20" : "bg-muted")}>{alternativesCount}</span>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* Days and activities */}
       <div className="max-w-7xl mx-auto px-2 md:px-4 py-4 space-y-8">
         {(() => {
-          const segmentAccommodation = trip?.accommodations?.find(a => a.segment_id === activeSegment?.id);
-          // Track which accommodations have shown their full photos (first reference only)
+          // When filter is active, show ALL segments; otherwise show only active segment
+          const segmentsToRender = filterBookingRequired ? segments : (activeSegment ? [activeSegment] : []);
           const shownAccommPhotos = new Set<string>();
-          return segmentDays.map((day) => {
-            const dayActivities = activitiesByDay[day.id] || [];
+
+          return segmentsToRender.flatMap((seg, segIdx) => {
+          const segColorSet = SEGMENT_COLORS[(filterBookingRequired ? segments.indexOf(seg) : activeSegmentIndex) % SEGMENT_COLORS.length];
+          const segAccommodation = trip?.accommodations?.find(a => a.segment_id === seg.id);
+          const segDaysForRender = daysBySegment[seg.id] || [];
+
+          // When showing all segments, compute if this segment has any matching activities
+          const segHasBookingActivities = filterBookingRequired && segDaysForRender.some(day =>
+            (activitiesByDay[day.id] || []).some(a => getAdvanceBooking(a) !== null)
+          );
+          if (filterBookingRequired && !segHasBookingActivities) return [];
+
+          const segmentHeader = filterBookingRequired ? (
+            <div key={`seg-header-${seg.id}`} className={cn("px-3 py-2 rounded-lg mb-2", segColorSet.bgLight)}>
+              <h3 className={cn("text-base font-bold", segColorSet.text)}>{seg.name}</h3>
+              {seg.location_name && <span className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />{seg.location_name}</span>}
+            </div>
+          ) : null;
+
+          const dayElements = segDaysForRender.map((day, segDayIdx) => {
+            const dayActivitiesRaw = activitiesByDay[day.id] || [];
+            const dayActivities = filterBookingRequired
+              ? dayActivitiesRaw.filter(a => getAdvanceBooking(a) !== null)
+              : dayActivitiesRaw;
+
+            // Skip empty days when filter is active
+            if (filterBookingRequired && dayActivities.length === 0) return null;
+
             const localDate = parseLocalDate(day.date);
             const globalDayNum = dayToGlobalNumber[day.id];
+            const segmentDayNum = segDayIdx + 1;
 
             // Day-level time range
             const dayTimes = dayActivities
@@ -1429,11 +1678,30 @@ export function TripBrowseContent({
             const latestTime = dayTimes.length > 0 ? dayTimes.reduce((max, t) => t.end > max ? t.end : max, dayTimes[0].end) : null;
 
             return (
-              <div key={day.id} data-testid="browse-day">
+              <div key={day.id} data-testid="browse-day" className="flex gap-4">
+                {/* Sticky left column with date + day numbers */}
+                <div className="hidden md:flex flex-col items-center gap-2 sticky top-14 self-start z-10 w-[72px] shrink-0">
+                  <div className={cn("w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center text-white", segColorSet.bg)}>
+                    <span className="text-xs font-medium leading-none">{localDate.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                    <span className="text-2xl font-bold leading-none">{localDate.getDate()}</span>
+                  </div>
+                  <div className="w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center bg-indigo-600 text-white" title={`Trip day ${globalDayNum} of ${totalTripDays}`}>
+                    <span className="text-[10px] font-medium leading-none opacity-80">Day</span>
+                    <span className="text-xl font-bold leading-none">{globalDayNum}</span>
+                    <span className="text-[10px] font-medium leading-none opacity-60 mt-0.5">of {totalTripDays}</span>
+                  </div>
+                  <div className="w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center bg-amber-600 text-white" title={`${(seg?.location_name || "").substring(0, 3).toUpperCase()} day ${segmentDayNum} of ${segDaysForRender.length}`}>
+                    <span className="text-[10px] font-medium leading-none opacity-80">{(seg?.location_name || "").substring(0, 3).toUpperCase()}</span>
+                    <span className="text-xl font-bold leading-none">{segmentDayNum}</span>
+                    <span className="text-[10px] font-medium leading-none opacity-60 mt-0.5">of {segDaysForRender.length}</span>
+                  </div>
+                </div>
+                {/* Main content column */}
+                <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex flex-col items-center justify-center text-white shrink-0", colorSet.bg)}>
-                    <span className="text-[10px] md:text-xs font-medium leading-none">{localDate.toLocaleDateString("en-US", { weekday: "short" })}</span>
-                    <span className="text-lg md:text-xl font-bold leading-none">{localDate.getDate()}</span>
+                  <div className={cn("w-12 h-12 rounded-full flex flex-col items-center justify-center text-white shrink-0 md:hidden", segColorSet.bg)}>
+                    <span className="text-[10px] font-medium leading-none">{localDate.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                    <span className="text-lg font-bold leading-none">{localDate.getDate()}</span>
                   </div>
                   <div>
                     <h3 className="font-semibold text-base md:text-lg">{day.title || `Day ${globalDayNum || day.day_number || ""}`}</h3>
@@ -1446,20 +1714,29 @@ export function TripBrowseContent({
                     </p>
                   </div>
                 </div>
-                {day.overview && <p className="text-sm text-muted-foreground mb-3 ml-0 md:ml-[72px]">{day.overview}</p>}
-                <div className="ml-0 md:ml-[72px]">
+                {day.overview && <p className="text-sm text-muted-foreground mb-3">{day.overview}</p>}
+                <div>
                   <DayRouteMap
                     activities={dayActivities}
-                    accommodation={segmentAccommodation}
+                    accommodation={segAccommodation}
                     dayTitle={day.title || `Day ${globalDayNum || day.day_number || ""}`}
                   />
                 </div>
-                <div className="space-y-3 ml-0 md:ml-[72px]">
-                  {dayActivities.length > 0 ? dayActivities.map((activity, idx) => {
+                <div className="space-y-3">
+                  {(() => {
+                    if (dayActivities.length === 0) return <p className="text-sm text-muted-foreground italic py-2">No activities planned</p>;
+                    const mainActs = dayActivities.filter(a => !a.is_backup);
+                    const altActs = dayActivities.filter(a => a.is_backup);
+                    let mainIdx = 0;
+                    let altIdx = 0;
+                    return dayActivities.map((activity, idx) => {
+                    const isAlt = activity.is_backup;
+                    const actNum = isAlt ? ++altIdx : ++mainIdx;
+                    const actTotal = isAlt ? altActs.length : mainActs.length;
                     // Hotel photo logic: only show full photos on first hotel reference per segment
                     const activityMedia = mediaByActivity[activity.id] || [];
                     const locAndName = ((activity.location_name || "") + " " + activity.name).toLowerCase();
-                    const accommName = segmentAccommodation?.name?.toLowerCase() || "";
+                    const accommName = segAccommodation?.name?.toLowerCase() || "";
                     const isTransport = activity.activity_type === "transport";
                     const isHotelActivity = !isTransport && (
                       /\bhotel\b/i.test(locAndName)
@@ -1470,22 +1747,18 @@ export function TripBrowseContent({
                       || (accommName && locAndName.includes(accommName))
                     );
                     const isPoolActivity = activity.activity_sub_type === "pool" || /\bpool\b/i.test(activity.name);
-                    const isFirstHotelRef = isHotelActivity && segmentAccommodation
-                      && !shownAccommPhotos.has(segmentAccommodation.id);
+                    const isFirstHotelRef = isHotelActivity && segAccommodation
+                      && !shownAccommPhotos.has(segAccommodation.id);
 
                     let effectiveMedia: typeof activityMedia;
                     if (activityMedia.length > 0) {
-                      // Activity has its own photos — always use them
                       effectiveMedia = activityMedia;
-                    } else if (isFirstHotelRef && segmentAccommodation) {
-                      // First hotel reference — show full accommodation photos
-                      effectiveMedia = mediaByAccommodation[segmentAccommodation.id] || [];
-                      shownAccommPhotos.add(segmentAccommodation.id);
-                    } else if (isPoolActivity && segmentAccommodation) {
-                      // Pool activities — show max 2 accommodation photos
-                      effectiveMedia = (mediaByAccommodation[segmentAccommodation.id] || []).slice(0, 2);
+                    } else if (isFirstHotelRef && segAccommodation) {
+                      effectiveMedia = mediaByAccommodation[segAccommodation.id] || [];
+                      shownAccommPhotos.add(segAccommodation.id);
+                    } else if (isPoolActivity && segAccommodation) {
+                      effectiveMedia = (mediaByAccommodation[segAccommodation.id] || []).slice(0, 2);
                     } else {
-                      // Subsequent hotel references — no photos
                       effectiveMedia = [];
                     }
 
@@ -1494,13 +1767,22 @@ export function TripBrowseContent({
                     const showTravelHint = prev
                       && prev.activity_type !== "transport"
                       && activity.activity_type !== "transport";
-                    const travelEstimate = showTravelHint && prev ? estimateTravel(prev, activity, segmentAccommodation) : null;
+                    const travelEstimate = showTravelHint && prev ? estimateTravel(prev, activity, segAccommodation) : null;
 
                     const next = idx < dayActivities.length - 1 ? dayActivities[idx + 1] : undefined;
 
                     return (
                       <React.Fragment key={activity.id}>
                         {travelEstimate && <TravelHint estimate={travelEstimate} />}
+                        <div className="flex items-start gap-2">
+                          <div className={cn(
+                            "hidden md:flex w-10 h-10 rounded-full flex-col items-center justify-center text-white shrink-0 mt-2",
+                            isAlt ? "bg-blue-500" : "bg-slate-500"
+                          )} title={isAlt ? `Alt ${actNum} of ${actTotal}` : `Activity ${actNum} of ${actTotal}`}>
+                            <span className="text-[8px] font-medium leading-none opacity-80">{isAlt ? "Alt" : "Act"}</span>
+                            <span className="text-xs font-bold leading-none">{actNum}/{actTotal}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
                         <BrowseActivityCard
                           activity={activity}
                           media={effectiveMedia}
@@ -1508,20 +1790,32 @@ export function TripBrowseContent({
                           allActivities={trip.activities || []}
                           previousActivity={idx > 0 ? dayActivities[idx - 1] : undefined}
                           nextActivity={next}
-                          accommodation={segmentAccommodation}
+                          accommodation={segAccommodation}
                           lodgingHref={resolvedLodgingHref}
-                          segmentLocationName={activeSegment?.location_name}
+                          segmentLocationName={seg?.location_name}
                           isFirstHotelRef={!!isFirstHotelRef}
+                          tripId={tripId}
+                          confirmationDoc={confirmationDocByActivity[activity.id]}
+                          onConfirmationToggle={handleConfirmationToggle}
+                          onUploadConfirmation={handleUploadConfirmation}
+                          uploadingActivityId={uploadingActivityId}
                         />
+                          </div>
+                        </div>
                       </React.Fragment>
                     );
-                  }) : <p className="text-sm text-muted-foreground italic py-2">No activities planned</p>}
+                    });
+                  })()}
                 </div>
+                </div>{/* end content column */}
               </div>
             );
           });
+
+          return [segmentHeader, ...dayElements];
+          });
         })()}
-        {segmentDays.length === 0 && <div className="text-center py-8 text-muted-foreground">No days planned for this segment yet</div>}
+        {!filterBookingRequired && segmentDays.length === 0 && <div className="text-center py-8 text-muted-foreground">No days planned for this segment yet</div>}
       </div>
 
       {/* Nav */}

@@ -82,6 +82,10 @@ jobs:
             # should cover the clean install + build.
             NODE_OPTIONS="--max-old-space-size=768" npm install
 
+            # Purge npm cache to prevent disk fill — each clean install
+            # adds ~4GB to ~/.npm/_cacache that is never used again.
+            npm cache clean --force 2>/dev/null || true
+
             # Rebuild workspace packages BEFORE building the web app.
             # apps/web imports from @singularity/shared-api via its dist/
             # output — `npm install` does NOT run their build scripts, so

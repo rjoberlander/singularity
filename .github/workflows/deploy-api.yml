@@ -66,6 +66,10 @@ jobs:
             rm -rf node_modules packages/shared-types/node_modules packages/shared-api/node_modules
             NODE_OPTIONS="--max-old-space-size=512" npm install
 
+            # Purge npm cache to prevent disk fill — each clean install
+            # adds ~4GB to ~/.npm/_cacache that is never used again.
+            npm cache clean --force 2>/dev/null || true
+
             # Rebuild workspace packages so the API's tsc can resolve
             # types from @singularity/shared-types and shared-api.
             # dist/ is gitignored so it must be rebuilt on every deploy.
