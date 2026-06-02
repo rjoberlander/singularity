@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import ws from 'ws';
 
 // Proxy is configured in config/proxy.ts (imported from index.ts before this)
 
@@ -21,7 +22,10 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
-  }
+  },
+  realtime: {
+    transport: ws as any,
+  },
 });
 
 // Create Supabase client for frontend authentication (with anon key)
@@ -31,6 +35,10 @@ if (!process.env.SUPABASE_ANON_KEY) {
   console.warn('⚠️ Supabase anon key not configured. Frontend auth may not work.');
 }
 
-export const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: {
+    transport: ws as any,
+  },
+});
 
 export default supabase;
