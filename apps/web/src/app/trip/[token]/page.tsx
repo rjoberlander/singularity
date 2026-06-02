@@ -6,6 +6,7 @@ import {
   usePublicTrip,
   formatTripDateRange,
   formatTripDate,
+  calculateTripDuration,
 } from "@/lib/api";
 import { TripBrowseContent } from "@/components/travel/TripBrowseContent";
 import { StoryViewer } from "@/components/travel/stories/StoryViewer";
@@ -28,6 +29,8 @@ import {
   Sparkles,
   FileText,
   PlayCircle,
+  Plane,
+  Car,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TripMedia } from "@singularity/shared-types";
@@ -86,25 +89,46 @@ export default function PublicTripPage({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ── Minimal hero ───────────────────────────────────────────── */}
+      {/* ── Hero ─────────────────────────────────────────────────── */}
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <h1 className="text-xl md:text-2xl font-bold">{trip.name}</h1>
+          {trip.description && (
+            <p className="text-muted-foreground text-sm mt-1">{trip.description}</p>
+          )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5" />
               {formatTripDateRange(trip.start_date, trip.end_date)}
             </span>
+            {trip.start_date && trip.end_date && (
+              <span className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                {calculateTripDuration(trip.start_date, trip.end_date)} days
+              </span>
+            )}
             {trip.destination && (
               <span className="flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5" />
                 {trip.origin ? `${trip.origin} → ${trip.destination}` : trip.destination}
               </span>
             )}
-            {trip.traveler_count && trip.traveler_count > 1 && (
+            {trip.transportation_type && (
+              <span className="flex items-center gap-1.5">
+                {trip.transportation_type === "flying" ? (
+                  <Plane className="h-3.5 w-3.5" />
+                ) : trip.transportation_type === "driving" ? (
+                  <Car className="h-3.5 w-3.5" />
+                ) : trip.transportation_type === "both" ? (
+                  <><Plane className="h-3.5 w-3.5" /><Car className="h-3.5 w-3.5" /></>
+                ) : null}
+                <span className="capitalize">{trip.transportation_type}</span>
+              </span>
+            )}
+            {trip.traveler_count && (
               <span className="flex items-center gap-1.5">
                 <Users className="h-3.5 w-3.5" />
-                {trip.traveler_count} travelers
+                {trip.traveler_count} traveler{trip.traveler_count !== 1 ? "s" : ""}
               </span>
             )}
           </div>
