@@ -1,3 +1,9 @@
+// Polyfill WebSocket for Node.js < 22 (required by @supabase/realtime-js)
+import WebSocket from 'ws';
+if (!globalThis.WebSocket) {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 import dns from 'dns';
 // Force IPv4 for outbound requests (droplet's IPv4 is whitelisted on Google API keys)
 dns.setDefaultResultOrder('ipv4first');
