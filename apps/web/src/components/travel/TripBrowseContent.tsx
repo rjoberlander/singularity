@@ -1175,7 +1175,7 @@ function BrowseActivityCard({
             )}
 
             {/* Warnings */}
-            {activity.warnings && activity.warnings.length > 0 && (
+            {Array.isArray(activity.warnings) && activity.warnings.length > 0 && (
               <div className="text-sm p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
                 <div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-400 mb-0.5"><AlertTriangle className="h-3.5 w-3.5" /> Warnings</div>
                 <ul className="list-disc list-inside text-red-600 dark:text-red-300 text-xs space-y-0.5">{activity.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
@@ -1209,7 +1209,7 @@ function BrowseActivityCard({
           </div>{/* end two-column grid */}
 
           {/* Kid Engagement — full width (uses its own 3-col grid) */}
-          {activity.kid_engagement && (
+          {activity.kid_engagement && typeof activity.kid_engagement === 'object' && (
             <div className="text-sm">
               <div className="flex items-center gap-1.5 font-medium mb-1"><Baby className="h-3.5 w-3.5" /> Kid Engagement</div>
               {((activity.kid_engagement as any).parker?.scripts?.length > 0 ||
@@ -1240,12 +1240,12 @@ function BrowseActivityCard({
                   )}
                 </div>
               )}
-              {(activity.kid_engagement as any).conversation_starters?.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Conversation Starters</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).conversation_starters.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul></div>}
-              {(activity.kid_engagement as any).games?.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Games</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).games.map((g: string, i: number) => <li key={i}>{g}</li>)}</ul></div>}
-              {activity.kid_engagement.age_7?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.age_5?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.age_3?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.general?.length ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray((activity.kid_engagement as any).conversation_starters) && (activity.kid_engagement as any).conversation_starters.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Conversation Starters</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).conversation_starters.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul></div>}
+              {Array.isArray((activity.kid_engagement as any).games) && (activity.kid_engagement as any).games.length > 0 && <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Games</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).games.map((g: string, i: number) => <li key={i}>{g}</li>)}</ul></div>}
+              {Array.isArray(activity.kid_engagement.age_7) && activity.kid_engagement.age_7.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.age_5) && activity.kid_engagement.age_5.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.age_3) && activity.kid_engagement.age_3.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.general) && activity.kid_engagement.general.length > 0 ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
             </div>
           )}
 

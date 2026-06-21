@@ -852,7 +852,7 @@ export default function TripDetailsPage() {
                                     // V3.2 format: for_travel_segment.scheduled_activity_name
                                     // V3.0 format: between.to (fallback)
                                     let routeStopsForActivity: typeof segment.route_stops = [];
-                                    if (segment.route_stops) {
+                                    if (Array.isArray(segment.route_stops)) {
                                       const isDriveOrDepart = activityNameLower.includes('drive') ||
                                                               activityNameLower.includes('depart') ||
                                                               activityNameLower.includes('head to') ||
@@ -999,7 +999,7 @@ export default function TripDetailsPage() {
                                   {/* Show route stops for departure days based on day title */}
                                   {(() => {
                                     const dayTitleLower = (day.title || '').toLowerCase();
-                                    if (segment.route_stops && dayTitleLower.includes('douro')) {
+                                    if (Array.isArray(segment.route_stops) && dayTitleLower.includes('douro')) {
                                       const douroStops = segment.route_stops.filter(stop => {
                                         // V3.2 format
                                         if (stop.for_travel_segment?.scheduled_activity_name?.toLowerCase().includes('douro')) {

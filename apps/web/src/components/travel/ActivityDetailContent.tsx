@@ -693,7 +693,7 @@ export function ActivityDetailContent({
                 )}
               </div>
             )}
-            {activity.practical_details.avoid_times && activity.practical_details.avoid_times.length > 0 && (
+            {Array.isArray(activity.practical_details.avoid_times) && activity.practical_details.avoid_times.length > 0 && (
               <div className="col-span-2">
                 <span className="text-muted-foreground">Avoid:</span>
                 <p className="font-medium text-amber-600">{activity.practical_details.avoid_times.join(", ")}</p>
@@ -710,7 +710,7 @@ export function ActivityDetailContent({
       )}
 
       {/* Recommended Dishes - for restaurants (AI-extracted from reviews) */}
-      {(activity as any).restaurant_details?.signature_dishes &&
+      {Array.isArray((activity as any).restaurant_details?.signature_dishes) &&
        (activity as any).restaurant_details.signature_dishes.length > 0 && (
         <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2 text-orange-800 dark:text-orange-300">
@@ -745,7 +745,7 @@ export function ActivityDetailContent({
               Cuisine: {(activity as any).restaurant_details.cuisine_type}
             </p>
           )}
-          {(activity as any).restaurant_details.dietary_options &&
+          {Array.isArray((activity as any).restaurant_details.dietary_options) &&
            (activity as any).restaurant_details.dietary_options.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
               {(activity as any).restaurant_details.dietary_options.map((opt: string, i: number) => (
@@ -801,7 +801,7 @@ export function ActivityDetailContent({
           )}
 
           {/* What you'll see */}
-          {(activity as any).deep_dive.what_youll_see && (activity as any).deep_dive.what_youll_see.length > 0 && (
+          {Array.isArray((activity as any).deep_dive.what_youll_see) && (activity as any).deep_dive.what_youll_see.length > 0 && (
             <div>
               <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                 <Eye className="h-4 w-4" />
@@ -824,7 +824,7 @@ export function ActivityDetailContent({
           )}
 
           {/* Interesting facts */}
-          {(activity as any).deep_dive.interesting_facts && (activity as any).deep_dive.interesting_facts.length > 0 && (
+          {Array.isArray((activity as any).deep_dive.interesting_facts) && (activity as any).deep_dive.interesting_facts.length > 0 && (
             <div>
               <h4 className="text-sm font-medium mb-2">Interesting Facts</h4>
               <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -873,7 +873,7 @@ export function ActivityDetailContent({
       )}
 
       {/* What to See */}
-      {activity.what_to_see && activity.what_to_see.length > 0 && (
+      {Array.isArray(activity.what_to_see) && activity.what_to_see.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <Eye className="h-4 w-4" />
@@ -896,7 +896,7 @@ export function ActivityDetailContent({
       )}
 
       {/* V3 Kid Engagement by Named Child */}
-      {activity.kid_engagement && (
+      {activity.kid_engagement && typeof activity.kid_engagement === 'object' && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <Baby className="h-4 w-4" />
@@ -957,7 +957,7 @@ export function ActivityDetailContent({
             )}
 
             {/* V3 Conversation starters */}
-            {(activity.kid_engagement as any).conversation_starters && (activity.kid_engagement as any).conversation_starters.length > 0 && (
+            {Array.isArray((activity.kid_engagement as any).conversation_starters) && (activity.kid_engagement as any).conversation_starters.length > 0 && (
               <div>
                 <Badge variant="outline" className="mb-2">Conversation Starters</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -969,7 +969,7 @@ export function ActivityDetailContent({
             )}
 
             {/* V3 Games */}
-            {(activity.kid_engagement as any).games && (activity.kid_engagement as any).games.length > 0 && (
+            {Array.isArray((activity.kid_engagement as any).games) && (activity.kid_engagement as any).games.length > 0 && (
               <div>
                 <Badge variant="outline" className="mb-2">Games to Play</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -981,7 +981,7 @@ export function ActivityDetailContent({
             )}
 
             {/* Legacy Age-based format */}
-            {activity.kid_engagement.age_7 && activity.kid_engagement.age_7.length > 0 && (
+            {Array.isArray(activity.kid_engagement.age_7) && activity.kid_engagement.age_7.length > 0 && (
               <div>
                 <Badge variant="secondary" className="mb-2">Age 7+</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -991,7 +991,7 @@ export function ActivityDetailContent({
                 </ul>
               </div>
             )}
-            {activity.kid_engagement.age_5 && activity.kid_engagement.age_5.length > 0 && (
+            {Array.isArray(activity.kid_engagement.age_5) && activity.kid_engagement.age_5.length > 0 && (
               <div>
                 <Badge variant="secondary" className="mb-2">Age 5</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -1001,7 +1001,7 @@ export function ActivityDetailContent({
                 </ul>
               </div>
             )}
-            {activity.kid_engagement.age_3 && activity.kid_engagement.age_3.length > 0 && (
+            {Array.isArray(activity.kid_engagement.age_3) && activity.kid_engagement.age_3.length > 0 && (
               <div>
                 <Badge variant="secondary" className="mb-2">Age 3</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -1011,7 +1011,7 @@ export function ActivityDetailContent({
                 </ul>
               </div>
             )}
-            {activity.kid_engagement.general && activity.kid_engagement.general.length > 0 && (
+            {Array.isArray(activity.kid_engagement.general) && activity.kid_engagement.general.length > 0 && (
               <div>
                 <Badge variant="outline" className="mb-2">General</Badge>
                 <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
@@ -1048,7 +1048,7 @@ export function ActivityDetailContent({
       )}
 
       {/* Warnings */}
-      {activity.warnings && activity.warnings.length > 0 && (
+      {Array.isArray(activity.warnings) && activity.warnings.length > 0 && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
           <h4 className="text-sm font-medium mb-2 flex items-center gap-2 text-red-700 dark:text-red-400">
             <AlertTriangle className="h-4 w-4" />

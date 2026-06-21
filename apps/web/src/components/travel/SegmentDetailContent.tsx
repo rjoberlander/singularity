@@ -383,7 +383,7 @@ export function SegmentDetailContent({
       </div>
 
       {/* Languages */}
-      {segment.languages && segment.languages.length > 0 && (
+      {Array.isArray(segment.languages) && segment.languages.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
             <Languages className="h-4 w-4" />
@@ -463,7 +463,7 @@ export function SegmentDetailContent({
       )}
 
       {/* Main Attractions */}
-      {segment.main_attractions && segment.main_attractions.length > 0 && (
+      {Array.isArray(segment.main_attractions) && segment.main_attractions.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <Star className="h-4 w-4" />
@@ -518,7 +518,7 @@ export function SegmentDetailContent({
       )}
 
       {/* Route Stops */}
-      {segment.route_stops && segment.route_stops.length > 0 && (
+      {Array.isArray(segment.route_stops) && segment.route_stops.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-blue-500" />
@@ -734,7 +734,7 @@ export function SegmentDetailContent({
       )}
 
       {/* Local Food */}
-      {segment.local_food && segment.local_food.length > 0 && (
+      {Array.isArray(segment.local_food) && segment.local_food.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <Utensils className="h-4 w-4" />
@@ -755,7 +755,7 @@ export function SegmentDetailContent({
       )}
 
       {/* Packing List */}
-      {segment.packing_list && segment.packing_list.length > 0 && (
+      {Array.isArray(segment.packing_list) && segment.packing_list.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <ShoppingBag className="h-4 w-4" />
@@ -811,7 +811,7 @@ export function SegmentDetailContent({
       )}
 
       {/* Segment Alternatives / Backup Options */}
-      {segment.segment_alternatives && segment.segment_alternatives.length > 0 && (
+      {Array.isArray(segment.segment_alternatives) && segment.segment_alternatives.length > 0 && (
         <div className="mb-6">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
             <ArrowLeftRight className="h-4 w-4 text-blue-500" />

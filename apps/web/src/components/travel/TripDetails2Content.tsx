@@ -969,7 +969,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
                   </div>
                 </div>
               )}
-              {(activity as any).deep_dive?.interesting_facts && (activity as any).deep_dive.interesting_facts.length > 0 && (
+              {Array.isArray((activity as any).deep_dive?.interesting_facts) && (activity as any).deep_dive.interesting_facts.length > 0 && (
                 <div className="text-sm">
                   <div className="font-medium mb-0.5">Interesting Facts</div>
                   <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
@@ -1009,7 +1009,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
             </>
           )}
 
-          {(activity as any).deep_dive?.photo_spots && (activity as any).deep_dive.photo_spots.length > 0 && (
+          {Array.isArray((activity as any).deep_dive?.photo_spots) && (activity as any).deep_dive.photo_spots.length > 0 && (
             <div className="text-sm">
               <div className="font-medium mb-0.5">Photo Spots</div>
               {(activity as any).deep_dive.photo_spots.map((spot: any, i: number) => (
@@ -1042,7 +1042,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
             </div>
           )}
 
-          {activity.what_to_see && activity.what_to_see.length > 0 && (
+          {Array.isArray(activity.what_to_see) && activity.what_to_see.length > 0 && (
             <div className="text-sm">
               <div className="flex items-center gap-1.5 font-medium mb-0.5"><Eye className="h-3.5 w-3.5" /> What to See</div>
               <div className="space-y-1">
@@ -1075,7 +1075,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
           )}
 
           {/* Kid engagement */}
-          {activity.kid_engagement && (
+          {activity.kid_engagement && typeof activity.kid_engagement === 'object' && (
             <div className="text-sm">
               <div className="flex items-center gap-1.5 font-medium mb-1"><Baby className="h-3.5 w-3.5" /> Kid Engagement</div>
               {((activity.kid_engagement as any).parker?.scripts?.length > 0 ||
@@ -1148,20 +1148,20 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
                   )}
                 </div>
               )}
-              {(activity.kid_engagement as any).conversation_starters?.length > 0 && (
+              {Array.isArray((activity.kid_engagement as any).conversation_starters) && (activity.kid_engagement as any).conversation_starters.length > 0 && (
                 <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Conversation Starters</Badge>
                   <ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).conversation_starters.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
                 </div>
               )}
-              {(activity.kid_engagement as any).games?.length > 0 && (
+              {Array.isArray((activity.kid_engagement as any).games) && (activity.kid_engagement as any).games.length > 0 && (
                 <div className="mb-1"><Badge variant="outline" className="text-xs mb-0.5">Games</Badge>
                   <ul className="list-disc list-inside text-xs text-muted-foreground">{(activity.kid_engagement as any).games.map((g: string, i: number) => <li key={i}>{g}</li>)}</ul>
                 </div>
               )}
-              {activity.kid_engagement.age_7?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.age_5?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.age_3?.length ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
-              {activity.kid_engagement.general?.length ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.age_7) && activity.kid_engagement.age_7.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 7+</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_7.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.age_5) && activity.kid_engagement.age_5.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 5</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_5.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.age_3) && activity.kid_engagement.age_3.length > 0 ? <div><Badge variant="secondary" className="text-xs mb-0.5">Age 3</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.age_3.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
+              {Array.isArray(activity.kid_engagement.general) && activity.kid_engagement.general.length > 0 ? <div><Badge variant="outline" className="text-xs mb-0.5">General</Badge><ul className="list-disc list-inside text-xs text-muted-foreground">{activity.kid_engagement.general.map((t, i) => <li key={i}>{t}</li>)}</ul></div> : null}
             </div>
           )}
 
@@ -1176,9 +1176,9 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
                 {activity.restaurant_details.highchair && <Badge variant="secondary" className="text-[10px]">Highchair</Badge>}
                 {activity.restaurant_details.kids_menu && <Badge variant="secondary" className="text-[10px]">Kids Menu</Badge>}
                 {activity.restaurant_details.seating && <Badge variant="secondary" className="text-[10px]">{activity.restaurant_details.seating === 'both' ? 'Indoor & Outdoor' : activity.restaurant_details.seating === 'outdoor' ? 'Outdoor Seating' : 'Indoor'}</Badge>}
-                {activity.restaurant_details.dietary_options && activity.restaurant_details.dietary_options.length > 0 && activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}
+                {Array.isArray(activity.restaurant_details.dietary_options) && activity.restaurant_details.dietary_options.length > 0 && activity.restaurant_details.dietary_options.map((opt, i) => <Badge key={i} variant="outline" className="text-[10px]">{opt}</Badge>)}
               </div>
-              {activity.restaurant_details.signature_dishes && activity.restaurant_details.signature_dishes.length > 0 && (
+              {Array.isArray(activity.restaurant_details.signature_dishes) && activity.restaurant_details.signature_dishes.length > 0 && (
                 <div className="space-y-1.5">
                   <div className="font-medium text-xs text-orange-800 dark:text-orange-300">Must-Try Dishes</div>
                   {activity.restaurant_details.signature_dishes.map((dish, i) => (
@@ -1231,10 +1231,10 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
                   {(activity.practical_details as any).ticket_price.source && <span className="text-[10px] text-muted-foreground w-full">Source: {(activity.practical_details as any).ticket_price.source}</span>}
                 </div>
               )}
-              {activity.practical_details.best_times && activity.practical_details.best_times.length > 0 && (
+              {Array.isArray(activity.practical_details.best_times) && activity.practical_details.best_times.length > 0 && (
                 <div><span className="text-muted-foreground">Best times: </span><span className="font-medium">{activity.practical_details.best_times.join(", ")}</span></div>
               )}
-              {activity.practical_details.avoid_times && activity.practical_details.avoid_times.length > 0 && (
+              {Array.isArray(activity.practical_details.avoid_times) && activity.practical_details.avoid_times.length > 0 && (
                 <div><span className="text-muted-foreground">Avoid: </span><span className="font-medium text-amber-600">{activity.practical_details.avoid_times.join(", ")}</span></div>
               )}
               {activity.practical_details.getting_there && (
@@ -1265,7 +1265,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
             </div>
           )}
 
-          {activity.warnings && activity.warnings.length > 0 && (
+          {Array.isArray(activity.warnings) && activity.warnings.length > 0 && (
             <div className="text-sm p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
               <div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-400 mb-0.5"><AlertTriangle className="h-3.5 w-3.5" /> Warnings</div>
               <ul className="list-disc list-inside text-red-600 dark:text-red-300 text-xs space-y-0.5">{activity.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
