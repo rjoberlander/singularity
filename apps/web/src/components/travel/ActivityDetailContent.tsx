@@ -624,7 +624,7 @@ export function ActivityDetailContent({
             {activity.practical_details.hours && (
               <div>
                 <span className="text-muted-foreground">Hours:</span>
-                <p className="font-medium">{activity.practical_details.hours}</p>
+                <p className="font-medium">{typeof activity.practical_details.hours === 'string' ? activity.practical_details.hours : Object.entries(activity.practical_details.hours).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}</p>
               </div>
             )}
             {activity.practical_details.time_needed && (

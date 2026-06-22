@@ -1209,7 +1209,7 @@ const Details2ActivityCard = React.memo(function Details2ActivityCard({
             <div className="text-sm p-2 bg-muted/50 rounded-lg space-y-1">
               <div className="flex items-center gap-1.5 font-medium"><Timer className="h-3.5 w-3.5" /> Practical Details</div>
               <div className="grid grid-cols-2 gap-1">
-                {activity.practical_details.hours && <div><span className="text-muted-foreground">Hours:</span><p className="font-medium">{activity.practical_details.hours}</p></div>}
+                {activity.practical_details.hours && <div><span className="text-muted-foreground">Hours:</span><p className="font-medium">{typeof activity.practical_details.hours === 'string' ? activity.practical_details.hours : Object.entries(activity.practical_details.hours).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}</p></div>}
                 {activity.practical_details.time_needed && <div><span className="text-muted-foreground">Time needed:</span><p className="font-medium">{activity.practical_details.time_needed}</p></div>}
               </div>
               {activity.practical_details.cost_breakdown && (

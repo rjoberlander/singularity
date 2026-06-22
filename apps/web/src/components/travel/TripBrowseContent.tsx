@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   parseLocalDate,
   getTimeBlockLabel,
@@ -1116,7 +1117,7 @@ function BrowseActivityCard({
               <div className="text-sm p-2 bg-muted/50 rounded-lg space-y-1">
                 <div className="flex items-center gap-1.5 font-medium"><Timer className="h-3.5 w-3.5" /> Practical Details</div>
                 <div className="grid grid-cols-2 gap-1">
-                  {activity.practical_details.hours && <div><span className="text-muted-foreground">Hours:</span><p className="font-medium">{activity.practical_details.hours}</p></div>}
+                  {activity.practical_details.hours && <div><span className="text-muted-foreground">Hours:</span><p className="font-medium">{typeof activity.practical_details.hours === 'string' ? activity.practical_details.hours : Object.entries(activity.practical_details.hours).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}</p></div>}
                   {activity.practical_details.time_needed && <div><span className="text-muted-foreground">Time needed:</span><p className="font-medium">{activity.practical_details.time_needed}</p></div>}
                 </div>
                 {activity.practical_details.cost_breakdown && (
@@ -1306,9 +1307,33 @@ export function TripBrowseContent({
   lodgingHref?: string;
 }) {
   const resolvedLodgingHref = lodgingHref ?? `/travel/${tripId}/lodging`;
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Resolve initial segment from ?segment= URL param
+  const segments = trip.segments || [];
+  const initialIndex = (() => {
+    const param = searchParams.get("segment");
+    if (!param) return 0;
+    const idx = segments.findIndex(
+      (s) => s.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") === param
+    );
+    return idx >= 0 ? idx : 0;
+  })();
+
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState(initialIndex);
   const [filterBookingRequired, setFilterBookingRequired] = useState(false);
   const [showAlternatives, setShowAlternatives] = useState(false);
+
+  // Sync URL when segment changes
+  const handleSegmentChange = useCallback((index: number) => {
+    setActiveSegmentIndex(index);
+    const seg = segments[index];
+    if (seg) {
+      const slug = seg.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      router.replace(`?segment=${slug}`, { scroll: false });
+    }
+  }, [segments, router]);
 
   const daysBySegment = useMemo(() => {
     if (!trip?.days) return {};
@@ -1512,7 +1537,6 @@ export function TripBrowseContent({
     }
   }, [tripId, refetch]);
 
-  const segments = trip.segments || [];
   const activeSegment = segments[activeSegmentIndex];
 
   if (segments.length === 0) {
@@ -1536,7 +1560,7 @@ export function TripBrowseContent({
             const isActive = index === activeSegmentIndex;
             const segDays = daysBySegment[segment.id] || [];
             return (
-              <button key={segment.id} onClick={() => setActiveSegmentIndex(index)} data-testid={`segment-tab-${index}`}
+              <button key={segment.id} onClick={() => handleSegmentChange(index)} data-testid={`segment-tab-${index}`}
                 className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap shrink-0",
                   isActive ? `${sc.bg} text-white shadow-sm` : "bg-muted/50 text-muted-foreground hover:bg-muted")}>
                 <span className={cn("w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0", isActive ? "bg-white/20 text-white" : `${sc.bg} text-white`)}>{index + 1}</span>
@@ -1822,14 +1846,14 @@ export function TripBrowseContent({
       {segments.length > 1 && (
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between border-t mt-4">
           <Button variant="outline" disabled={activeSegmentIndex === 0}
-            onClick={() => { setActiveSegmentIndex(activeSegmentIndex - 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="gap-2">
+            onClick={() => { handleSegmentChange(activeSegmentIndex - 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="gap-2">
             <ChevronLeft className="h-4 w-4" />
             <span className="hidden sm:inline">{activeSegmentIndex > 0 ? segments[activeSegmentIndex - 1].name : "Previous"}</span>
             <span className="sm:hidden">Prev</span>
           </Button>
           <span className="text-sm text-muted-foreground">{activeSegmentIndex + 1} / {segments.length}</span>
           <Button variant="outline" disabled={activeSegmentIndex === segments.length - 1}
-            onClick={() => { setActiveSegmentIndex(activeSegmentIndex + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="gap-2">
+            onClick={() => { handleSegmentChange(activeSegmentIndex + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="gap-2">
             <span className="hidden sm:inline">{activeSegmentIndex < segments.length - 1 ? segments[activeSegmentIndex + 1].name : "Next"}</span>
             <span className="sm:hidden">Next</span>
             <ChevronRight className="h-4 w-4" />
