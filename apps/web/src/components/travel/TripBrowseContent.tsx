@@ -82,6 +82,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { DayRouteMap } from "@/components/travel/DayRouteMap";
+import { CardErrorBoundary } from "@/components/ui/error-boundary";
 import { ActivityPhotoCarousel } from "@/components/travel/ActivityPhotoCarousel";
 
 // ─── Advance booking detection ───────────────────────────────────────
@@ -1798,6 +1799,7 @@ export function TripBrowseContent({
                     return (
                       <React.Fragment key={activity.id}>
                         {travelEstimate && <TravelHint estimate={travelEstimate} />}
+                        <CardErrorBoundary label={activity.name}>
                         <div className="flex items-start gap-2">
                           <div className={cn(
                             "hidden md:flex w-10 h-10 rounded-full flex-col items-center justify-center text-white shrink-0 mt-2",
@@ -1826,6 +1828,7 @@ export function TripBrowseContent({
                         />
                           </div>
                         </div>
+                      </CardErrorBoundary>
                       </React.Fragment>
                     );
                     });

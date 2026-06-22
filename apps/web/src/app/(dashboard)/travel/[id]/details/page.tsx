@@ -33,6 +33,7 @@ import {
   Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CardErrorBoundary } from "@/components/ui/error-boundary";
 
 // Slugify a name for URL-friendly format
 function slugify(name: string): string {
@@ -1129,9 +1130,13 @@ export default function TripDetailsPage() {
       <div className="flex-1 bg-background">
         <ScrollArea className="h-full">
           {selectedActivity ? (
-            <ActivityDetailContent activity={selectedActivity} tripId={tripId} />
+            <CardErrorBoundary label={selectedActivity.name}>
+              <ActivityDetailContent activity={selectedActivity} tripId={tripId} />
+            </CardErrorBoundary>
           ) : selectedSegment ? (
-            <SegmentDetailContent segment={selectedSegment} tripId={tripId} />
+            <CardErrorBoundary label={selectedSegment.name}>
+              <SegmentDetailContent segment={selectedSegment} tripId={tripId} />
+            </CardErrorBoundary>
           ) : (
             <TripPhotoGallery
               trip={trip}
